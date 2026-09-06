@@ -1,0 +1,7 @@
+# Runtime dependencies. Exact pins per context/code-standards.md.
+Django==5.2.17
+djangorestframework==3.18.0
+djangorestframework_simplejwt==5.5.1
+drf-spectacular==0.30.0
+psycopg[binary]==3.3.5
+python-dotenv==1.2.3

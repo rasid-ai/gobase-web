@@ -1,0 +1,9 @@
+node_modules
+dist
+src/api/generated
+pnpm-lock.yaml
+
+# The design-token source of truth (docs/adr/005). Its formatting is
+# deliberate — prettier strips the trailing zeros that document the tonal
+# ladder. Values live here and only here; do not reformat.
+src/styles/tokens.css

@@ -1,0 +1,181 @@
+openapi: 3.0.3
+info:
+  title: Geo Portal API
+  version: 0.1.0
+  description: Internal API for the Geo Portal SPA. Read-only over the knowledge base.
+paths:
+  /api/auth/change-password:
+    post:
+      operationId: auth_change_password_create
+      description: Change the signed-in user's password (HLR-007).
+      summary: Change password
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Password changed.
+        '400':
+          description: Current password incorrect, or new password rejected.
+  /api/auth/login:
+    post:
+      operationId: auth_login_create
+      description: Exchange credentials for a session (HLR-002).
+      summary: Sign in
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessToken'
+          description: ''
+        '400':
+          description: Incorrect username or password.
+  /api/auth/logout:
+    post:
+      operationId: auth_logout_create
+      description: 'End the session: blacklist the refresh token and drop the cookie.'
+      summary: Sign out
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Signed out.
+  /api/auth/me:
+    get:
+      operationId: auth_me_retrieve
+      description: Identity and role for the signed-in user (HLR-005, HLR-008).
+      summary: Current user
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+          description: ''
+  /api/auth/refresh:
+    post:
+      operationId: auth_refresh_create
+      description: |-
+        Renew the session from the refresh cookie (HLR-003).
+
+        The token comes from the cookie, never the request body — the SPA has no
+        way to read it, which is the point.
+      summary: Renew the session
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessToken'
+          description: ''
+        '401':
+          description: Missing, expired, or revoked refresh credential.
+components:
+  schemas:
+    AccessToken:
+      type: object
+      description: |-
+        Login and refresh both return only the access token.
+
+        The refresh token is never in a response body — it is set as an httpOnly
+        cookie by the view.
+      properties:
+        access:
+          type: string
+          readOnly: true
+      required:
+      - access
+    ChangePasswordRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - current_password
+      - new_password
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    Me:
+      type: object
+      properties:
+        username:
+          type: string
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+      required:
+      - role
+      - username
+    RoleEnum:
+      enum:
+      - admin
+      - viewer
+      type: string
+      description: |-
+        * `admin` - Admin
+        * `viewer` - Viewer
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

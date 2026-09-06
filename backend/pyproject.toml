@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+testpaths = ["apps"]
+markers = [
+    # Traceability: every Must/MVP requirement's done criteria carry their
+    # HLR id, so the CI check (context/code-standards.md) can read them.
+    "hlr(id): the requirement id this test proves",
+]
