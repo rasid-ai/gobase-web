@@ -1,0 +1,64 @@
+# Local development compose — NOT used for shipping (see
+# infra/docker-compose.prod.yml + infra/deploy.sh for that).
+#
+# The point is to stop needing host installs (a venv here, a Node 22 there) to
+# run this app locally, WITHOUT diverging from the recipes prod actually
+# builds. Both services build from the same Dockerfiles CI uses:
+#   - backend:  backend/Dockerfile, same image, same entrypoint.sh (migrate
+#     runs identically to prod); only the command it execs differs.
+#   - frontend: frontend/Dockerfile's `dev` target — same base image and same
+#     pnpm install layer as the `build` target prod ships, stopped short of
+#     `pnpm build` and running the Vite dev server instead. `production` is
+#     still the last and therefore default stage, so deploy.yml is unaffected.
+#
+# Mirrors prod's "Postgres runs natively, not containerized" pattern via the
+# same host.docker.internal + extra_hosts trick docker-compose.prod.yml uses.
+# It therefore expects a Postgres on the host reachable over TCP with a
+# password. A default local install using peer auth over the unix socket will
+# NOT work from inside a container — see the note in README.md.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   Backend:  http://localhost:8000  (runserver, auto-reloads)
+#   Frontend: http://localhost:5173  (Vite dev server, HMR)
+
+services:
+  backend:
+    build:
+      context: ./backend
+    # entrypoint.sh runs migrate for dev and prod identically; this overrides
+    # only the command it execs afterwards.
+    command: python manage.py runserver 0.0.0.0:8000
+    env_file: ./backend/.env
+    environment:
+      # Overrides whatever .env says: inside this container `localhost` means
+      # the container itself, not the host running Postgres.
+      PORTAL_DB_HOST: host.docker.internal
+      KB_DB_HOST: host.docker.internal
+      DJANGO_DEBUG: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live code edits without a rebuild. Installed packages live outside
+      # /app in system site-packages, so this mount does not shadow them; a
+      # rebuild is only needed when requirements.txt changes.
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      # The Vite proxy target: /api has to reach the backend service by its
+      # compose name, not 127.0.0.1, which inside this container is itself.
+      VITE_API_TARGET: http://backend:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      # Anonymous volume so the container's own node_modules — built for its
+      # OS/arch during the image's pnpm install — is not shadowed by whatever
+      # is, or is not, on the host.
+      - /app/node_modules

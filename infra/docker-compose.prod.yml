@@ -1,0 +1,31 @@
+# Runs on the VPS. CI copies this file and deploy.sh into the deploy path on
+# every deploy, so the server always runs the compose file that shipped with
+# the images. The .env beside it is host-owned and never touched by CI.
+#
+# Both ports bind to 127.0.0.1: the only thing allowed to reach these
+# containers is the host's nginx, which terminates TLS and does the routing.
+services:
+  backend:
+    image: ghcr.io/${GHCR_OWNER}/geo-portal-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    # PostgreSQL runs natively on the host, not in a container (docs/adr/002,
+    # context/architecture.md). Both databases are reached over the Docker host
+    # gateway, so the host .env sets PORTAL_DB_HOST and KB_DB_HOST to
+    # host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/geo-portal-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
