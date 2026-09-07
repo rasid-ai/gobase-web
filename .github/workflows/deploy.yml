@@ -1,0 +1,133 @@
+# Merge to a running app.
+#
+#   checks -> build both images -> push to GHCR -> copy infra/ -> run deploy.sh
+#
+# Two environments, one pipeline (context/architecture.md): `main` deploys to
+# the firm's VPS (production), `dev` to the developer VPS (development). The
+# images are identical for both — the frontend calls /api relatively and bakes
+# no API URL — so promoting dev to main is the same commit against a different
+# host .env.
+name: Deploy
+
+on:
+  push:
+    branches: [main, dev]
+
+# One deploy per branch at a time. Never cancel one in flight: it may already
+# be past `docker compose up` on the host, and killing the workflow would not
+# undo that — it would only hide how it ended.
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build ${{ matrix.component }}
+    needs: checks
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        component: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # GITHUB_TOKEN with packages: write is enough to push. The read-only PAT
+      # each VPS logs in with (infra/README.md) is a host concern and never
+      # reaches CI.
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR rejects uppercase in a repository path, and a GitHub org or user
+      # may well have some.
+      - name: Resolve the image name
+        id: image
+        run: echo "name=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/geo-portal-${{ matrix.component }}" >> "$GITHUB_OUTPUT"
+
+      # The SHA tag is what deploy.sh pulls and what a rollback names. The
+      # moving tags are per branch on purpose: a `latest` that dev could
+      # overwrite would mean a manual `docker compose up` on the production
+      # host quietly starting a development build.
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=dev,enable=${{ github.ref_name == 'dev' }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.component }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # `production` is the frontend Dockerfile's last stage and the
+          # backend has one stage, so the default target is the shipping image
+          # in both cases. docker-compose.dev.yml is the only thing that asks
+          # for a different target.
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+  deploy:
+    name: Deploy to ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Selects the secret set: VPS_HOST, VPS_USER, VPS_SSH_KEY,
+    # VPS_SSH_KNOWN_HOSTS, DEPLOY_PATH. Protection rules on `production` (a
+    # required reviewer, say) apply here without touching this file.
+    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Plain openssh rather than a third-party action: this step holds the key
+      # to the production host, and it is a dependency worth not having.
+      - name: Configure SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pinned host keys, not ssh-keyscan: trusting whatever answers on the
+          # first connection would hand a deploy to anyone who can get in the
+          # middle of it. Generate with: ssh-keyscan -H <host>
+          printf '%s\n' "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # The host runs the compose file that shipped with these images, so a
+      # compose change takes effect with the commit that made it. The host's
+      # own .env is never sent and never overwritten.
+      - name: Copy infra/ to the host
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            infra/docker-compose.prod.yml infra/deploy.sh \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+
+      - name: Run deploy.sh
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "chmod +x '${{ secrets.DEPLOY_PATH }}/deploy.sh' && IMAGE_TAG='${{ github.sha }}' '${{ secrets.DEPLOY_PATH }}/deploy.sh'"
+
+      # deploy.sh exits non-zero if the health check never passes, so a red run
+      # here means the app did not come up — the images are still in GHCR and
+      # `IMAGE_TAG=<previous-sha> ./deploy.sh` on the host rolls back.
+      - name: Clean up the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
