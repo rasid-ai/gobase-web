@@ -5,3 +5,8 @@ djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.30.0
 psycopg[binary]==3.3.5
 python-dotenv==1.2.3
+# Serves Django admin's static files from inside the container (docs/adr/007).
+whitenoise==6.12.0
+# ASGI serving: gunicorn supervises, uvicorn workers speak ASGI (SSE, later).
+gunicorn==23.0.0
+uvicorn[standard]==0.41.0

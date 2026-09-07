@@ -47,6 +47,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves Django admin's own static files from inside the container, so a
+    # rollback to an old image gets that image's static files (docs/adr/007).
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -115,9 +118,29 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+# Prefixed rather than the default "static/": in production the host nginx
+# routes this prefix to the backend while everything else goes to the SPA
+# container, so it must not collide with anything Vite emits (docs/adr/007).
+STATIC_URL = "/django-static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Admin is reachable in production (docs/adr/007), which puts Django's session
+# and CSRF cookies on the same public origin as the JWT surface. Both are
+# Secure wherever DEBUG is off; neither is related to the refresh cookie.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+
+# Behind the host nginx, which terminates TLS. Without this Django sees plain
+# http on every proxied request and Secure cookies never stick.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = [o for o in env("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o]
 
 # ---------------------------------------------------------------------------
 # DRF — default-deny. HLR-001 holds structurally: a new endpoint is protected
