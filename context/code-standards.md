@@ -26,5 +26,9 @@
 - Pin exact dependency versions.
 - Every Must requirement's done criteria exist as automated tests tagged
   with its HLR ID — the traceability check in CI fails the build if a
-  Must/MVP requirement has no passing linked test.
+  Must/MVP requirement has no passing linked test. The tag is
+  `@pytest.mark.hlr("HLR-002")` on the backend (the marker is registered
+  in `backend/pyproject.toml`) and the id in the `describe` name on the
+  frontend. One test may carry one id; a requirement may have several
+  tests.
 - Secrets by name, never by value — see CLAUDE.md.

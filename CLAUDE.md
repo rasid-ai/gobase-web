@@ -23,6 +23,8 @@ Changing any of these requires an ADR.
 - MapLibre GL, not Leaflet. See docs/adr/003.
 - Every factual answer about the data cites asset UUIDs from the catalog.
 - Design tokens only — never hardcode hex or raw Tailwind color classes.
+  `frontend/src/styles/tokens.css` is data, not source: never reformat it
+  (formatters flatten the trailing zeros that document the tonal ladder).
 - Secrets by name (`DATABASE_URL`), never by value — in code, logs,
   prompts, and diary entries. Chat content stays in `portal`, never in
   application logs.
