@@ -57,6 +57,12 @@ Endpoint surface, all under `/api/auth/`:
 | `GET me` | required | `{username, role}`. |
 | `POST change-password` | required | Current + new password. |
 
+One endpoint sits outside `/api/auth/`: `GET /api/health/`, public and
+unauthenticated, checking `portal` connectivity only. `infra/deploy.sh` blocks
+on it through nginx, so a green deploy means TLS, routing and the app all
+work. `kb` is never probed — a knowledge base outage must not fail a portal
+deploy.
+
 Refresh rotation is on with blacklist-after-rotation, so a replayed cookie
 is rejected — that is what makes a revoked session real rather than
 advisory. The cookie is `HttpOnly`, `SameSite=Lax`, scoped to
@@ -92,9 +98,19 @@ TanStack Query throughout.
 **`main` → the firm's VPS (production)** and **`dev` → the developer VPS
 (development)**, same pipeline and script, different host secrets.
 **PostgreSQL runs natively on each VPS host**, not containerized. **nginx
-on the host** terminates TLS and routes `/` → frontend container,
-`/api` → backend container — same-origin in both environments, CORS is
-local-dev only.
+on the host** terminates TLS and routes four prefixes: `/` → frontend
+container, and `/api`, `/admin/`, `/django-static/` → backend container —
+same-origin in both environments, CORS is local-dev only. Django admin is
+served in production because role assignment has no other UI, with its static
+files carried inside the backend image by WhiteNoise (docs/adr/007).
+
+The backend image runs gunicorn with uvicorn workers — ASGI from the start, so
+SSE needs no change to the image — and applies `portal` migrations from its own
+entrypoint, so an image and the schema it expects always ship together. CI
+copies `infra/` onto the host each deploy; the host's `.env` is never touched.
+A second workflow, `ci.yml`, gates pull requests on lint, tests, and drift in
+both `openapi.yaml` and the generated client. `deploy.yml` calls it before
+building, so a direct push is checked too.
 
 **Testing:** pytest + pytest-django (backend), Vitest + React Testing
 Library (frontend). **Tooling:** pnpm, Node 22 LTS, Python 3.12; pin
@@ -124,7 +140,10 @@ geo-portal/
   infra/
     docker-compose.prod.yml
     deploy.sh
-  .github/workflows/       # one pipeline: build both images -> GHCR -> SSH deploy
+    .env.example           # host environment, by name only
+    README.md              # one-time VPS setup: nginx, Postgres, secrets
+  docker-compose.dev.yml   # local dev, built from the same Dockerfiles
+  .github/workflows/       # ci.yml (PR gate) + deploy.yml (build -> GHCR -> SSH)
 ```
 
 ## System boundaries
