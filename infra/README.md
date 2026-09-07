@@ -41,6 +41,31 @@ sudo -u deploy sh -c 'echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> -
 only in the deploy user's `~/.docker/config.json`. It is not a repo secret —
 CI pushes with the built-in `GITHUB_TOKEN` and never needs it.
 
+## 2b. A host that runs other projects
+
+Nothing here assumes an empty machine, but three things collide if they are
+not checked:
+
+- **Ports.** `BACKEND_PORT` and `FRONTEND_PORT` default to 8000 and 8080,
+  which are the two most commonly taken ports on a shared box. Both bind to
+  127.0.0.1, so a clash is a startup failure, not a security problem. Pick
+  free ones and set them in `.env`:
+
+  ```bash
+  ss -ltnp | awk '{print $4}' | grep -oE '[0-9]+$' | sort -un | tr '\n' ' '
+  ```
+
+- **nginx.** Give the vhost an exact `server_name` — the IP or hostname this
+  portal answers on. nginx matches `server_name` before falling back to a
+  default server, so an exact match cannot steal another site's traffic, and
+  it does not need `default_server` (claiming that would clash with whichever
+  site already has it).
+
+- **Images and containers.** The compose project name is pinned to
+  `geo-portal` rather than inherited from the directory, and `deploy.sh` runs
+  no host-wide `docker image prune` — that would delete other projects'
+  dangling images.
+
 ## 3. PostgreSQL (native, not containerized)
 
 Postgres 16 runs on the host. Containers reach it over the Docker gateway, so

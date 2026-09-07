@@ -29,8 +29,11 @@ docker compose -f docker-compose.prod.yml pull
 echo "Restarting services..."
 docker compose -f docker-compose.prod.yml up -d
 
-echo "Pruning old images..."
-docker image prune -f
+# No `docker image prune` here. It is host-wide, not project-scoped, so on a
+# box running other projects it deletes their dangling images too. Ours are
+# tagged with their commit SHA and so are never dangling anyway — that is what
+# keeps a rollback possible. Reclaim space deliberately instead:
+#   docker images 'ghcr.io/*/geo-portal-*' --format '{{.Repository}}:{{.Tag}}'
 
 echo "Waiting for backend health check..."
 # HEALTH_CHECK_URL must be the real public URL in .env (e.g.

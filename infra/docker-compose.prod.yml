@@ -4,6 +4,11 @@
 #
 # Both ports bind to 127.0.0.1: the only thing allowed to reach these
 # containers is the host's nginx, which terminates TLS and does the routing.
+# Pinned rather than inherited from the directory name: this host runs other
+# projects, and the project name decides container names, the network, and
+# what `docker compose down` is willing to remove.
+name: geo-portal
+
 services:
   backend:
     image: ghcr.io/${GHCR_OWNER}/geo-portal-backend:${IMAGE_TAG:-latest}
