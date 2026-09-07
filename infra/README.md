@@ -13,7 +13,13 @@ domain, credentials, and the GitHub Environment that holds their secrets.
 ```bash
 sudo adduser --disabled-password deploy
 sudo usermod -aG docker deploy          # so deploy.sh can drive compose
-sudo -u deploy mkdir -p /srv/geo-portal
+
+# Created as root, then handed over: /srv is root-owned, so `deploy` cannot
+# make a directory there itself. CI writes into this path over scp, so the
+# deploy user must own it, not merely be able to read it.
+sudo mkdir -p /srv/geo-portal
+sudo chown deploy:deploy /srv/geo-portal
+ls -ld /srv/geo-portal                  # expect: drwxr-xr-x deploy deploy
 ```
 
 `/srv/geo-portal` is the deploy path. It holds three files: the two CI copies
