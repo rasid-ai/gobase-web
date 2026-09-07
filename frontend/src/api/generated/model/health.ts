@@ -6,9 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export * from './accessToken';
-export * from './changePasswordRequest';
-export * from './health';
-export * from './loginRequest';
-export * from './me';
-export * from './roleEnum';
+export interface Health {
+  readonly status: string;
+}

@@ -1,15 +1,11 @@
 import pytest
 from django.contrib.auth.models import User
-from rest_framework.test import APIClient
 
 from apps.accounts.models import Role, UserProfile
 
 PASSWORD = "correct-horse-battery-staple"
 
-
-@pytest.fixture
-def api() -> APIClient:
-    return APIClient()
+# The `api` fixture lives in backend/conftest.py — config/tests needs it too.
 
 
 def _make(username: str, role: str | None) -> User:

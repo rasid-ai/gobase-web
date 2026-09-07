@@ -110,6 +110,24 @@ paths:
           description: ''
         '401':
           description: Missing, expired, or revoked refresh credential.
+  /api/health/:
+    get:
+      operationId: health_retrieve
+      description: Report whether this container can serve requests against `portal`.
+      summary: Health check
+      tags:
+      - health
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+        '503':
+          description: The portal database is unreachable.
 components:
   schemas:
     AccessToken:
@@ -139,6 +157,14 @@ components:
       required:
       - current_password
       - new_password
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          readOnly: true
+      required:
+      - status
     LoginRequest:
       type: object
       properties:
