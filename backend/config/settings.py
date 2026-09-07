@@ -131,10 +131,17 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Admin is reachable in production (docs/adr/007), which puts Django's session
-# and CSRF cookies on the same public origin as the JWT surface. Both are
-# Secure wherever DEBUG is off; neither is related to the refresh cookie.
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+# and CSRF cookies on the same public origin as the JWT surface. Both default
+# to Secure wherever DEBUG is off; neither is related to the refresh cookie.
+#
+# The override exists for one case: a first bring-up on a host that has no
+# certificate yet, reached over http by IP. A browser will not store a Secure
+# cookie over http, so with these left on, signing in silently fails. Turning
+# them off ships session and CSRF cookies in clear text — acceptable only
+# while nothing real is behind the login, and to be removed the moment TLS is
+# in place.
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 SESSION_COOKIE_HTTPONLY = True
 
 # Behind the host nginx, which terminates TLS. Without this Django sees plain
