@@ -72,10 +72,16 @@ Postgres 16 runs on the host. Containers reach it over the Docker gateway, so
 it must accept TCP connections from the bridge network — a default install
 listening only on the unix socket will not work.
 
+The role owns the database rather than merely holding privileges on it. Since
+Postgres 15 the `public` schema no longer grants CREATE to everyone, so a role
+with `GRANT ALL PRIVILEGES ON DATABASE` can connect and still fail the first
+migration with `permission denied for schema public`. The `public` schema is
+owned by `pg_database_owner`, so making the role the database owner is what
+actually lets Django create tables.
+
 ```sql
-CREATE DATABASE portal;
-CREATE USER portal_app WITH PASSWORD '...';       -- PORTAL_DB_USER / PORTAL_DB_PASSWORD
-GRANT ALL PRIVILEGES ON DATABASE portal TO portal_app;
+CREATE ROLE portal_app LOGIN PASSWORD '...';      -- PORTAL_DB_USER / PORTAL_DB_PASSWORD
+CREATE DATABASE portal OWNER portal_app;
 
 -- `kb` is owned by the data platform repo. This role only reads it
 -- (docs/adr/002); it must never hold a write grant.
