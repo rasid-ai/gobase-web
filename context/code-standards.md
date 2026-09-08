@@ -9,6 +9,11 @@
   deploys to the developer VPS (development). Feature branches come off
   `dev` and PR into it; `dev` promotes to `main` by PR. Nothing merges
   without a human (Gate C).
+- **Requirement changes carry the product owner's sign-off (Gate A).** A
+  change under `specs/` is a requirement change: the approving PO is
+  recorded as an `Approved-by:` trailer on the commit, or as their
+  approval on the PR when one is used. Sign-off is approval provenance,
+  not status — status stays in Jira.
 
 ## Backend (Python 3.12)
 
