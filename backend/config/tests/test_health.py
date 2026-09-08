@@ -1,9 +1,9 @@
 """
 Tests for the deploy health check (config/health.py).
 
-No HLR id: the endpoint exists for infra/deploy.sh, not for a requirement in
-specs/. It is still covered, because a deploy that cannot trust its gate is
-worse than one with no gate at all.
+The endpoint exists for infra/deploy.sh rather than for anything a user does,
+and is covered because a deploy that cannot trust its health check is worse
+than one with no check at all.
 """
 
 from unittest.mock import patch

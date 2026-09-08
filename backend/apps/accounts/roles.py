@@ -1,7 +1,7 @@
 """
 The one place a user's role is decided.
 
-HLR-008: a signed-in user with no profile row is a Viewer. Keeping that
+A signed-in user with no profile row is a Viewer. Keeping that
 fallback in a single resolver is what stops it drifting between the `me`
 endpoint and the permission classes.
 """
@@ -27,7 +27,7 @@ def is_admin(user) -> bool:
 
 class IsAdmin(BasePermission):
     """
-    Server-side Admin gate (HLR-006).
+    Server-side Admin check.
 
     Unused until the Runs slice adds `POST /api/runs/trigger/`; it lives here
     so role logic has exactly one home.

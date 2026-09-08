@@ -7,8 +7,14 @@
  */
 
 export * from './accessToken';
+export * from './assetDetail';
+export * from './assetDetailMetadata';
+export * from './assetGroup';
+export * from './assetsAtPoint';
+export * from './assetSummary';
 export * from './changePasswordRequest';
 export * from './health';
 export * from './loginRequest';
+export * from './mapAssetsAtPointParams';
 export * from './me';
 export * from './roleEnum';

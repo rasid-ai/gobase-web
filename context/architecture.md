@@ -37,8 +37,8 @@ metadata); every data access is read-only and SQL is SELECT-only; a
 drawn-area geometry scopes retrieval via H3/bbox; answers **stream** to
 the SPA via SSE; citations reference asset UUIDs and persist with the
 message in `portal`, along with the tool/query trace. **The engine itself
-— LLM provider and agent/orchestration design — is an open Gate B
-decision**, to be recorded as its own ADR before the chat app is built.
+— LLM provider and agent/orchestration design — is still undecided**, and
+gets its own ADR before the chat app is built.
 
 **Auth:** JWT via `djangorestframework-simplejwt` (access token in memory,
 refresh token in an httpOnly Secure cookie, fetch interceptor refreshes on

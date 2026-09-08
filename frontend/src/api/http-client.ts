@@ -3,8 +3,8 @@
  *
  * It attaches the in-memory access token, and on a 401 renews the session
  * once from the refresh cookie and retries the original request — which is
- * what makes HLR-003 invisible to the user. If renewal fails, the session is
- * over and listeners are told (HLR-004).
+ * what makes renewal invisible to the user. If renewal fails, the session is
+ * over and listeners are told.
  *
  * Orval's fetch client expects `(url, init)` and a `{ data, status, headers }`
  * result, discriminated on status. Non-2xx is returned, not thrown; callers

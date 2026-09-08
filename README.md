@@ -93,10 +93,6 @@ cd backend  && .venv/bin/python -m pytest && .venv/bin/ruff check .
 cd frontend && pnpm test && pnpm lint && pnpm build
 ```
 
-Tests carrying a requirement's done criteria are tagged with its HLR id —
-`@pytest.mark.hlr("HLR-002")` on the backend, the id in the `describe`
-name on the frontend — so the traceability check can find them.
-
 A test run warns `No directory at: backend/staticfiles/` until the first
 `manage.py collectstatic`. WhiteNoise serves Django admin's assets in
 production (docs/adr/007) and the middleware is deliberately not conditional

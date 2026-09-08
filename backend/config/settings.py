@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "apps.accounts",
+    "apps.map",
 ]
 
 MIDDLEWARE = [
@@ -143,7 +144,7 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 CSRF_TRUSTED_ORIGINS = [o for o in env("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o]
 
 # ---------------------------------------------------------------------------
-# DRF — default-deny. HLR-001 holds structurally: a new endpoint is protected
+# DRF — default-deny, structurally: a new endpoint is protected
 # unless it explicitly opts out, so it cannot be forgotten.
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
@@ -160,7 +161,7 @@ REFRESH_TOKEN_LIFETIME_DAYS = int(env("REFRESH_TOKEN_LIFETIME_DAYS", "7"))
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=ACCESS_TOKEN_LIFETIME_MINUTES),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS),
-    # Rotation + blacklist are what make HLR-004 ("revoked refresh credential")
+    # Rotation + blacklist are what make a revoked refresh credential
     # and sign-out real rather than advisory.
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,

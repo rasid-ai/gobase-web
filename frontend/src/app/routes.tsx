@@ -3,7 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '@/app/auth/useAuth'
 import { SignInPage } from '@/features/auth/SignInPage'
 import { LandingPage } from '@/features/landing/LandingPage'
-import { AppShell, MapPlaceholder, RunsPlaceholder } from '@/features/shell/AppShell'
+import { AppShell, RunsPlaceholder } from '@/features/shell/AppShell'
+import { WorkspacePage } from '@/features/workspace/WorkspacePage'
 
 /**
  * The route tree depends on the session, which is how `/` can be the landing
@@ -17,7 +18,7 @@ export function AppRoutes() {
   const { status, sessionExpired } = useAuth()
 
   // Until the boot refresh resolves we know nothing, and rendering either tree
-  // would flash the wrong page (HLR-002).
+  // would flash the wrong page.
   if (status === 'checking') return <BootScreen />
 
   if (status === 'anon') {
@@ -25,7 +26,7 @@ export function AppRoutes() {
       <Routes>
         {/*
           A visitor gets the landing page at the root; someone whose session
-          just expired gets the login screen instead (HLR-004).
+          just expired gets the login screen instead.
         */}
         <Route
           path="/"
@@ -40,7 +41,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route path="/" element={<MapPlaceholder />} />
+        <Route path="/" element={<WorkspacePage />} />
         <Route path="/runs" element={<RunsPlaceholder />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

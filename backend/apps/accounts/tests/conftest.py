@@ -27,7 +27,7 @@ def admin_user(db) -> User:
 
 @pytest.fixture
 def profileless(db) -> User:
-    """A user with no profile row at all — the HLR-008 case."""
+    """A user with no profile row at all."""
     return _make("no-profile-user", None)
 
 

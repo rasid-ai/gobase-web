@@ -4,9 +4,22 @@ Internal web app over the geospatial knowledge base: Ask (cross-source
 Q&A), Map (results, footprints, area-scoped questions), Runs (Dagster).
 The data platform repo populates the knowledge base; this repo reads it.
 
+## Communication
+
+How to write every message, in chat and in the repo:
+
+- **Simple English.** Short sentences. Common words, not rare ones.
+- **Brief.** Say the thing, then stop. No preamble, no recap of what
+  the reader already knows.
+- **Never cryptic.** Say what you mean outright. No hinting, no
+  wordplay, no leaving the point to be inferred.
+- **Define your terms.** The first time a name, acronym, file, flag,
+  table or column appears, say in a few words what it is.
+- **Clear over clever.** Plain phrasing beats style every time.
+
 ## Non-negotiables
 
-Changing any of these requires an ADR.
+Changing any of these is a decision worth an ADR.
 
 - The portal reads the knowledge base (`kb` database, S3 buckets) and
   never writes it. Read-only credentials enforce this. See context/architecture.md.
@@ -35,11 +48,13 @@ Changing any of these requires an ADR.
 
 - `context/` — how the system is now (overview, architecture, standards,
   UI rules, design system, ui-registry, integrations/)
-- `specs/` — requirements: IDs, EARS wording, done criteria
+- `specs/` — what has been built, in plain prose; each file says what
+  is built and what is not
 - `docs/adr/` — decisions, append-only, superseded never edited
 - `diary/` — session log, append-only; latest entry only on restore
-- Jira — status. No markdown file claims "done" or "in progress".
+- Jira — the features to build, and their status
 
 ## Integration docs & skills
 
-- context/integrations/ — none yet; add one file per technology as built.
+- context/integrations/ — one file per technology as built. `kb.md` is
+  the knowledge base's schema and access rules.

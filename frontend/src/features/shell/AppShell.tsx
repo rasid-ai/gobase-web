@@ -16,7 +16,7 @@ export function AppShell() {
   const { user, signOut } = useAuth()
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="flex h-screen flex-col bg-background text-foreground">
       <header className="flex items-center gap-6 border-b border-border px-10 py-[18px]">
         <PortalWordmark />
         <nav className="flex items-center gap-1">
@@ -31,7 +31,7 @@ export function AppShell() {
           Sign out
         </Button>
       </header>
-      <main className="flex-1 p-10">
+      <main className="min-h-0 flex-1">
         <Outlet />
       </main>
     </div>
@@ -55,18 +55,14 @@ function ShellLink({ to, children }: { to: string; children: string }) {
   )
 }
 
-/** Stand-ins until the Map and Runs slices land. */
-export function MapPlaceholder() {
-  return <PlaceholderScreen name="Map workspace" />
-}
-
+/** Stand-in until the Runs slice lands. */
 export function RunsPlaceholder() {
   return <PlaceholderScreen name="Runs" />
 }
 
 function PlaceholderScreen({ name }: { name: string }) {
   return (
-    <div className="rounded-lg border border-border p-10">
+    <div className="m-10 rounded-lg border border-border p-10">
       <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
         Placeholder
       </p>
