@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { PortalWordmark } from '@/components/PortalWordmark'
 
 /**
- * The unauthenticated root (HLR-027).
+ * The unauthenticated root.
  *
  * Describes the tool, offers sign-in as its only action, and shows no
  * knowledge-base data — it makes no API call at all. The map graphic below is
@@ -91,7 +91,7 @@ const CAPABILITIES = [
 
 /**
  * Decorative only — three rectangles standing in for the three map token
- * roles. No data, no map library, no request (HLR-027).
+ * roles. No data, no map library, no request.
  */
 function MapGraphic() {
   return (

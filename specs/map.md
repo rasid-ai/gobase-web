@@ -1,61 +1,35 @@
-# Spec: Map
+# Map
 
-Layout (where the chat panel sits, page composition) lives in
-context/ui-rules.md. Retrieval behavior for area-scoped questions is
-HLR-019; answer vector layers are produced per HLR-020.
+The map half of the workspace. Layout — where the chat panel sits, page
+composition — is in context/ui-rules.md. MapLibre GL, per docs/adr/003.
 
----
+Point inspection is built. Area questions and answer layers are not.
 
-**HLR-022** — WHEN a user clicks a point on the map, the system SHALL
-list every catalog asset whose coverage includes that point, grouped by
-data type.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a document and an imagery asset covering the point, and a third
-asset elsewhere
-WHEN the point is clicked
-THEN the two covering assets appear under their data-type groups
-AND the third does not appear
+## Interaction modes
 
----
+Three mutually exclusive modes: **navigate**, **point**, and **draw area**.
 
-**HLR-023** — WHEN an asset in that list is selected, the system SHALL
-show its metadata and draw its footprint on the map.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a clicked point's asset list
-WHEN one asset is selected
-THEN its catalog metadata is shown
-AND its footprint renders on the map
+## Point inspection — built
 
----
+Clicking a point in point mode lists every catalog asset whose coverage
+includes it, grouped by data type. Data types come from the knowledge base
+and are never enumerated in portal code (context/integrations/kb.md). A
+point nothing covers shows nothing at all — no panel, no error.
 
-**HLR-024** — The system SHALL let the user draw a rectangular area and
-ask a question scoped to it.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a drawn rectangle
-WHEN a question is submitted
-THEN the question is sent with that geometry attached
-AND the answer honors HLR-019
+Selecting an asset shows its metadata and draws its footprint. Metadata is
+whatever the catalog holds for that asset: there is no fixed field set and
+it differs by data type. Clearing the selection removes that asset's
+metadata, its footprint, and any vector or raster layer drawn for it; the
+list of assets stays open so another can be picked.
 
----
+## Area questions — not built
 
-**HLR-025** — WHEN an answer includes a vector layer, the map SHALL
-render it, and the user SHALL be able to hide and re-show it.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN an answer carrying a GeoJSON layer
-WHEN the answer completes
-THEN the layer renders on the map
-AND toggling it hides and re-shows it without re-asking
+The user draws a rectangle and asks a question scoped to it. The geometry
+travels with the question, and retrieval is restricted to that area. When
+the area is cleared the rectangle disappears from the map.
 
----
+## Answer layers — not built
 
-**HLR-026** — WHEN an answer references a raster asset, the system SHALL
-display it on the map as tiles.
-Priority: Could · Phase: Phase 2
-**Done means:**
-GIVEN an answer citing a raster (COG) asset
-WHEN the user requests its display
-THEN the raster renders as tiles over the basemap
+An answer carrying a vector layer renders it on the map, and the user can
+hide and re-show it without re-asking. An answer referencing a raster
+asset displays it as tiles over the basemap when the answer completes.

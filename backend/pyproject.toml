@@ -10,8 +10,3 @@ select = ["E", "F", "I", "UP", "B"]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
 testpaths = ["apps", "config"]
-markers = [
-    # Traceability: every Must/MVP requirement's done criteria carry their
-    # HLR id, so the CI check (context/code-standards.md) can read them.
-    "hlr(id): the requirement id this test proves",
-]

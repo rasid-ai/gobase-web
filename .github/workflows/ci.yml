@@ -1,4 +1,4 @@
-# Checks that gate a pull request (Gate C: nothing merges without a human, and
+# Checks that run on a pull request (nothing merges without a human, and
 # nothing merges red either).
 #
 # deploy.yml calls this same file via workflow_call before it builds, so a
@@ -145,7 +145,7 @@ jobs:
         working-directory: frontend
 
       # Verified, never committed by CI: a bot commit on a protected branch
-      # would walk straight past Gate C.
+      # would walk straight past review.
       - name: Fail if the generated client drifted
         run: |
           git diff --exit-code -- src/api/generated \

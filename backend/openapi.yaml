@@ -7,7 +7,7 @@ paths:
   /api/auth/change-password:
     post:
       operationId: auth_change_password_create
-      description: Change the signed-in user's password (HLR-007).
+      description: Change the signed-in user's password.
       summary: Change password
       tags:
       - auth
@@ -33,7 +33,7 @@ paths:
   /api/auth/login:
     post:
       operationId: auth_login_create
-      description: Exchange credentials for a session (HLR-002).
+      description: Exchange credentials for a session.
       summary: Sign in
       tags:
       - auth
@@ -75,7 +75,7 @@ paths:
   /api/auth/me:
     get:
       operationId: auth_me_retrieve
-      description: Identity and role for the signed-in user (HLR-005, HLR-008).
+      description: Identity and role for the signed-in user.
       summary: Current user
       tags:
       - auth
@@ -92,7 +92,7 @@ paths:
     post:
       operationId: auth_refresh_create
       description: |-
-        Renew the session from the refresh cookie (HLR-003).
+        Renew the session from the refresh cookie.
 
         The token comes from the cookie, never the request body — the SPA has no
         way to read it, which is the point.
@@ -128,6 +128,66 @@ paths:
           description: ''
         '503':
           description: The portal database is unreachable.
+  /api/map/assets:
+    get:
+      operationId: map_assets_at_point
+      description: List the catalog assets whose coverage includes a point.
+      summary: Assets covering a point
+      parameters:
+      - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        required: true
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        required: true
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetsAtPoint'
+          description: ''
+        '400':
+          description: Missing or out-of-range coordinates.
+  /api/map/assets/{asset_id}:
+    get:
+      operationId: map_asset_detail
+      description: One asset's metadata and footprint.
+      summary: Asset metadata and footprint
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetDetail'
+          description: ''
+        '404':
+          description: No active asset with that id.
 components:
   schemas:
     AccessToken:
@@ -143,6 +203,97 @@ components:
           readOnly: true
       required:
       - access
+    AssetDetail:
+      type: object
+      description: One asset's dynamic metadata and its footprint.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        data_type:
+          type: string
+          readOnly: true
+        metadata:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+          description: Whatever the catalog holds for this asset. The key set is not
+            fixed and differs by data type.
+        footprint:
+          readOnly: true
+          description: The asset's coverage as a GeoJSON geometry, SRID 4326.
+      required:
+      - asset_id
+      - data_type
+      - footprint
+      - metadata
+    AssetGroup:
+      type: object
+      description: |-
+        Assets sharing a data type.
+
+        The data type is whatever the knowledge base classifies the asset as; the
+        portal neither defines nor translates the list (specs/map.md).
+      properties:
+        data_type:
+          type: string
+          readOnly: true
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetSummary'
+          readOnly: true
+      required:
+      - assets
+      - data_type
+    AssetSummary:
+      type: object
+      description: One asset as it appears in a point-click list.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        source_uri:
+          type: string
+          readOnly: true
+        format:
+          type: string
+          readOnly: true
+          nullable: true
+        summary:
+          type: string
+          readOnly: true
+          nullable: true
+        time_start:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        time_end:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - asset_id
+      - format
+      - source_uri
+      - summary
+      - time_end
+      - time_start
+    AssetsAtPoint:
+      type: object
+      description: The whole answer to a point click. No coverage means no groups.
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetGroup'
+          readOnly: true
+      required:
+      - groups
     ChangePasswordRequest:
       type: object
       properties:

@@ -23,7 +23,7 @@ afterEach(() => {
   resetSession()
 })
 
-describe('HLR-027 — the landing page is the unauthenticated root', () => {
+describe('the landing page is the unauthenticated root', () => {
   it('renders the tool description with sign-in as its only action', async () => {
     mockFetch(NO_SESSION)
     renderApp('/')
@@ -55,7 +55,7 @@ describe('HLR-027 — the landing page is the unauthenticated root', () => {
   })
 })
 
-describe('HLR-001 — authentication gates every route but landing and sign-in', () => {
+describe('authentication guards every route but landing and sign-in', () => {
   it('redirects an unauthenticated deep link to the sign-in screen', async () => {
     mockFetch(NO_SESSION)
     renderApp('/runs')
@@ -75,7 +75,7 @@ describe('HLR-001 — authentication gates every route but landing and sign-in',
   })
 })
 
-describe('HLR-002 — the session survives a page refresh', () => {
+describe('the session survives a page refresh', () => {
   it('restores the session from the refresh cookie alone, with no credential prompt', async () => {
     // A reload: no access token in memory, only the httpOnly cookie the
     // fetch double stands in for.
@@ -99,7 +99,7 @@ describe('HLR-002 — the session survives a page refresh', () => {
   })
 })
 
-describe('HLR-004 — an unrenewable session returns the user to sign-in', () => {
+describe('an unrenewable session returns the user to sign-in', () => {
   it('signs out and renders no partial data when the session ends', async () => {
     mockFetch(LIVE_SESSION)
     renderApp('/')
@@ -115,7 +115,7 @@ describe('HLR-004 — an unrenewable session returns the user to sign-in', () =>
   })
 })
 
-describe('HLR-005 — the client gates from the role the API reports', () => {
+describe('the client gates navigation from the role the API reports', () => {
   it('shows the signed-in identity and role', async () => {
     mockFetch({
       ...LIVE_SESSION,
