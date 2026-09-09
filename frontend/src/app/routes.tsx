@@ -3,7 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '@/app/auth/useAuth'
 import { SignInPage } from '@/features/auth/SignInPage'
 import { LandingPage } from '@/features/landing/LandingPage'
-import { AppShell, RunsPlaceholder } from '@/features/shell/AppShell'
+import { RunsPage } from '@/features/runs/RunsPage'
+import { AppShell } from '@/features/shell/AppShell'
 import { WorkspacePage } from '@/features/workspace/WorkspacePage'
 
 /**
@@ -42,7 +43,7 @@ export function AppRoutes() {
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/" element={<WorkspacePage />} />
-        <Route path="/runs" element={<RunsPlaceholder />} />
+        <Route path="/runs" element={<RunsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

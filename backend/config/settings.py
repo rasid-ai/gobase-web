@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "apps.accounts",
     "apps.map",
+    "apps.runs",
 ]
 
 MIDDLEWARE = [
@@ -190,3 +191,14 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": "/api",
 }
+
+# Dagster — the pipeline orchestrator. Reached only over its GraphQL API, and
+# only from apps/runs/dagster.py (docs/adr/004). Field names, quirks and how to
+# confirm the two names below are in context/integrations/dagster.md.
+# Every one carries a default: config.settings.env raises without one, and CI's
+# contract job sets no Dagster variables at all.
+DAGSTER_GRAPHQL_URL = env("DAGSTER_GRAPHQL_URL", "http://127.0.0.1:3000/graphql")
+DAGSTER_REPOSITORY_LOCATION = env("DAGSTER_REPOSITORY_LOCATION", "gobase_orchestration.definitions")
+DAGSTER_REPOSITORY = env("DAGSTER_REPOSITORY", "__repository__")
+DAGSTER_JOB_NAME = env("DAGSTER_JOB_NAME", "weekly_pipeline")
+DAGSTER_TIMEOUT_SECONDS = float(env("DAGSTER_TIMEOUT_SECONDS", "5"))

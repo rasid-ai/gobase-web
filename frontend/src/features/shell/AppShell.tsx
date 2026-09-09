@@ -1,19 +1,20 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Moon, Sun } from 'lucide-react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import { useAuth } from '@/app/auth/useAuth'
 import { PortalWordmark } from '@/components/PortalWordmark'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+import { useThemeToggle } from './useThemeToggle'
+
 /**
- * Placeholder shell for the authenticated routes.
- *
- * The real persistent sidebar, theme toggle, and the Map/Runs screens belong
- * to their own slices (context/ui-rules.md); this exists so sign-in has
- * somewhere to land and so the route guard is exercised end to end.
+ * Frame for the authenticated routes: wordmark, the two pages, identity, and
+ * the theme toggle that context/ui-rules.md puts inside the shell.
  */
 export function AppShell() {
   const { user, signOut } = useAuth()
+  const { theme, toggle } = useThemeToggle()
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -27,11 +28,20 @@ export function AppShell() {
         <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
           {user?.username} · {user?.role}
         </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggle}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </Button>
         <Button variant="outline" size="sm" onClick={signOut}>
           Sign out
         </Button>
       </header>
-      <main className="min-h-0 flex-1">
+      <main className="min-h-0 flex-1 overflow-y-auto">
         <Outlet />
       </main>
     </div>
@@ -39,40 +49,20 @@ export function AppShell() {
 }
 
 function ShellLink({ to, children }: { to: string; children: string }) {
+  const { pathname } = useLocation()
+  // `end` would drop the highlight on a nested run route, so Runs owns its
+  // whole subtree while Map keeps the exact root match.
+  const isActive = to === '/' ? pathname === '/' : pathname.startsWith(to)
+
   return (
     <NavLink
       to={to}
-      end
-      className={({ isActive }) =>
-        cn(
-          'rounded-md px-3 py-1.5 text-sm',
-          isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-        )
-      }
+      className={cn(
+        'rounded-md px-3 py-1.5 text-sm',
+        isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+      )}
     >
       {children}
     </NavLink>
-  )
-}
-
-/** Stand-in until the Runs slice lands. */
-export function RunsPlaceholder() {
-  return <PlaceholderScreen name="Runs" />
-}
-
-function PlaceholderScreen({ name }: { name: string }) {
-  return (
-    <div className="m-10 rounded-lg border border-border p-10">
-      <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
-        Placeholder
-      </p>
-      <h1 className="text-2xl font-semibold">{name}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        This screen arrives with its own slice. You are signed in.
-      </p>
-      <Link to="/" className="mt-4 inline-block text-sm text-primary hover:underline">
-        Back to the workspace
-      </Link>
-    </div>
   )
 }

@@ -169,8 +169,13 @@ geo-portal/
    → GeoJSON. A question scoped to a drawn area runs flow 1 with the
    geometry attached; any vector layer in the answer returns as GeoJSON.
 3. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
-   normalized JSON → TanStack Table. `POST /api/runs/trigger/` (Admin
-   only) → Dagster GraphQL `launchRun` mutation → returns the new run id.
+   normalized JSON → TanStack Table. `GET /api/runs/{id}` adds the
+   per-step breakdown from Dagster's `stepStats`, and `GET
+   /api/runs/{id}/logs` pages the event log. `POST /api/runs/trigger`
+   (Admin only) → Dagster GraphQL `launchRun` mutation → returns the new
+   run id, or 409 when a run is already in progress. Dagster unreachable
+   is 503 and a Dagster error is 502 — never a 500, because the portal
+   itself is fine.
 
 ## Invariants (the AI must never violate)
 

@@ -19,10 +19,11 @@ Two routes inside the shell (persistent sidebar layout):
   render on this map (toggleable per layer); clicking a point opens the
   covering-assets list grouped by data type; the rectangle tool scopes the
   next question to the drawn area.
-- **Runs** (`/runs`) — run list (TanStack Table, newest first) with a
-  manual refresh control; selecting a run opens its per-step detail. The
-  trigger action renders only for Admin and always behind a Radix confirm
-  dialog.
+- **Runs** (`/runs`) — run list, newest first, with a manual refresh
+  control; selecting a run expands it in place to its per-step detail.
+  Not a data grid: the pipeline runs weekly, so the list is one or two
+  rows and a table's machinery would earn nothing. The trigger action
+  renders only for Admin and always behind a Radix confirm dialog.
 
 ## Conventions
 

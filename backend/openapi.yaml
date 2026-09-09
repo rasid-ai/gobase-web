@@ -188,6 +188,143 @@ paths:
           description: ''
         '404':
           description: No active asset with that id.
+  /api/runs/:
+    get:
+      operationId: runs_list
+      description: List pipeline runs, newest first.
+      summary: Pipeline runs
+      parameters:
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: The previous page's next_cursor.
+      - in: query
+        name: job
+        schema:
+          type: string
+        description: Filter to one job name.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Page size, 1-100. Defaults to 25.
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Comma-separated run statuses, e.g. SUCCESS,FAILURE.
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunList'
+          description: ''
+        '400':
+          description: Unknown run status, or a bad limit.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
+  /api/runs/{run_id}:
+    get:
+      operationId: runs_detail
+      description: One run, with its per-step breakdown.
+      summary: Run detail and steps
+      parameters:
+      - in: path
+        name: run_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDetail'
+          description: ''
+        '404':
+          description: No run with that id.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
+  /api/runs/{run_id}/logs:
+    get:
+      operationId: runs_logs
+      description: A page of one run's event log.
+      summary: Run event log
+      parameters:
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: The previous page's next_cursor.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Page size, 1-1000. Defaults to 200.
+      - in: path
+        name: run_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunLogs'
+          description: ''
+        '400':
+          description: Bad limit.
+        '404':
+          description: No run with that id.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
+  /api/runs/trigger:
+    post:
+      operationId: runs_trigger
+      description: Start one run of the configured job. Admin only.
+      summary: Launch a pipeline run
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LaunchedRun'
+          description: ''
+        '403':
+          description: Viewers may not launch runs.
+        '409':
+          description: A run is already in progress.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
 components:
   schemas:
     AccessToken:
@@ -316,6 +453,74 @@ components:
           readOnly: true
       required:
       - status
+    KindEnum:
+      enum:
+      - schedule
+      - sensor
+      - manual
+      type: string
+      description: |-
+        * `schedule` - schedule
+        * `sensor` - sensor
+        * `manual` - manual
+    LaunchedRun:
+      type: object
+      description: The run a trigger started.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - status
+    LogError:
+      type: object
+      properties:
+        message:
+          type: string
+          readOnly: true
+        stack:
+          type: array
+          items:
+            type: string
+          readOnly: true
+      required:
+      - message
+      - stack
+    LogEvent:
+      type: object
+      description: One line of a run's event log.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        level:
+          type: string
+          readOnly: true
+          nullable: true
+        step_key:
+          type: string
+          readOnly: true
+          nullable: true
+        message:
+          type: string
+          readOnly: true
+        error:
+          allOf:
+          - $ref: '#/components/schemas/LogError'
+          readOnly: true
+          nullable: true
+      required:
+      - error
+      - level
+      - message
+      - step_key
+      - timestamp
     LoginRequest:
       type: object
       properties:
@@ -351,6 +556,284 @@ components:
       description: |-
         * `admin` - Admin
         * `viewer` - Viewer
+    Run:
+      type: object
+      description: One pipeline run, as the Runs list shows it.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        short_id:
+          type: string
+          readOnly: true
+          description: First 8 characters of the id.
+        job_name:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+          description: 'Dagster''s run status, passed through unchanged: QUEUED, NOT_STARTED,
+            MANAGED, STARTING, STARTED, SUCCESS, FAILURE, CANCELING or CANCELED.'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        duration_seconds:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        trigger:
+          allOf:
+          - $ref: '#/components/schemas/Trigger'
+          readOnly: true
+        partition:
+          type: string
+          readOnly: true
+          nullable: true
+        steps_succeeded:
+          type: integer
+          readOnly: true
+          nullable: true
+        steps_failed:
+          type: integer
+          readOnly: true
+          nullable: true
+        materializations:
+          type: integer
+          readOnly: true
+          nullable: true
+        assets:
+          type: array
+          items:
+            type: string
+          readOnly: true
+      required:
+      - assets
+      - created_at
+      - duration_seconds
+      - ended_at
+      - id
+      - job_name
+      - materializations
+      - partition
+      - short_id
+      - started_at
+      - status
+      - steps_failed
+      - steps_succeeded
+      - trigger
+    RunDetail:
+      type: object
+      description: One run with its per-step breakdown (specs/runs.md).
+      properties:
+        id:
+          type: string
+          readOnly: true
+        short_id:
+          type: string
+          readOnly: true
+          description: First 8 characters of the id.
+        job_name:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+          description: 'Dagster''s run status, passed through unchanged: QUEUED, NOT_STARTED,
+            MANAGED, STARTING, STARTED, SUCCESS, FAILURE, CANCELING or CANCELED.'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        duration_seconds:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        trigger:
+          allOf:
+          - $ref: '#/components/schemas/Trigger'
+          readOnly: true
+        partition:
+          type: string
+          readOnly: true
+          nullable: true
+        steps_succeeded:
+          type: integer
+          readOnly: true
+          nullable: true
+        steps_failed:
+          type: integer
+          readOnly: true
+          nullable: true
+        materializations:
+          type: integer
+          readOnly: true
+          nullable: true
+        assets:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunTag'
+          readOnly: true
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStep'
+          readOnly: true
+        failure_summary:
+          type: string
+          readOnly: true
+          nullable: true
+          description: The first error in a failed run's log, or null. Null on a run
+            that did not fail, and on one whose failure lies beyond the log scan.
+      required:
+      - assets
+      - created_at
+      - duration_seconds
+      - ended_at
+      - failure_summary
+      - id
+      - job_name
+      - materializations
+      - partition
+      - short_id
+      - started_at
+      - status
+      - steps
+      - steps_failed
+      - steps_succeeded
+      - tags
+      - trigger
+    RunList:
+      type: object
+      description: |-
+        A page of runs, newest first.
+
+        `next_cursor` is the last run id of this page; pass it back as `cursor` to
+        get the next one. It is null on the last page.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+          readOnly: true
+        next_cursor:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - next_cursor
+      - results
+    RunLogs:
+      type: object
+      description: A page of a run's event log, oldest first.
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEvent'
+          readOnly: true
+        next_cursor:
+          type: string
+          readOnly: true
+          nullable: true
+        has_more:
+          type: boolean
+          readOnly: true
+      required:
+      - events
+      - has_more
+      - next_cursor
+    RunStep:
+      type: object
+      description: |-
+        One step of a run. Its status is a smaller enum than the run's: a step
+        is only ever SKIPPED, SUCCESS, FAILURE or IN_PROGRESS.
+      properties:
+        step_key:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        duration_seconds:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+      required:
+      - duration_seconds
+      - ended_at
+      - started_at
+      - status
+      - step_key
+    RunTag:
+      type: object
+      properties:
+        key:
+          type: string
+          readOnly: true
+        value:
+          type: string
+          readOnly: true
+      required:
+      - key
+      - value
+    Trigger:
+      type: object
+      description: |-
+        What started a run. Dagster does not record this directly; it is read
+        from the run's tags (context/integrations/dagster.md).
+      properties:
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/KindEnum'
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - kind
+      - name
   securitySchemes:
     jwtAuth:
       type: http

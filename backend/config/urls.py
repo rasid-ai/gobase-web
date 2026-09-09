@@ -8,6 +8,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/map/", include("apps.map.urls")),
+    path("api/runs/", include("apps.runs.urls")),
     # Gated on by infra/deploy.sh; public by necessity.
     path("api/health/", HealthView.as_view(), name="health"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
