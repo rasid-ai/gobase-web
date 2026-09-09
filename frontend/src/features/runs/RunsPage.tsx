@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import type { Run } from '@/api/generated/model'
 import { RoleEnum } from '@/api/generated/model'
-import { useRunsList } from '@/api/generated/runs/runs'
 import { useAuth } from '@/app/auth/useAuth'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -9,34 +9,36 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 import { RunRow } from './RunRow'
+import { StatusFilter, statusesFor } from './StatusFilter'
 import { TriggerRunButton, type TriggerOutcome } from './TriggerRunButton'
 import { formatSince } from './formatRun'
 import { isRunActive } from './runStatus'
-
-const PAGE_SIZE = 25
+import { useRunsPages } from './useRunsPages'
 
 /**
  * Pipeline runs, newest first.
  *
  * Refresh is manual. The pipeline runs weekly and its schedule ships stopped,
  * so the list is usually one or two rows that do not change while anyone is
- * looking at them; polling would spend requests to tell the user nothing.
+ * looking at them; polling would spend requests to say nothing.
  */
 export function RunsPage() {
   const { user } = useAuth()
   const isAdmin = user?.role === RoleEnum.admin
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<TriggerOutcome | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
 
-  const runs = useRunsList({ limit: PAGE_SIZE })
-  const page = runs.data?.status === 200 ? runs.data.data : null
-  const results = page?.results ?? []
+  const runs = useRunsPages(statusesFor(selected))
+  const pages = runs.data?.pages ?? []
+  const first = pages[0]
+  const results = pages.flatMap((page) => (page.status === 200 ? page.data.results : []))
   const anyActive = results.some((run) => isRunActive(run.status))
 
   // Offering to launch is only honest once the list has answered: before that
   // an in-flight run is unknown, and if Dagster did not answer at all then the
   // launch cannot work either.
-  const canTrigger = runs.data?.status === 200 && !anyActive
+  const canTrigger = first?.status === 200 && !anyActive
 
   return (
     <div className="mx-auto max-w-6xl px-10 py-10">
@@ -79,20 +81,32 @@ export function RunsPage() {
       )}
 
       <div className="mt-6">
+        <StatusFilter selected={selected} onChange={setSelected} />
+      </div>
+
+      <div className="mt-4">
         <RunsBody
           pending={runs.isPending}
-          status={runs.data?.status}
+          status={first?.status}
           results={results}
+          filtered={selected.length > 0}
           expandedId={expandedId}
           onToggle={(id) => setExpandedId((current) => (current === id ? null : id))}
           onRetry={() => void runs.refetch()}
         />
       </div>
 
-      {page?.next_cursor && (
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Showing the most recent {results.length} runs.
-        </p>
+      {runs.hasNextPage && (
+        <div className="mt-4 flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={runs.isFetchingNextPage}
+            onClick={() => void runs.fetchNextPage()}
+          >
+            {runs.isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </Button>
+        </div>
       )}
     </div>
   )
@@ -102,13 +116,15 @@ function RunsBody({
   pending,
   status,
   results,
+  filtered,
   expandedId,
   onToggle,
   onRetry,
 }: {
   pending: boolean
   status: number | undefined
-  results: readonly import('@/api/generated/model').Run[]
+  results: readonly Run[]
+  filtered: boolean
   expandedId: string | null
   onToggle: (id: string) => void
   onRetry: () => void
@@ -150,10 +166,13 @@ function RunsBody({
     return (
       <Panel>
         <div className="px-5 py-12 text-center">
-          <p className="text-sm font-medium">No runs yet</p>
+          <p className="text-sm font-medium">
+            {filtered ? 'No runs match this filter' : 'No runs yet'}
+          </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            The pipeline has not run. Its weekly schedule ships stopped, so the first run is started
-            by hand.
+            {filtered
+              ? 'Clear the filter to see every run.'
+              : 'The pipeline has not run. Its weekly schedule ships stopped, so the first run is started by hand.'}
           </p>
         </div>
       </Panel>
