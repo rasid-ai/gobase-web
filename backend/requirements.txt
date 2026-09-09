@@ -5,6 +5,9 @@ djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.30.0
 psycopg[binary]==3.3.5
 python-dotenv==1.2.3
+# Talks to Dagster's GraphQL API (docs/adr/004). Chosen over requests because
+# it takes a real timeout: a hung orchestrator must not hang a portal worker.
+httpx==0.28.1
 # Serves Django admin's static files from inside the container (docs/adr/007).
 whitenoise==6.12.0
 # ASGI serving: gunicorn supervises, uvicorn workers speak ASGI (SSE, later).
