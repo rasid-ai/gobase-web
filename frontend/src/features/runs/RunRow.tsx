@@ -15,6 +15,7 @@ import {
   formatTrigger,
   NONE,
 } from './formatRun'
+import { RunLogs } from './RunLogs'
 import { runStatusLook, stepStatusLook } from './runStatus'
 
 /**
@@ -157,6 +158,8 @@ function RunSteps({ runId }: { runId: string }) {
           })}
         </ul>
       )}
+
+      <RunLogs runId={run.id} />
     </div>
   )
 }
