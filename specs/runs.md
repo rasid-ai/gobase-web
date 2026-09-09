@@ -4,7 +4,7 @@ Run data comes from Dagster via its GraphQL API only (docs/adr/004).
 Role behaviour is in specs/auth.md. What the API talks to, and the quirks
 it works around, are in context/integrations/dagster.md.
 
-Built, except the log viewer.
+Built.
 
 ## Run history
 
@@ -50,9 +50,26 @@ did not answer — offering an action that cannot succeed is worse than
 not offering it. A Viewer never sees the button, and is refused
 server-side regardless.
 
-## Not built
+## The event log
 
-The event log. `GET /api/runs/{id}/logs` serves it and is tested, but no
-screen reads it yet: the design has no log viewer. Filtering the list by
-status, and paging beyond the most recent 25 runs, are also not built —
-the API supports both.
+A run's event log is read separately, a page at a time, and only when
+someone asks for it: opening a run shows its steps, and the log sits
+behind one more click. A log is hundreds of lines that matter only when
+something went wrong, so nothing is fetched until it is wanted.
+
+The log is filtered by minimum level and starts at info. Dagster writes
+most of a run at debug level — fourteen of the first real run's eighteen
+events — so showing everything by default would bury the four lines that
+say what happened. The page says how many lines the current level hides,
+and debug is one click away. An event carrying an error can be expanded
+to its stack.
+
+## Filtering and paging
+
+The list filters by status, grouped into the four states worth asking
+about: running, success, failed, canceled. Nothing selected means
+everything, and the API is then asked for everything. A filter that
+matches nothing says so, rather than claiming there are no runs.
+
+The list loads twenty-five runs at a time and keeps what it has when it
+asks for more. At one run a week, that first page is roughly six months.
