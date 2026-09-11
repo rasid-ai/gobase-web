@@ -188,6 +188,40 @@ paths:
           description: ''
         '404':
           description: No active asset with that id.
+  /api/map/assets/{asset_id}/data:
+    get:
+      operationId: map_asset_data
+      description: |-
+        One vector asset's features, read from the lake.
+
+        Vector only, and the endpoint says so rather than inferring it: `assets`
+        holds every modality and the lake read only makes sense for GeoParquet
+        (docs/adr/008). Other modalities get their own endpoints.
+      summary: Vector asset features
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetData'
+          description: ''
+        '404':
+          description: No active vector asset with that id.
+        '502':
+          description: The file could not be read.
+        '503':
+          description: The lake could not be reached.
   /api/runs/:
     get:
       operationId: runs_list
@@ -340,6 +374,58 @@ components:
           readOnly: true
       required:
       - access
+    AssetData:
+      type: object
+      description: |-
+        A vector asset's features, read from the lake.
+
+        There is no serializer for a feature: its properties are whatever columns
+        the GeoParquet file holds, and they differ per file. The shape is declared
+        to the contract instead, by `FeatureListField`, so the generated client
+        still gets a typed array rather than `unknown[]`.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        count:
+          type: integer
+          readOnly: true
+          description: How many features are in this response.
+        truncated:
+          type: boolean
+          readOnly: true
+          description: True when the file held more features than the server returns.
+        features:
+          type: array
+          items:
+            type: object
+            title: Feature
+            properties:
+              type:
+                type: string
+                enum:
+                - Feature
+              geometry:
+                type: object
+                nullable: true
+                additionalProperties: true
+                description: A GeoJSON geometry, SRID 4326.
+              properties:
+                type: object
+                additionalProperties: true
+                description: The file's non-geometry columns.
+            required:
+            - type
+            - geometry
+            - properties
+          readOnly: true
+          description: GeoJSON Features, SRID 4326.
+      required:
+      - asset_id
+      - count
+      - features
+      - truncated
     AssetDetail:
       type: object
       description: One asset's dynamic metadata and its footprint.

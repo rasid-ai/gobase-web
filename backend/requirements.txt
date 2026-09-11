@@ -13,3 +13,6 @@ whitenoise==6.12.0
 # ASGI serving: gunicorn supervises, uvicorn workers speak ASGI (SSE, later).
 gunicorn==23.0.0
 uvicorn[standard]==0.41.0
+# Reads GeoParquet from the lake over S3 (GP-4). The only module that imports
+# it is apps/map/lake.py; kb stays on Django's connection, never DuckDB.
+duckdb==1.5.5

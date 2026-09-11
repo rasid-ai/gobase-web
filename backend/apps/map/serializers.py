@@ -1,4 +1,39 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+# A GeoJSON Feature as the contract describes it (RFC 7946). `geometry` stays a
+# free-form object because GeoJSON allows seven geometry types and a null, and
+# `properties` stays open because they are whatever columns the file holds.
+# Without this the contract says `items: {}` and the generated client types the
+# features as `unknown[]`.
+GEOJSON_FEATURE = {
+    "type": "object",
+    "title": "Feature",
+    "properties": {
+        "type": {"type": "string", "enum": ["Feature"]},
+        "geometry": {
+            "type": "object",
+            "nullable": True,
+            "additionalProperties": True,
+            "description": "A GeoJSON geometry, SRID 4326.",
+        },
+        "properties": {
+            "type": "object",
+            "additionalProperties": True,
+            "description": "The file's non-geometry columns.",
+        },
+    },
+    "required": ["type", "geometry", "properties"],
+}
+
+
+@extend_schema_field({"type": "array", "items": GEOJSON_FEATURE})
+class FeatureListField(serializers.ListField):
+    """A list of GeoJSON Features, typed in the contract but not validated here.
+
+    The server builds these itself from the lake, so there is nothing to
+    validate on the way in; the annotation exists for the generated client.
+    """
 
 
 class AssetSummarySerializer(serializers.Serializer):
@@ -44,4 +79,28 @@ class AssetDetailSerializer(serializers.Serializer):
     footprint = serializers.JSONField(
         read_only=True,
         help_text="The asset's coverage as a GeoJSON geometry, SRID 4326.",
+    )
+
+
+class AssetDataSerializer(serializers.Serializer):
+    """A vector asset's features, read from the lake.
+
+    There is no serializer for a feature: its properties are whatever columns
+    the GeoParquet file holds, and they differ per file. The shape is declared
+    to the contract instead, by `FeatureListField`, so the generated client
+    still gets a typed array rather than `unknown[]`.
+    """
+
+    asset_id = serializers.UUIDField(read_only=True)
+    count = serializers.IntegerField(
+        read_only=True, help_text="How many features are in this response."
+    )
+    truncated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the file held more features than the server returns.",
+    )
+    features = FeatureListField(
+        read_only=True,
+        child=serializers.JSONField(),
+        help_text="GeoJSON Features, SRID 4326.",
     )
