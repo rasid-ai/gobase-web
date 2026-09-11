@@ -7,6 +7,11 @@
  */
 
 export * from './accessToken';
+export * from './assetData';
+export * from './assetDataFeaturesItem';
+export * from './assetDataFeaturesItemGeometry';
+export * from './assetDataFeaturesItemProperties';
+export * from './assetDataFeaturesItemType';
 export * from './assetDetail';
 export * from './assetDetailMetadata';
 export * from './assetGroup';

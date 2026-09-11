@@ -1,6 +1,8 @@
 import type { AssetDetail, AssetGroup, AssetSummary } from '@/api/generated/model'
 import { Button } from '@/components/ui/button'
 
+import { useLayers } from './layers'
+
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
 
 /**
@@ -13,10 +15,16 @@ export function AssetList({
   groups,
   selectedId,
   onSelect,
+  onDraw,
+  loadingId,
 }: {
   groups: readonly AssetGroup[]
   selectedId: string | null
   onSelect: (assetId: string) => void
+  /** Load this asset's features onto the map. */
+  onDraw: (asset: AssetSummary) => void
+  /** The asset whose features are being fetched, if any. */
+  loadingId: string | null
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -32,6 +40,8 @@ export function AssetList({
                   asset={asset}
                   selected={asset.asset_id === selectedId}
                   onSelect={() => onSelect(asset.asset_id)}
+                  onDraw={() => onDraw(asset)}
+                  loading={asset.asset_id === loadingId}
                 />
               </li>
             ))}
@@ -46,26 +56,69 @@ function AssetRow({
   asset,
   selected,
   onSelect,
+  onDraw,
+  loading,
 }: {
   asset: AssetSummary
   selected: boolean
   onSelect: () => void
+  onDraw: () => void
+  loading: boolean
 }) {
+  const { layers } = useLayers()
+  const drawn = layers.find((layer) => layer.assetId === asset.asset_id)
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={selected ? 'true' : undefined}
+    <div
       className={[
-        'w-full rounded-md border px-3 py-2 text-left text-sm',
+        'w-full rounded-md border px-3 py-2 text-sm',
         selected
           ? 'border-map-footprint bg-map-footprint/10'
           : 'border-border hover:border-map-footprint/60',
       ].join(' ')}
     >
-      <span className="block truncate">{label(asset)}</span>
-      {asset.format ? <span className={`${MICRO} mt-0.5 block`}>{asset.format}</span> : null}
-    </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-current={selected ? 'true' : undefined}
+          aria-label={`Details for ${label(asset)}`}
+          className="min-w-0 flex-1 text-left"
+        >
+          <span className="block truncate">{label(asset)}</span>
+          {asset.format ? <span className={`${MICRO} mt-0.5 block`}>{asset.format}</span> : null}
+        </button>
+
+        {/*
+          Drawing is its own control, not the row click: selecting shows
+          metadata, drawing puts features on the map, and one must not force
+          the other (docs/adr/008).
+        */}
+        <button
+          type="button"
+          onClick={onDraw}
+          disabled={loading}
+          aria-label={drawn ? `Redraw ${label(asset)}` : `Draw ${label(asset)}`}
+          className="shrink-0 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          {loading ? <Spinner /> : drawn ? <span aria-hidden>✓</span> : 'Draw'}
+        </button>
+      </div>
+
+      {drawn?.truncated ? (
+        <p className={`${MICRO} mt-1`}>Showing first {drawn.count} features</p>
+      ) : null}
+    </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <span
+      role="status"
+      aria-label="Loading"
+      className="block size-3 animate-spin rounded-full border border-current border-t-transparent"
+    />
   )
 }
 
