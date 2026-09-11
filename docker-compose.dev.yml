@@ -35,6 +35,11 @@ services:
       # the container itself, not the host running Postgres.
       PORTAL_DB_HOST: host.docker.internal
       KB_DB_HOST: host.docker.internal
+      # Same reason, for the object store the Map reads GeoParquet from
+      # (context/integrations/lake.md). Locally that is the `minio` container,
+      # reached through its published port on the host rather than by joining
+      # its network — one less thing for this compose file to own.
+      LAKE_S3_ENDPOINT: host.docker.internal:9000
       DJANGO_DEBUG: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
