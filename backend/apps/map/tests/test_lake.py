@@ -100,9 +100,9 @@ def test_lake_configuration_is_visible_from_a_cursor(settings):
     """Regression: every request runs on `connection.cursor()`.
 
     `SET s3_*` is session-scoped and a cursor opens its own session, so the
-    legacy settings vanish and requests go out signed with an empty region. The
-    store answers 404, which is indistinguishable from a missing file. A secret
-    lives in the database instead, so a cursor sees it.
+    legacy settings vanish and the store is reached with no configuration at
+    all. It answers 404, which is indistinguishable from a missing file. A
+    secret lives in the database instead, so a cursor sees it.
     """
     settings.LAKE_S3_ENDPOINT = "store.invalid:9000"
     settings.LAKE_S3_REGION = "eu-central-1"
