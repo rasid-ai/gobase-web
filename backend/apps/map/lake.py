@@ -199,8 +199,8 @@ def read_vector_asset(uri: str, limit: int) -> dict:
         # The geometry column is excluded from the star so it cannot also appear
         # as a property; every remaining column becomes one.
         cursor.execute(
-            f'SELECT ST_AsGeoJSON({_quote(geometry)}) AS __geometry__, '
-            f'* EXCLUDE ({_quote(geometry)}) '
+            f"SELECT ST_AsGeoJSON({_quote(geometry)}) AS __geometry__, "
+            f"* EXCLUDE ({_quote(geometry)}) "
             f"FROM read_parquet(?) LIMIT {int(limit) + 1}",
             [uri],
         )
