@@ -7,6 +7,7 @@ import { vi } from 'vitest'
 import { AuthProvider } from '@/app/auth/AuthProvider'
 import { AppRoutes } from '@/app/routes'
 import { setAccessToken } from '@/api/token-store'
+import { ToastProvider } from '@/components/ui/toast'
 
 export type Route = { status: number; body?: unknown }
 
@@ -59,7 +60,10 @@ function Wrapper({
   return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialPath]}>
-        <AuthProvider>{children}</AuthProvider>
+        {/* Matches App.tsx, so a test can assert what a failure shows. */}
+        <AuthProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
   )

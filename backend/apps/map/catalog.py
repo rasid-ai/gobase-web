@@ -34,6 +34,16 @@ _ASSET = """
     WHERE asset_id = %s AND status = 'active'
 """
 
+# The lake path for one vector asset. `assets` holds every modality, so this
+# is the one place the portal names a modality: the endpoint it serves is
+# vector-only by definition (specs/map.md, docs/adr/008). `source_uri` is the
+# full s3:// URI of the GeoParquet, bucket included.
+_VECTOR_SOURCE_URI = """
+    SELECT source_uri
+    FROM assets
+    WHERE asset_id = %s AND status = 'active' AND modality = 'vector'
+"""
+
 _VECTOR_LAYERS = """
     SELECT layer_name, geometry_type, native_crs, feature_count, columns
     FROM geo_layers
@@ -97,6 +107,17 @@ def asset_detail(asset_id) -> dict | None:
         "metadata": metadata,
         "footprint": footprint,
     }
+
+
+def vector_source_uri(asset_id) -> str | None:
+    """The lake URI of an active vector asset, or None if there is no such asset.
+
+    None covers all three misses the caller treats alike: no such id, a
+    superseded or failed row, and an asset of another modality. Each is a 404 —
+    the portal does not tell one apart from the other.
+    """
+    found = _rows(_VECTOR_SOURCE_URI, [str(asset_id)])
+    return found[0]["source_uri"] if found else None
 
 
 def _layers_for(asset_id, modality: str) -> list[dict]:

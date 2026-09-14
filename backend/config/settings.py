@@ -202,3 +202,23 @@ DAGSTER_REPOSITORY_LOCATION = env("DAGSTER_REPOSITORY_LOCATION", "gobase_orchest
 DAGSTER_REPOSITORY = env("DAGSTER_REPOSITORY", "__repository__")
 DAGSTER_JOB_NAME = env("DAGSTER_JOB_NAME", "weekly_pipeline")
 DAGSTER_TIMEOUT_SECONDS = float(env("DAGSTER_TIMEOUT_SECONDS", "5"))
+
+# --- the lake (S3-compatible object storage) --------------------------------
+# The silver bucket holds the GeoParquet the Map reads through DuckDB (GP-4).
+# Nothing here names a provider: RustFS, MinIO and AWS S3 differ only in these
+# values, so moving between them is a .env edit and a restart.
+#
+# Endpoint blank means AWS's own. `path` URL style suits RustFS and MinIO,
+# `vhost` suits AWS. Blank credentials hand over to DuckDB's credential chain,
+# which is how an instance role is used instead of static keys.
+LAKE_S3_ENDPOINT = env("LAKE_S3_ENDPOINT", "")
+# AWS needs the bucket's real region; MinIO and RustFS ignore it entirely, so
+# leaving it blank there is correct rather than merely tolerated.
+LAKE_S3_REGION = env("LAKE_S3_REGION", "")
+LAKE_S3_ACCESS_KEY = env("LAKE_S3_ACCESS_KEY", "")
+LAKE_S3_SECRET_KEY = env("LAKE_S3_SECRET_KEY", "")
+LAKE_S3_USE_SSL = env_bool("LAKE_S3_USE_SSL", True)
+LAKE_S3_URL_STYLE = env("LAKE_S3_URL_STYLE", "vhost")
+# The cap on features returned for one asset. The query asks for one more than
+# this to tell a full page from a truncated one.
+LAKE_MAX_FEATURES = int(env("LAKE_MAX_FEATURES", "5000"))

@@ -21,6 +21,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AssetData,
   AssetDetail,
   AssetsAtPoint,
   MapAssetsAtPointParams
@@ -284,6 +285,140 @@ export function useMapAssetDetail<TData = Awaited<ReturnType<typeof mapAssetDeta
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getMapAssetDetailQueryOptions(assetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type mapAssetDataResponse200 = {
+  data: AssetData
+  status: 200
+}
+
+export type mapAssetDataResponse404 = {
+  data: void
+  status: 404
+}
+
+export type mapAssetDataResponse502 = {
+  data: void
+  status: 502
+}
+
+export type mapAssetDataResponse503 = {
+  data: void
+  status: 503
+}
+
+export type mapAssetDataResponseSuccess = (mapAssetDataResponse200) & {
+  headers: Headers;
+};
+export type mapAssetDataResponseError = (mapAssetDataResponse404 | mapAssetDataResponse502 | mapAssetDataResponse503) & {
+  headers: Headers;
+};
+
+export type mapAssetDataResponse = (mapAssetDataResponseSuccess | mapAssetDataResponseError)
+
+export const getMapAssetDataUrl = (assetId: string,) => {
+
+
+
+
+  return `/api/map/assets/${assetId}/data`
+}
+
+/**
+ * One vector asset's features, read from the lake.
+ *
+ * Vector only, and the endpoint says so rather than inferring it: `assets`
+ * holds every modality and the lake read only makes sense for GeoParquet
+ * (docs/adr/008). Other modalities get their own endpoints.
+ * @summary Vector asset features
+ */
+export const mapAssetData = async (assetId: string, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetDataResponse> => {
+
+  return httpClient<mapAssetDataResponse>(getMapAssetDataUrl(assetId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMapAssetDataQueryKey = (assetId: string,) => {
+    return [
+    `/api/map/assets/${assetId}/data`
+    ] as const;
+    }
+
+
+export const getMapAssetDataQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMapAssetDataQueryKey(assetId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetData>>> = ({ signal }) => mapAssetData(assetId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MapAssetDataQueryResult = NonNullable<Awaited<ReturnType<typeof mapAssetData>>>
+export type MapAssetDataQueryError = void
+
+
+export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
+ assetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetData>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetData>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetData>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetData>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Vector asset features
+ */
+
+export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMapAssetDataQueryOptions(assetId,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

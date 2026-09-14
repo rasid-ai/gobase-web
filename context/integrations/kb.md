@@ -14,9 +14,11 @@ Django holds `kb` as a second alias in `DATABASES`, configured from
 production additionally enforces read-only through the `portal_kb_reader` role
 (infra/README.md).
 
-Locally the knowledge base is the `gobase-test-pg` container
-(`postgis/postgis:16-3.4`), serving database `geo_kb` on port 5433. A `minio`
-container alongside it stands in for the S3 buckets.
+Locally the knowledge base is the `geo_kb` database on the **same Postgres
+instance** as `portal` — one instance, two databases, as docs/adr/002 describes.
+Set `KB_DB_PORT` to that instance's port; a separate port means a separate
+server and is wrong. A `minio` container stands in for the S3 buckets and must
+be running for anything that reads the lake.
 
 `DATABASES["kb"]["TEST"]` is `{"MIRROR": "default"}`, so **tests never get a real
 `kb`**. Code that reads the knowledge base must be fakeable at its own boundary.
@@ -102,15 +104,30 @@ counters `ingested` / `unchanged` / `superseded` / `failed`. Note this is the
 *data platform's* own run bookkeeping — the Runs page reads Dagster's GraphQL
 API instead (docs/adr/004), not this table.
 
-## State of the local fixture data
+## State of the local data
 
-Three assets, all `modality = raster`, `format = cog`, `topic_path = imagery`,
-`status = active`, sharing one small polygon extent near 33.00°E 33.54°N.
-`geo_raster_layers` holds three matching rows; `geo_layers` is empty, so there
-is no vector asset at all.
+Read on 2026-09-11. This section described three raster assets and an empty
+`geo_layers`; that is not what the database holds, and the earlier text has been
+corrected rather than kept.
 
-So asset detail already returns rich dynamic metadata for rasters — `band_count`,
-`bands`, `dtype`, `is_cog`, `width`/`height`, pixel sizes, `stats`, `tags`. What
-the fixture data cannot exercise is **grouping across data types**: every asset
-is the same modality, so a single group is the only outcome reachable against
-real data.
+22 active assets (23 rows, one superseded or failed), **all
+`modality = vector`**, all `topic_path = shapefiles_dresden` — an OpenStreetMap
+extract of Dresden. `geo_layers` has one row per asset; `geo_raster_layers` is
+empty, so there is **no raster asset at all**.
+
+`geometry_type` spreads across `Point` (5), `Polygon` (6), `LineString` (1) and
+`Mixed` (10), and `feature_count` runs from 3 to 10,068. Mixed geometry is
+therefore the normal case, not an edge case, and a file above the server's
+feature cap is reachable with real data.
+
+`assets.source_uri` holds the full `s3://` URI of the GeoParquet, bucket
+included — identical to `geo_layers.parquet_uri` for every active asset. It is
+what the vector data endpoint reads.
+
+`geo_layers.columns` lists the file's **attribute** columns only. The geometry
+column is not in it, and one of the attributes is a text column called
+`geomtype`, which a name guess would match by mistake. The geometry column name
+must come from the file's own GeoParquet metadata.
+
+What this data cannot exercise: **grouping across data types**, since every
+asset is one modality, and **anything raster**.
