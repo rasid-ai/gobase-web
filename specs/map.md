@@ -8,7 +8,11 @@ questions and answer layers are not.
 
 ## Interaction modes
 
-Three mutually exclusive modes: **navigate**, **point**, and **draw area**.
+Two mutually exclusive modes are built: **navigate** and **point**.
+
+**Draw area** is specified below but is not built, and its control is not
+shown. Showing a mode that switches and then does nothing is worse than
+showing nothing; it returns when the area question path does.
 
 ## Point inspection — built
 
