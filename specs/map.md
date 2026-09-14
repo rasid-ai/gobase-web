@@ -24,6 +24,26 @@ metadata and its footprint; the list of assets stays open so another can be
 picked. Drawn data layers are **not** cleared with the selection — see
 below.
 
+## Go to coordinates — built
+
+A box on the map takes a coordinate pair and goes there: the map moves, the
+marker lands on it, and the same assets-at-point lookup runs. The result is
+the same as having clicked that spot by hand, including clearing whatever
+asset was selected.
+
+Input is **latitude first** — the order every mapping site writes and the
+order a pasted pair arrives in. The API takes longitude first, so the swap
+happens in the interface and nowhere below it. One box rather than two, so a
+pasted pair needs no editing; a comma or a space separates the values.
+
+Going somewhere switches the mode to point, so the mode control keeps
+describing what a click will do.
+
+A coordinate that cannot be read, or that falls outside the valid range, is a
+form error shown next to the box and nothing moves. A coordinate that is valid
+but has no data under it still moves the map and places the marker — the panel
+simply does not open, exactly as for a click on empty space.
+
 ## Drawn vector data — built
 
 Each asset in the list has its own control to draw it. That reads the

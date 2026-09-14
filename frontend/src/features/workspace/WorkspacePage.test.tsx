@@ -31,8 +31,20 @@ vi.mock('react-map-gl/maplibre', () => ({
   Source: ({ id, children }: { id: string; children?: React.ReactNode }) => (
     <div data-source={id}>{children}</div>
   ),
-  Layer: ({ id, layout }: { id: string; layout?: { visibility?: string } }) => (
-    <div data-layer={id} data-visibility={layout?.visibility ?? 'visible'} />
+  Layer: ({
+    id,
+    layout,
+    filter,
+  }: {
+    id: string
+    layout?: { visibility?: string }
+    filter?: unknown
+  }) => (
+    <div
+      data-layer={id}
+      data-visibility={layout?.visibility ?? 'visible'}
+      data-filter={JSON.stringify(filter ?? null)}
+    />
   ),
   Marker: () => <div data-marker />,
 }))
@@ -135,6 +147,34 @@ describe('drawing a vector asset', () => {
     expect(document.querySelector(`[data-layer="asset-${ASSET_ID}-fill"]`)).toBeTruthy()
     expect(document.querySelector(`[data-layer="asset-${ASSET_ID}-line"]`)).toBeTruthy()
     expect(document.querySelector(`[data-layer="asset-${ASSET_ID}-circle"]`)).toBeTruthy()
+  })
+
+  it('draws Multi geometries too, not only their single-part forms', async () => {
+    // `geometry-type` reports the feature's own type, so a `==` test against
+    // "Polygon" silently drops every MultiPolygon. The catalog has both.
+    mockFetch({
+      ...session(),
+      [POINT_URL]: { status: 200, body: groups() },
+      [DATA_URL]: { status: 200, body: data() },
+    })
+    const user = userEvent.setup()
+    renderApp('/')
+
+    await clickMap(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
+
+    const filterOf = async (mark: string) => {
+      const node = await waitFor(() => {
+        const found = document.querySelector(`[data-layer="asset-${ASSET_ID}-${mark}"]`)
+        expect(found).toBeTruthy()
+        return found!
+      })
+      return node.getAttribute('data-filter') ?? ''
+    }
+
+    expect(await filterOf('fill')).toContain('MultiPolygon')
+    expect(await filterOf('line')).toContain('MultiLineString')
+    expect(await filterOf('circle')).toContain('MultiPoint')
   })
 
   it('lists the layer in the panel and marks the row as drawn', async () => {
