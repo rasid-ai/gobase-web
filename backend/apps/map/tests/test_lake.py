@@ -121,18 +121,72 @@ def test_lake_configuration_is_visible_from_a_cursor(settings):
     assert ("lake",) in secrets
 
 
-def test_blank_credentials_use_the_credential_chain(settings):
-    """An AWS instance role supplies keys instead of .env holding them."""
+class TestSecretStatement:
+    """The CREATE SECRET text, checked without DuckDB.
+
+    Deliberately not executed: `credential_chain` is implemented by DuckDB's
+    `aws` extension, which is downloaded on first use. Asserting on the
+    statement keeps these deterministic on a machine that has never fetched it
+    — which is every CI runner.
+    """
+
+    def test_nothing_configured_means_no_secret(self, settings):
+        """A local path needs no object store, and CI configures none."""
+        settings.LAKE_S3_ACCESS_KEY = ""
+        settings.LAKE_S3_SECRET_KEY = ""
+        settings.LAKE_S3_ENDPOINT = ""
+        settings.LAKE_S3_REGION = ""
+
+        assert lake._secret_statement() is None
+
+    def test_static_keys_are_sent_as_key_id_and_secret(self, settings):
+        settings.LAKE_S3_ACCESS_KEY = "an-access-key"
+        settings.LAKE_S3_SECRET_KEY = "a-secret-key"
+        settings.LAKE_S3_ENDPOINT = "127.0.0.1:9000"
+        settings.LAKE_S3_REGION = ""
+
+        statement = lake._secret_statement()
+
+        assert "KEY_ID 'an-access-key'" in statement
+        assert "SECRET 'a-secret-key'" in statement
+        assert "credential_chain" not in statement
+        # MinIO has no regions; a blank one is omitted, never sent empty.
+        assert "REGION" not in statement
+
+    def test_configured_without_keys_uses_the_credential_chain(self, settings):
+        """An AWS instance role supplies the keys instead of .env holding them."""
+        settings.LAKE_S3_ACCESS_KEY = ""
+        settings.LAKE_S3_SECRET_KEY = ""
+        settings.LAKE_S3_ENDPOINT = ""
+        settings.LAKE_S3_REGION = "eu-central-1"
+
+        statement = lake._secret_statement()
+
+        assert "PROVIDER credential_chain" in statement
+        assert "REGION 'eu-central-1'" in statement
+        assert "KEY_ID" not in statement
+
+    def test_a_quote_in_a_value_cannot_break_out(self, settings):
+        """The statement is built as text, so the values must be escaped."""
+        settings.LAKE_S3_ACCESS_KEY = "ke'y"
+        settings.LAKE_S3_SECRET_KEY = "sec'ret"
+        settings.LAKE_S3_ENDPOINT = ""
+        settings.LAKE_S3_REGION = ""
+
+        statement = lake._secret_statement()
+
+        assert "KEY_ID 'ke''y'" in statement
+        assert "SECRET 'sec''ret'" in statement
+
+
+def test_a_local_file_reads_with_no_object_store_configured(settings, tmp_path):
+    """The lake reader must work for a local path without any S3 settings."""
     settings.LAKE_S3_ACCESS_KEY = ""
     settings.LAKE_S3_SECRET_KEY = ""
+    settings.LAKE_S3_ENDPOINT = ""
+    settings.LAKE_S3_REGION = ""
     lake.reset()
 
-    cursor = lake._shared_connection().cursor()
-    try:
-        provider = cursor.execute(
-            "SELECT provider FROM duckdb_secrets() WHERE name = 'lake'"
-        ).fetchone()
-    finally:
-        cursor.close()
+    path = write_geoparquet(tmp_path / "local.parquet", rows=2)
 
-    assert provider[0] == "credential_chain"
+    assert lake.read_vector_asset(path, limit=10)["count"] == 2

@@ -60,6 +60,43 @@ def _sql_literal(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _secret_statement() -> str | None:
+    """The CREATE SECRET for the configured object store, or None if there is none.
+
+    None is a real answer, not a failure: with no endpoint, no region and no
+    credentials there is nothing to point at, and the only thing readable is a
+    local path, which needs no secret at all. That is the case in tests and in
+    CI, and creating a secret there would drag in an extension for no benefit.
+
+    Built as text because CREATE SECRET takes no bound parameters. Kept separate
+    from executing it so it can be tested without DuckDB, a network, or an
+    extension download.
+    """
+    has_keys = bool(settings.LAKE_S3_ACCESS_KEY and settings.LAKE_S3_SECRET_KEY)
+    if not (has_keys or settings.LAKE_S3_ENDPOINT or settings.LAKE_S3_REGION):
+        return None
+
+    fields = ["TYPE s3"]
+    if has_keys:
+        fields.append(f"KEY_ID {_sql_literal(settings.LAKE_S3_ACCESS_KEY)}")
+        fields.append(f"SECRET {_sql_literal(settings.LAKE_S3_SECRET_KEY)}")
+    else:
+        # Configured but without static keys: an instance role supplies them
+        # through DuckDB's credential chain.
+        fields.append("PROVIDER credential_chain")
+
+    if settings.LAKE_S3_ENDPOINT:
+        fields.append(f"ENDPOINT {_sql_literal(settings.LAKE_S3_ENDPOINT)}")
+    # AWS needs the bucket's region; MinIO and RustFS ignore it, so a blank one
+    # is simply omitted rather than sent as an empty string.
+    if settings.LAKE_S3_REGION:
+        fields.append(f"REGION {_sql_literal(settings.LAKE_S3_REGION)}")
+    fields.append(f"URL_STYLE {_sql_literal(settings.LAKE_S3_URL_STYLE)}")
+    fields.append(f"USE_SSL {'true' if settings.LAKE_S3_USE_SSL else 'false'}")
+
+    return f"CREATE OR REPLACE SECRET lake ({', '.join(fields)})"
+
+
 def _configure(connection) -> None:
     """Point a fresh connection at the configured object store.
 
@@ -75,26 +112,19 @@ def _configure(connection) -> None:
     connection.execute("INSTALL httpfs; LOAD httpfs;")
     connection.execute("INSTALL spatial; LOAD spatial;")
 
-    fields = ["TYPE s3"]
-    if settings.LAKE_S3_ACCESS_KEY and settings.LAKE_S3_SECRET_KEY:
-        fields.append(f"KEY_ID {_sql_literal(settings.LAKE_S3_ACCESS_KEY)}")
-        fields.append(f"SECRET {_sql_literal(settings.LAKE_S3_SECRET_KEY)}")
-    else:
-        # No static keys is deliberate: DuckDB's credential chain then supplies
-        # them, which is how an AWS instance role is used instead.
-        fields.append("PROVIDER credential_chain")
+    statement = _secret_statement()
+    if statement is None:
+        return
 
-    if settings.LAKE_S3_ENDPOINT:
-        fields.append(f"ENDPOINT {_sql_literal(settings.LAKE_S3_ENDPOINT)}")
-    # AWS needs the bucket's region; MinIO and RustFS ignore it, so a blank one
-    # is simply omitted rather than sent as an empty string.
-    if settings.LAKE_S3_REGION:
-        fields.append(f"REGION {_sql_literal(settings.LAKE_S3_REGION)}")
-    fields.append(f"URL_STYLE {_sql_literal(settings.LAKE_S3_URL_STYLE)}")
-    fields.append(f"USE_SSL {'true' if settings.LAKE_S3_USE_SSL else 'false'}")
+    # `credential_chain` is implemented by the `aws` extension rather than
+    # httpfs, and is not bundled. Loading it explicitly rather than relying on
+    # autoload, which needs a network round trip the first time and fails on a
+    # machine that has never fetched it.
+    if "credential_chain" in statement:
+        connection.execute("INSTALL aws; LOAD aws;")
 
     try:
-        connection.execute(f"CREATE OR REPLACE SECRET lake ({', '.join(fields)})")
+        connection.execute(statement)
     except duckdb.Error as exc:
         # The statement carries the secret key, so it must never reach a log or
         # an exception message. Only the failure type is reportable.
