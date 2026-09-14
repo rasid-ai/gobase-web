@@ -26,6 +26,9 @@ import {
 } from './layers'
 import { useMapTokens } from './mapTokens'
 
+// Side effect only: points MapLibre at its worker before any map is built.
+import './mapWorker'
+
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 /**
