@@ -1,9 +1,9 @@
 import { setWorkerUrl } from 'maplibre-gl'
-// `?url` makes Vite emit the worker as a real asset and hands back its final
-// URL. Importing it by path is the whole point: MapLibre otherwise builds the
-// URL itself at runtime, from its own module location and a filename it picks
-// dynamically (`-dev` or not), which no bundler can follow.
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
+// `?worker&url`, not `?url`. Both emit a file and hand back its URL, but `?url`
+// copies that one file alone — and MapLibre's worker imports
+// `./maplibre-gl-shared.mjs`, which then 404s and takes the worker down with
+// it. `?worker` bundles the worker together with what it imports.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 
 /**
  * Tell MapLibre where its GeoJSON worker lives.

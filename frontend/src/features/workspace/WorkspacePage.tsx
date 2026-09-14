@@ -35,18 +35,23 @@ import 'maplibre-gl/dist/maplibre-gl.css'
  * The Map workspace (specs/map.md).
  *
  * Click a point, see the catalog assets whose coverage includes it grouped by
- * data type, select one to see its metadata and footprint. Drawing an area is
- * the mode shell only — its behaviour waits on the Q&A engine decision.
+ * data type, select one to see its metadata and footprint, and draw its
+ * features. Draw-area is not here yet: it waits on the Q&A engine decision.
  */
 
-/** The three interaction modes are mutually exclusive (specs/map.md). */
-const MODES = ['navigate', 'point', 'area'] as const
+/**
+ * The interaction modes, mutually exclusive (specs/map.md).
+ *
+ * Draw-area is absent rather than disabled: its behaviour needs the ask path,
+ * which is blocked on the Q&A engine decision, and a control that switches a
+ * mode and then does nothing is worse than no control. It returns with GP-7.
+ */
+const MODES = ['navigate', 'point'] as const
 type Mode = (typeof MODES)[number]
 
 const MODE_LABEL: Record<Mode, string> = {
   navigate: 'Navigate',
   point: 'Point',
-  area: 'Draw area',
 }
 
 const OSM: StyleSpecification = {
@@ -106,7 +111,7 @@ function MapWorkspace() {
   }, [selected])
 
   function onMapClick(event: MapLayerMouseEvent) {
-    // Only point mode inspects; navigate and area leave clicks to the map.
+    // Only point mode inspects; navigate leaves clicks to the map.
     if (mode !== 'point') return
     setSelectedId(null)
     setPoint({ lon: event.lngLat.lng, lat: event.lngLat.lat })
@@ -208,7 +213,6 @@ function MapWorkspace() {
         mapStyle={OSM}
         onClick={onMapClick}
         cursor={mode === 'point' ? 'crosshair' : 'grab'}
-        dragPan={mode !== 'area'}
         style={{ position: 'absolute', inset: 0 }}
       >
         {point ? (
