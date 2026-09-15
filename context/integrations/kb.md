@@ -101,8 +101,8 @@ are the safer read surface where they fit.
 
 One row per ingestion run: `run_id`, `started_at`, `finished_at`, `source`, and
 counters `ingested` / `unchanged` / `superseded` / `failed`. Note this is the
-*data platform's* own run bookkeeping — the Runs page reads Dagster's GraphQL
-API instead (docs/adr/004), not this table.
+*data platform's* own run bookkeeping — the Data Governance page reads
+Dagster's GraphQL API instead (docs/adr/004), not this table.
 
 ## State of the local data
 

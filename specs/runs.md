@@ -1,4 +1,4 @@
-# Pipeline Runs
+# Data Governance — pipeline runs
 
 Run data comes from Dagster via its GraphQL API only (docs/adr/004).
 Role behaviour is in specs/auth.md. What the API talks to, and the quirks
@@ -8,12 +8,12 @@ Built.
 
 ## Run history
 
-The Runs page lists the ingestion pipeline's runs, newest first: the run
-id, its status, when it started, and how long it took. Selecting a run
-opens it in place and shows its per-step detail — each step's name,
-status and timing — along with what triggered the run and how many
-assets it materialised. A failed run shows the reason it failed above
-its steps.
+The Data Governance page lists the ingestion pipeline's runs, newest
+first: the run id, its status, when it started, and how long it took.
+Selecting a run opens it in place and shows its per-step detail — each
+step's name, status and timing — along with what triggered the run and
+how many assets it materialised. A failed run shows the reason it failed
+above its steps.
 
 Nothing is stored. Every request asks Dagster and shapes the answer, so
 the portal holds no copy of the history to fall back on. When Dagster

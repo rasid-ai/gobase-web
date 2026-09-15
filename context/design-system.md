@@ -35,8 +35,8 @@ The system merges two sources (docs/adr/005):
   question rectangle, distinct from both. Fill opacity is applied in the
   MapLibre style (~0.25 fills, solid strokes), reading these variables.
 - `--status-success / -running / -failed / -queued` — run states on the
-  Runs page. Badges tint the token to ~15% for background with the token
-  itself as text.
+  Data Governance page. Badges tint the token to ~15% for background
+  with the token itself as text.
 - Basemaps pair with the theme: a light neutral style (Positron-class)
   and a dark neutral style (Dark Matter-class); the map style switches
   with the theme toggle.

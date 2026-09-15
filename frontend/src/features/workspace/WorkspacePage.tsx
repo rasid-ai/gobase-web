@@ -32,7 +32,7 @@ import './mapWorker'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 /**
- * The Map workspace (specs/map.md).
+ * The Atlas workspace (specs/map.md).
  *
  * Click a point, see the catalog assets whose coverage includes it grouped by
  * data type, select one to see its metadata and footprint, and draw its
@@ -70,7 +70,7 @@ const OSM: StyleSpecification = {
 type Point = { lon: number; lat: number }
 
 /**
- * The layer store is scoped to the Map, not the app.
+ * The layer store is scoped to the Atlas page, not the app.
  *
  * It wraps the page here rather than at the route so that anything rendering
  * the workspace — the router, a test — gets the store without extra wiring.

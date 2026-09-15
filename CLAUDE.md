@@ -1,8 +1,9 @@
 # CLAUDE.md — Geo Portal
 
 Internal web app over the geospatial knowledge base: Ask (cross-source
-Q&A), Map (results, footprints, area-scoped questions), Runs (Dagster).
-The data platform repo populates the knowledge base; this repo reads it.
+Q&A), Atlas (map: results, footprints, area-scoped questions), Data
+Governance (Dagster runs). The data platform repo populates the
+knowledge base; this repo reads it.
 
 ## Communication
 

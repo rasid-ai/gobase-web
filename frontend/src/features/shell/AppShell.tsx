@@ -21,8 +21,8 @@ export function AppShell() {
       <header className="flex items-center gap-6 border-b border-border px-10 py-[18px]">
         <PortalWordmark />
         <nav className="flex items-center gap-1">
-          <ShellLink to="/">Map</ShellLink>
-          <ShellLink to="/runs">Runs</ShellLink>
+          <ShellLink to="/">Atlas</ShellLink>
+          <ShellLink to="/runs">Data Governance</ShellLink>
         </nav>
         <span className="flex-1" />
         <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
@@ -50,8 +50,8 @@ export function AppShell() {
 
 function ShellLink({ to, children }: { to: string; children: string }) {
   const { pathname } = useLocation()
-  // `end` would drop the highlight on a nested run route, so Runs owns its
-  // whole subtree while Map keeps the exact root match.
+  // `end` would drop the highlight on a nested run route, so Data Governance owns
+  // its whole subtree while Atlas keeps the exact root match.
   const isActive = to === '/' ? pathname === '/' : pathname.startsWith(to)
 
   return (

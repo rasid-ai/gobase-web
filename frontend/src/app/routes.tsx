@@ -9,11 +9,11 @@ import { WorkspacePage } from '@/features/workspace/WorkspacePage'
 
 /**
  * The route tree depends on the session, which is how `/` can be the landing
- * page for a visitor and the Map workspace for a signed-in user — both of
+ * page for a visitor and the Atlas workspace for a signed-in user — both of
  * which context/ui-rules.md requires.
  *
  * Unauthenticated:  /  Landing · /signin  Sign in · everything else -> /signin
- * Authenticated:    /  Map     · /runs    Runs    · /signin        -> /
+ * Authenticated:    /  Atlas   · /runs    Data Governance · /signin  -> /
  */
 export function AppRoutes() {
   const { status, sessionExpired } = useAuth()

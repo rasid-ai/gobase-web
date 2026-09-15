@@ -78,14 +78,15 @@ backend and frontend cannot drift.
 **Frontend:** a single-page app — **Vite + React + TypeScript**. Shell +
 nested routes (persistent sidebar layout) wrapping the two screens:
 
-- **Map** — the main workspace: chat panel + map together. Chat is SSE
+- **Atlas** — the main workspace: chat panel + map together. Chat is SSE
   streamed with citations linked to assets. The map is **MapLibre GL**
   (via react-map-gl) with **terra-draw** for rectangular area selection;
   it renders result GeoJSON layers, asset footprints on click, and
   "ask about this area". Raster tile display is a later phase.
-- **Runs** — Dagster run list/detail via **TanStack Table**, manual
-  refresh only. Admin additionally sees a "trigger pipeline run" action
-  (Viewer does not). Theme: light and dark, user-toggled, tokens-driven.
+- **Data Governance** — Dagster run list/detail via **TanStack Table**,
+  manual refresh only. Admin additionally sees a "trigger pipeline run"
+  action (Viewer does not). Theme: light and dark, user-toggled,
+  tokens-driven.
 
 Styling: **Tailwind CSS + shadcn/ui (Radix primitives)**, design tokens
 only. Forms (where they exist): React Hook Form + Zod. Server state:

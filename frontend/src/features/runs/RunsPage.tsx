@@ -44,9 +44,9 @@ export function RunsPage() {
     <div className="mx-auto max-w-6xl px-10 py-10">
       <header className="flex flex-wrap items-start gap-4">
         <div className="flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Runs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Data Governance</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Ingestion pipeline health. Manual refresh only.
+            Ingestion pipeline runs: what ran, what failed, and when. Manual refresh only.
           </p>
         </div>
 

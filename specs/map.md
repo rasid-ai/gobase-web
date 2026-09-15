@@ -1,6 +1,6 @@
-# Map
+# Atlas — the map workspace
 
-The map half of the workspace. Layout — where the chat panel sits, page
+The map half of the Atlas page. Layout — where the chat panel sits, page
 composition — is in context/ui-rules.md. MapLibre GL, per docs/adr/003.
 
 Point inspection and drawing an asset's vector data are built. Area

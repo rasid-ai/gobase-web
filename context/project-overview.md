@@ -13,7 +13,7 @@ that knowledge base and see the answers.
 
 ## The two pages
 
-**Map** — the main workspace: a chat panel and the map side by side.
+**Atlas** — the main workspace: a chat panel and the map side by side.
 1. Natural-language questions answered across all sources at once —
    documents, tabular data, and imagery metadata combined — with answers
    citing the underlying assets.
@@ -23,8 +23,9 @@ that knowledge base and see the answers.
    with metadata and footprints.
 4. Select an area to scope a question spatially ("ask about here").
 
-**Runs** — status and history of the ingestion pipeline runs (Dagster), so
-the team can see data freshness and failures without server access.
+**Data Governance** — status and history of the ingestion pipeline runs
+(Dagster), so the team can see data freshness and failures without
+server access.
 
 ## Out of scope
 
