@@ -1,8 +1,9 @@
 # CLAUDE.md — Geo Portal
 
 Internal web app over the geospatial knowledge base: Ask (cross-source
-Q&A), Map (results, footprints, area-scoped questions), Runs (Dagster).
-The data platform repo populates the knowledge base; this repo reads it.
+Q&A), Atlas (map: results, footprints, area-scoped questions), Assets
+(browse the catalog), Data Governance (Dagster runs). The data platform
+repo populates the knowledge base; this repo reads it.
 
 ## Communication
 
@@ -26,6 +27,7 @@ Changing any of these is a decision worth an ADR.
 - Two Postgres databases, one instance: `kb` (read-only) and `portal`
   (ours). Never run migrations against `kb`. See docs/adr/002.
 - Mirror the Rainbow reference stack: DRF backend, Vite+React+TS SPA. See docs/adr/001.
+- One path, one page, for everyone. See docs/adr/009.
 - `backend/openapi.yaml` is the only backend↔frontend contract. The
   frontend client is Orval-generated from it, never hand-written.
 - The frontend never talks to S3, DuckDB, Dagster, or any LLM, and never

@@ -9,7 +9,8 @@ import uuid
 
 import pytest
 
-from apps.map import catalog, lake
+from apps.catalog import kb
+from apps.map import lake
 
 from .conftest import write_geoparquet
 
@@ -26,7 +27,7 @@ def test_requires_authentication(api):
 
 def test_returns_features_for_a_vector_asset(as_viewer, monkeypatch, tmp_path):
     path = write_geoparquet(tmp_path / "asset.parquet", rows=3)
-    monkeypatch.setattr(catalog, "vector_source_uri", lambda asset_id: path)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
 
     response = as_viewer.get(url())
 
@@ -42,7 +43,7 @@ def test_returns_features_for_a_vector_asset(as_viewer, monkeypatch, tmp_path):
 
 def test_caps_features_and_reports_truncation(as_viewer, monkeypatch, tmp_path, settings):
     path = write_geoparquet(tmp_path / "big.parquet", rows=30)
-    monkeypatch.setattr(catalog, "vector_source_uri", lambda asset_id: path)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
     settings.LAKE_MAX_FEATURES = 5
 
     response = as_viewer.get(url())
@@ -59,13 +60,13 @@ def test_caps_features_and_reports_truncation(as_viewer, monkeypatch, tmp_path, 
 )
 def test_anything_the_catalog_does_not_return_is_404(as_viewer, monkeypatch, reason):
     """All three misses are one answer: the portal does not tell them apart."""
-    monkeypatch.setattr(catalog, "vector_source_uri", lambda asset_id: None)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: None)
 
     assert as_viewer.get(url()).status_code == 404
 
 
 def test_an_unreachable_lake_is_503(as_viewer, monkeypatch):
-    monkeypatch.setattr(catalog, "vector_source_uri", lambda asset_id: "s3://b/x.parquet")
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: "s3://b/x.parquet")
 
     def unavailable(uri, limit):
         raise lake.LakeUnavailable("connection refused")
@@ -76,7 +77,7 @@ def test_an_unreachable_lake_is_503(as_viewer, monkeypatch):
 
 
 def test_an_unreadable_file_is_502(as_viewer, monkeypatch):
-    monkeypatch.setattr(catalog, "vector_source_uri", lambda asset_id: "s3://b/x.parquet")
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: "s3://b/x.parquet")
 
     def unreadable(uri, limit):
         raise lake.LakeReadError("not a parquet file")
@@ -89,7 +90,7 @@ def test_an_unreadable_file_is_502(as_viewer, monkeypatch):
 def test_the_lake_path_never_reaches_the_client(as_viewer, monkeypatch, tmp_path):
     """`source_uri` is a location in the bucket and stays on the server."""
     path = write_geoparquet(tmp_path / "secret-bucket-path.parquet", rows=1)
-    monkeypatch.setattr(catalog, "vector_source_uri", lambda asset_id: path)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
 
     body = as_viewer.get(url()).content.decode()
 

@@ -110,6 +110,88 @@ paths:
           description: ''
         '401':
           description: Missing, expired, or revoked refresh credential.
+  /api/catalog/assets:
+    get:
+      operationId: catalog_asset_list
+      description: |-
+        One page of the catalog, filtered and sorted.
+
+        Browsing is not a map feature, which is why this is its own app: the map's
+        `/api/map/assets` already means "the assets covering this point" and cannot
+        carry a second meaning (docs/adr/010).
+      summary: Browse the asset catalog
+      parameters:
+      - in: query
+        name: data_type
+        schema:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+        description: Repeatable. Omitted means every data type.
+      - in: query
+        name: ingested_after
+        schema:
+          type: string
+          format: date-time
+        description: Ingested at or after this moment.
+      - in: query
+        name: ingested_before
+        schema:
+          type: string
+          format: date-time
+        description: Ingested strictly before this moment.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 200
+        description: Case-insensitive substring of the asset name.
+      - in: query
+        name: sort
+        schema:
+          enum:
+          - -ingested_at
+          - -name
+          - data_type
+          - ingested_at
+          - name
+          type: string
+          default: -ingested_at
+          minLength: 1
+        description: |-
+          A leading minus reverses the order.
+
+          * `-ingested_at` - -ingested_at
+          * `-name` - -name
+          * `data_type` - data_type
+          * `ingested_at` - ingested_at
+          * `name` - name
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetList'
+          description: ''
   /api/health/:
     get:
       operationId: health_retrieve
@@ -470,6 +552,105 @@ components:
       required:
       - assets
       - data_type
+    AssetList:
+      type: object
+      description: One page of the catalog.
+      properties:
+        count:
+          type: integer
+          readOnly: true
+          description: How many assets match, ignoring limit and offset.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetListItem'
+          readOnly: true
+        data_type_counts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataTypeCount'
+          readOnly: true
+          description: Counts per data type for the current filters, ignoring the
+            data_type selection itself.
+      required:
+      - count
+      - data_type_counts
+      - results
+    AssetListItem:
+      type: object
+      description: |-
+        One asset as the catalog browse list shows it.
+
+        Every field is declared, unlike the map's asset detail: a list shows the
+        same columns for every row, so a value the catalog does not hold is null
+        rather than a missing key.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed. The
+            catalog has no name column (docs/adr/010).
+        data_type:
+          type: string
+          readOnly: true
+        format:
+          type: string
+          readOnly: true
+          nullable: true
+        topic_path:
+          type: string
+          readOnly: true
+          nullable: true
+        bytes:
+          type: integer
+          readOnly: true
+          nullable: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The asset's coverage as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326. Null when the asset has no coverage.
+          maxItems: 4
+          minItems: 4
+        summary:
+          type: string
+          readOnly: true
+          nullable: true
+        time_start:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        time_end:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ingested_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - asset_id
+      - bbox
+      - bytes
+      - data_type
+      - format
+      - ingested_at
+      - name
+      - summary
+      - time_end
+      - time_start
+      - topic_path
     AssetSummary:
       type: object
       description: One asset as it appears in a point-click list.
@@ -531,6 +712,23 @@ components:
       required:
       - current_password
       - new_password
+    DataTypeCount:
+      type: object
+      description: |-
+        How many assets carry one data type.
+
+        The data types come from the knowledge base; the portal neither defines nor
+        translates the list (specs/map.md).
+      properties:
+        data_type:
+          type: string
+          readOnly: true
+        count:
+          type: integer
+          readOnly: true
+      required:
+      - count
+      - data_type
     Health:
       type: object
       properties:

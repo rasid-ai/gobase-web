@@ -2,18 +2,23 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { useAuth } from '@/app/auth/useAuth'
 import { SignInPage } from '@/features/auth/SignInPage'
+import { AssetsPage } from '@/features/catalog/AssetsPage'
 import { LandingPage } from '@/features/landing/LandingPage'
 import { RunsPage } from '@/features/runs/RunsPage'
 import { AppShell } from '@/features/shell/AppShell'
 import { WorkspacePage } from '@/features/workspace/WorkspacePage'
 
 /**
- * The route tree depends on the session, which is how `/` can be the landing
- * page for a visitor and the Map workspace for a signed-in user — both of
- * which context/ui-rules.md requires.
+ * One path, one page — for everyone (docs/adr/009).
+ *
+ * The tree still depends on the session, because `/` is the landing page for a
+ * visitor and has nothing to show a signed-in user. But no path below it means
+ * two different things any more, so a workspace link can be shared and the
+ * destination of an exit never depends on where you happened to be.
  *
  * Unauthenticated:  /  Landing · /signin  Sign in · everything else -> /signin
- * Authenticated:    /  Map     · /runs    Runs    · /signin        -> /
+ * Authenticated:    /  -> /map · /map  Atlas · /assets  Assets
+ *                   /runs  Data Governance · everything else -> /map
  */
 export function AppRoutes() {
   const { status, sessionExpired } = useAuth()
@@ -42,10 +47,12 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route path="/" element={<WorkspacePage />} />
+        <Route path="/map" element={<WorkspacePage />} />
+        <Route path="/assets" element={<AssetsPage />} />
         <Route path="/runs" element={<RunsPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* The root has no meaning once you are signed in; the map is home. */}
+      <Route path="*" element={<Navigate to="/map" replace />} />
     </Routes>
   )
 }

@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { useThemeToggle } from './useThemeToggle'
 
 /**
- * Frame for the authenticated routes: wordmark, the two pages, identity, and
+ * Frame for the authenticated routes: wordmark, the three pages, identity, and
  * the theme toggle that context/ui-rules.md puts inside the shell.
  */
 export function AppShell() {
@@ -21,8 +21,9 @@ export function AppShell() {
       <header className="flex items-center gap-6 border-b border-border px-10 py-[18px]">
         <PortalWordmark />
         <nav className="flex items-center gap-1">
-          <ShellLink to="/">Map</ShellLink>
-          <ShellLink to="/runs">Runs</ShellLink>
+          <ShellLink to="/map">Atlas</ShellLink>
+          <ShellLink to="/assets">Assets</ShellLink>
+          <ShellLink to="/runs">Data Governance</ShellLink>
         </nav>
         <span className="flex-1" />
         <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
@@ -50,9 +51,10 @@ export function AppShell() {
 
 function ShellLink({ to, children }: { to: string; children: string }) {
   const { pathname } = useLocation()
-  // `end` would drop the highlight on a nested run route, so Runs owns its
-  // whole subtree while Map keeps the exact root match.
-  const isActive = to === '/' ? pathname === '/' : pathname.startsWith(to)
+  // Every page owns its whole subtree, so a nested route keeps its section
+  // highlighted. No path is a prefix of another (docs/adr/009), which is what
+  // lets this be one rule rather than a special case for the root.
+  const isActive = pathname.startsWith(to)
 
   return (
     <NavLink

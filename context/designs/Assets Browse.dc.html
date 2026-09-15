@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+body{margin:0}
+</style>
+</helmet>
+<div style="{{rootStyle}}">
+  <div style="{{headerStyle}}">
+    <span style="{{wordmarkStyle}}">GEO<span style="{{wordmarkAccentStyle}}">PORTAL</span></span>
+    <nav style="{{navStyle}}">
+      <span style="{{tabMapStyle}}" onClick="{{goMap}}">Map</span>
+      <span style="{{tabAssetsStyle}}" onClick="{{goAssets}}">Assets</span>
+      <span style="{{tabRunsStyle}}" onClick="{{goRuns}}">Runs</span>
+    </nav>
+    <span style="flex:1"></span>
+    <span style="{{userChromeStyle}}">analyst · j.osei</span>
+    <button style="{{outlineBtnStyle}}" onClick="{{toggleTheme}}">{{themeBtnLabel}}</button>
+  </div>
+  <div style="{{bodyStyle}}">
+
+    <sc-if value="{{isAssets}}" hint-placeholder-val="{{true}}">
+      <div style="{{assetsOuterStyle}}">
+        <aside style="{{railStyle}}">
+          <input style="{{searchStyle}}" placeholder="Search name or id…" value="{{q}}" onChange="{{onQ}}"/>
+          <div style="{{groupStyle}}">
+            <div style="{{groupLabelStyle}}">Modality</div>
+            <sc-for list="{{modRows}}" as="m" hint-placeholder-count="4">
+              <div style="{{filterRowStyle}}" onClick="{{m.onClick}}">
+                <span style="{{m.boxStyle}}">{{m.mark}}</span>
+                <span style="{{m.labelStyle}}">{{m.label}}</span>
+                <span style="flex:1"></span>
+                <span style="{{countStyle}}">{{m.count}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="{{groupStyle}}">
+            <div style="{{groupLabelStyle}}">Date of ingestion</div>
+            <sc-for list="{{dateRows}}" as="d" hint-placeholder-count="4">
+              <div style="{{filterRowStyle}}" onClick="{{d.onClick}}">
+                <span style="{{d.dotStyle}}"></span>
+                <span style="{{d.labelStyle}}">{{d.label}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <button style="{{ghostBtnStyle}}" onClick="{{clearFilters}}">Clear all filters</button>
+        </aside>
+
+        <div style="{{gridColStyle}}">
+          <div style="{{gridHeadStyle}}">
+            <h1 style="{{h1Style}}">Assets</h1>
+            <span style="{{subStyle}}">{{countLabel}}</span>
+            <span style="flex:1"></span>
+            <select style="{{selectStyle}}" value="{{sort}}" onChange="{{onSort}}">
+              <option value="ingested">Newest ingestion</option>
+              <option value="name">Name A–Z</option>
+              <option value="modality">Modality</option>
+            </select>
+          </div>
+          <div style="{{gridStyle}}">
+            <sc-for list="{{cards}}" as="a" hint-placeholder-count="6">
+              <div style="{{a.cardStyle}}" onClick="{{a.onOpen}}" style-hover="{{cardHoverStyle}}">
+                <div style="{{cardTopStyle}}">
+                  <span style="{{a.modTagStyle}}">{{a.modality}}</span>
+                  <span style="flex:1"></span>
+                  <span style="{{monoSmallStyle}}">{{a.format}}</span>
+                </div>
+                <div style="{{cardBodyStyle}}">
+                  <div style="{{cardNameStyle}}">{{a.name}}</div>
+                  <div style="{{cardIdStyle}}">{{a.id}}</div>
+                  <div style="{{cardMetaStyle}}">
+                    <span>{{a.region}}</span>
+                    <span style="{{dividerStyle}}">·</span>
+                    <span>{{a.size}}</span>
+                  </div>
+                  <div style="{{cardFootStyle}}">
+                    <span style="{{monoSmallStyle}}">{{a.ingestedMono}}</span>
+                    <span style="flex:1"></span>
+                    <span style="{{locateLinkStyle}}">Locate on map</span>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{isEmpty}}" hint-placeholder-val="{{false}}">
+            <div style="{{emptyStyle}}">No assets match these filters.</div>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isMap}}" hint-placeholder-val="{{false}}">
+      <div style="{{mapOuterStyle}}">
+        <div style="{{mapColStyle}}">
+          <sc-if value="{{hasSelected}}" hint-placeholder-val="{{false}}">
+            <div style="{{locateBarStyle}}">
+              <span style="{{monoIdStyle}}">{{selected.id}}</span>
+              <span style="{{locateTextStyle}}">{{selected.name}}</span>
+              <span style="flex:1"></span>
+              <span style="{{monoSmallStyle}}">{{selected.bbox}}</span>
+              <button style="{{ghostBtnStyle}}" onClick="{{goAssets}}">Back to assets</button>
+            </div>
+          </sc-if>
+          <div style="{{mapPaneStyle}}">
+            <div style="{{answerRectStyle}}"></div>
+            <sc-if value="{{hasSelected}}" hint-placeholder-val="{{false}}">
+              <div style="{{footprintRectStyle}}">
+                <span style="{{footprintTagStyle}}">{{selected.id}}</span>
+              </div>
+            </sc-if>
+          </div>
+          <div style="{{legendRowStyle}}">
+            <span style="{{legendItemStyle}}"><span style="{{answerSwatchStyle}}"></span>Answer layer</span>
+            <span style="{{legendItemStyle}}"><span style="{{footprintSwatchStyle}}"></span>Asset footprint</span>
+            <span style="{{legendItemStyle}}"><span style="{{selectionSwatchStyle}}"></span>Question area</span>
+          </div>
+        </div>
+        <div style="{{chatPaneStyle}}">
+          <div style="{{sessionBarStyle}}">
+            <select style="{{selectStyle}}"><option>Irrigation corridor review</option></select>
+          </div>
+          <div style="{{logStyle}}">
+            <div style="{{userBubbleStyle}}">Which districts in the AOI show cropland loss since 2023?</div>
+            <div style="{{aiTextStyle}}">Three districts in the selected area show measurable cropland decline; the largest change concentrates along the eastern irrigation corridor, consistent across the imagery series and the land-use survey.
+              <div style="{{chipsRowStyle}}">
+                <span style="{{citChipStyle}}"><span style="{{citDotStyle}}"></span>S2-2025-0143</span>
+                <span style="{{citChipStyle}}"><span style="{{citDotStyle}}"></span>LANDUSE-TBL-07</span>
+              </div>
+            </div>
+          </div>
+          <div style="{{composerStyle}}">
+            <input style="{{searchStyle}}" placeholder="Ask about the selected area…"/>
+            <button style="{{primaryBtnStyle}}">Ask</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isRuns}}" hint-placeholder-val="{{false}}">
+      <div style="{{runsPageStyle}}">
+        <h1 style="{{h1Style}}">Runs</h1>
+        <p style="{{subStyle}}">Ingestion pipeline health. Manual refresh only.</p>
+        <div style="{{runsListStyle}}">
+          <sc-for list="{{runsVM}}" as="r" hint-placeholder-count="4">
+            <div style="{{runRowStyle}}">
+              <span style="{{monoIdStyle}}">{{r.id}}</span>
+              <span style="{{r.badgeStyle}}"><span style="{{r.dotStyle}}"></span>{{r.label}}</span>
+              <span style="{{monoSmallStyle}}">{{r.started}}</span>
+              <span style="flex:1"></span>
+              <span style="{{monoSmallStyle}}">{{r.duration}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:740},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;]},&quot;columns&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:3,&quot;min&quot;:2,&quot;max&quot;:4,&quot;tsType&quot;:&quot;number&quot;}}">
+class Component extends DCLogic {
+  COLORS = {
+    dark:{bg:'oklch(0.155 0.011 174)',fg:'oklch(0.9842 0.0034 174)',card:'oklch(0.19 0.013 172)',popover:'oklch(0.21 0.014 172)',primary:'oklch(0.6734 0.1347 167.3)',primaryFg:'oklch(0.155 0.011 174)',accent:'oklch(0.30 0.05 168)',accentFg:'oklch(1 0 0)',destructive:'oklch(0.7122 0.1748 18.44)',border:'oklch(0.28 0.03 170)',input:'oklch(0.13 0.011 174)',mutedFg:'oklch(0.69 0.025 172)',mapResult:'oklch(0.6734 0.1347 167.3)',mapFootprint:'oklch(0.7246 0.1244 256.42)',mapSelection:'oklch(0.8095 0.1613 77.2)'},
+    light:{bg:'oklch(0.9851 0.0034 174)',fg:'oklch(0.2336 0.02 174)',card:'oklch(1 0 0)',popover:'oklch(1 0 0)',primary:'oklch(0.60 0.13 167.3)',primaryFg:'oklch(1 0 0)',accent:'oklch(0.965 0.012 170)',accentFg:'oklch(0.47 0.092 168.2)',destructive:'oklch(0.577 0.215 27)',border:'oklch(0.922 0.012 174)',input:'oklch(0.922 0.012 174)',mutedFg:'oklch(0.5206 0.03 174)',mapResult:'oklch(0.60 0.13 167.3)',mapFootprint:'oklch(0.7246 0.1244 256.42)',mapSelection:'oklch(0.8095 0.1613 77.2)'}
+  };
+  NOW = new Date('2026-09-15');
+  MODALITIES=['Imagery','Tabular','Document','Vector'];
+  REGIONS=['Eastern corridor','Coastal belt','Northern plateau','Lake basin'];
+  DATE_OPTS=[{v:'all',l:'Any time'},{v:'7',l:'Last 7 days'},{v:'30',l:'Last 30 days'},{v:'90',l:'Last 90 days'}];
+  ASSETS=[
+    {id:'S2-2025-0143',name:'Sentinel-2 L2A scene, eastern corridor',modality:'Imagery',format:'COG',region:'Eastern corridor',bbox:'38.21,8.94 → 38.77,9.41',ingested:'2026-09-14',size:'1.4 GB',rect:[14,20,32,42]},
+    {id:'LANDUSE-TBL-07',name:'Land-use survey, district 07',modality:'Tabular',format:'Parquet',region:'Eastern corridor',bbox:'38.19,8.90 → 38.81,9.44',ingested:'2026-09-12',size:'46 MB',rect:[18,26,30,36]},
+    {id:'RPT-AGRI-2024',name:'Agricultural assessment report, 2024',modality:'Document',format:'PDF',region:'Eastern corridor',bbox:'38.10,8.80 → 38.95,9.60',ingested:'2026-09-09',size:'3.1 MB',rect:[10,14,44,54]},
+    {id:'S1-GRD-2026-088',name:'Sentinel-1 GRD mosaic, coastal belt',modality:'Imagery',format:'COG',region:'Coastal belt',bbox:'39.44,6.71 → 40.12,7.30',ingested:'2026-09-04',size:'2.2 GB',rect:[52,44,36,40]},
+    {id:'SHORE-VEC-2026',name:'Shoreline change vectors',modality:'Vector',format:'GeoJSON',region:'Coastal belt',bbox:'39.50,6.75 → 40.05,7.22',ingested:'2026-08-28',size:'12 MB',rect:[56,50,28,30]},
+    {id:'CENSUS-TBL-22',name:'Household census extract, 2022',modality:'Tabular',format:'Parquet',region:'Coastal belt',bbox:'39.40,6.60 → 40.20,7.40',ingested:'2026-08-21',size:'118 MB',rect:[50,40,40,44]},
+    {id:'L9-2026-0071',name:'Landsat-9 surface reflectance, plateau',modality:'Imagery',format:'COG',region:'Northern plateau',bbox:'37.02,11.18 → 37.88,11.94',ingested:'2026-08-03',size:'980 MB',rect:[20,8,34,30]},
+    {id:'RPT-HYDRO-2025',name:'Hydrology baseline study',modality:'Document',format:'PDF',region:'Northern plateau',bbox:'36.95,11.05 → 38.00,12.05',ingested:'2026-07-27',size:'8.4 MB',rect:[16,6,42,34]},
+    {id:'ROADS-VEC-11',name:'Road network, plateau districts',modality:'Vector',format:'GeoJSON',region:'Northern plateau',bbox:'37.10,11.20 → 37.80,11.90',ingested:'2026-07-11',size:'34 MB',rect:[24,10,30,26]},
+    {id:'S2-2025-0097',name:'Sentinel-2 L2A scene, lake basin',modality:'Imagery',format:'COG',region:'Lake basin',bbox:'35.88,7.42 → 36.51,8.04',ingested:'2026-06-30',size:'1.1 GB',rect:[8,52,30,34]},
+    {id:'WATER-TBL-03',name:'Water quality sampling series',modality:'Tabular',format:'Parquet',region:'Lake basin',bbox:'35.90,7.45 → 36.48,8.00',ingested:'2026-06-14',size:'22 MB',rect:[12,56,24,28]},
+    {id:'RPT-FISH-2023',name:'Fisheries yield report, 2023',modality:'Document',format:'PDF',region:'Lake basin',bbox:'35.80,7.35 → 36.60,8.10',ingested:'2026-05-22',size:'2.6 MB',rect:[6,48,36,40]}
+  ];
+  RUNS=[
+    {id:'run_2026_09_14_a',status:'SUCCESS',started:'Sep 14, 02:00',duration:'38 min'},
+    {id:'run_2026_09_12_a',status:'SUCCESS',started:'Sep 12, 02:00',duration:'41 min'},
+    {id:'run_2026_09_09_a',status:'FAILURE',started:'Sep 9, 02:00',duration:'12 min'},
+    {id:'run_2026_09_04_a',status:'SUCCESS',started:'Sep 4, 02:00',duration:'44 min'}
+  ];
+
+  state={theme:'dark',tab:'Assets',q:'',mods:[],date:'all',sort:'ingested',selected:null};
+
+  monoDate=(d)=>d.replace(/-/g,'.');
+  toggleTheme=()=>this.setState(s=>({theme:s.theme==='dark'?'light':'dark'}));
+  goMap=()=>this.setState({tab:'Map'});
+  goAssets=()=>this.setState({tab:'Assets'});
+  goRuns=()=>this.setState({tab:'Runs'});
+  onQ=(e)=>this.setState({q:e.target.value});
+  onSort=(e)=>this.setState({sort:e.target.value});
+  toggleMod=(m)=>this.setState(s=>({mods:s.mods.includes(m)?s.mods.filter(x=>x!==m):[...s.mods,m]}));
+  setDate=(d)=>this.setState({date:d});
+  clearFilters=()=>this.setState({q:'',mods:[],date:'all'});
+  open=(a)=>this.setState({tab:'Map',selected:a});
+
+  filtered(){
+    const s=this.state;
+    const out=this.ASSETS.filter(a=>{
+      if(s.q && (a.name+' '+a.id).toLowerCase().indexOf(s.q.toLowerCase())<0) return false;
+      if(s.mods.length && s.mods.indexOf(a.modality)<0) return false;
+      if(s.date!=='all' && (this.NOW-new Date(a.ingested))/86400000 > +s.date) return false;
+      return true;
+    });
+    const k=s.sort;
+    out.sort((x,y)=> k==='name' ? x.name.localeCompare(y.name) : k==='modality' ? x.modality.localeCompare(y.modality) : (x.ingested<y.ingested?1:-1));
+    return out;
+  }
+
+  renderVals(){
+    const s=this.state, c=this.COLORS[this.props.theme||s.theme];
+    const mono="'JetBrains Mono',monospace", sans="'Inter',system-ui,-apple-system,sans-serif";
+    const cols=this.props.columns||3;
+    const list=this.filtered();
+    const modTone={Imagery:c.mapFootprint,Tabular:c.mapResult,Document:c.mutedFg,Vector:c.mapSelection};
+    const tab=(name)=>({cursor:'pointer',color:s.tab===name?c.fg:c.mutedFg,fontWeight:s.tab===name?600:400});
+    const selStyle={fontFamily:sans,letterSpacing:'-0.015em',padding:'7px 10px',borderRadius:6,border:`1px solid ${c.input}`,background:c.card,color:c.fg,fontSize:12.5};
+    const rowLabel=(on)=>({fontSize:13,color:on?c.fg:c.mutedFg,fontWeight:on?500:400});
+    const radioDot=(on)=>({width:11,height:11,borderRadius:'50%',border:`1px solid ${on?c.primary:c.border}`,background:on?c.primary:'transparent',flexShrink:0,boxSizing:'border-box',display:'inline-block'});
+    const runMeta={SUCCESS:[c.mapResult,'Success'],FAILURE:[c.destructive,'Failed'],STARTED:[c.mapFootprint,'Running']};
+
+    return {
+      rootStyle:{width:'100%',height:'100%',display:'flex',flexDirection:'column',fontFamily:sans,letterSpacing:'-0.015em',background:c.bg,color:c.fg,fontSize:14,boxSizing:'border-box',overflow:'hidden'},
+      headerStyle:{display:'flex',alignItems:'center',gap:20,padding:'12px 18px',borderBottom:`1px solid ${c.border}`,flexShrink:0},
+      wordmarkStyle:{fontWeight:700,letterSpacing:'0.1em',fontSize:13},
+      wordmarkAccentStyle:{color:c.mapResult},
+      navStyle:{display:'flex',gap:16,fontSize:13},
+      tabMapStyle:tab('Map'),tabAssetsStyle:tab('Assets'),tabRunsStyle:tab('Runs'),
+      goMap:this.goMap,goAssets:this.goAssets,goRuns:this.goRuns,
+      userChromeStyle:{fontFamily:mono,fontSize:10.5,textTransform:'uppercase',letterSpacing:'0.06em',color:c.mutedFg},
+      outlineBtnStyle:{fontFamily:sans,letterSpacing:'-0.015em',cursor:'pointer',borderRadius:6,border:`1px solid ${c.input}`,background:'transparent',color:c.fg,padding:'6px 12px',fontSize:12.5},
+      themeBtnLabel:(this.props.theme||s.theme)==='dark'?'Light mode':'Dark mode',
+      toggleTheme:this.toggleTheme,
+      bodyStyle:{flex:1,minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'},
+      isAssets:s.tab==='Assets',isMap:s.tab==='Map',isRuns:s.tab==='Runs',
+
+      assetsOuterStyle:{display:'flex',height:'100%',minHeight:0},
+      railStyle:{width:236,flexShrink:0,borderRight:`1px solid ${c.border}`,padding:16,display:'flex',flexDirection:'column',gap:18,overflowY:'auto',boxSizing:'border-box'},
+      searchStyle:{fontFamily:sans,letterSpacing:'-0.015em',padding:'8px 11px',borderRadius:6,border:`1px solid ${c.input}`,background:c.card,color:c.fg,fontSize:13,width:'100%',boxSizing:'border-box',minWidth:0},
+      q:s.q,onQ:this.onQ,
+      groupStyle:{display:'flex',flexDirection:'column',gap:4},
+      groupLabelStyle:{fontFamily:mono,fontSize:10.5,textTransform:'uppercase',letterSpacing:'0.06em',color:c.mutedFg,marginBottom:4},
+      filterRowStyle:{display:'flex',alignItems:'center',gap:9,cursor:'pointer',padding:'3px 0'},
+      countStyle:{fontFamily:mono,fontSize:10.5,color:c.mutedFg},
+      modRows:this.MODALITIES.map(m=>{
+        const on=s.mods.indexOf(m)>=0;
+        return {label:m,count:this.ASSETS.filter(a=>a.modality===m).length,mark:on?'✓':'',onClick:()=>this.toggleMod(m),
+          boxStyle:{width:14,height:14,borderRadius:3,border:`1px solid ${on?c.primary:c.border}`,background:on?c.primary:'transparent',color:c.primaryFg,fontSize:10,lineHeight:'13px',textAlign:'center',flexShrink:0,boxSizing:'border-box',display:'inline-block'},
+          labelStyle:rowLabel(on)};
+      }),
+      dateRows:this.DATE_OPTS.map(d=>({label:d.l,onClick:()=>this.setDate(d.v),dotStyle:radioDot(s.date===d.v),labelStyle:rowLabel(s.date===d.v)})),
+      ghostBtnStyle:{fontFamily:sans,letterSpacing:'-0.015em',cursor:'pointer',borderRadius:6,border:'none',background:'transparent',color:c.mutedFg,padding:'6px 0',fontSize:12.5,textAlign:'left'},
+      clearFilters:this.clearFilters,
+
+      gridColStyle:{flex:1,minWidth:0,padding:'20px 22px',overflowY:'auto',boxSizing:'border-box'},
+      gridHeadStyle:{display:'flex',alignItems:'baseline',gap:12,marginBottom:16},
+      h1Style:{fontSize:19,fontWeight:700,margin:0},
+      subStyle:{fontSize:13,color:c.mutedFg,margin:0},
+      countLabel:`${list.length} of ${this.ASSETS.length} assets`,
+      selectStyle:selStyle,sort:s.sort,onSort:this.onSort,
+      gridStyle:{display:'grid',gridTemplateColumns:`repeat(${cols}, minmax(0,1fr))`,gap:14},
+      cardHoverStyle:{borderColor:c.primary},
+      cards:list.map(a=>({...a,ingestedMono:this.monoDate(a.ingested),onOpen:()=>this.open(a),
+        cardStyle:{border:`1px solid ${c.border}`,borderRadius:6,background:c.card,overflow:'hidden',cursor:'pointer',display:'flex',flexDirection:'column'},
+        modTagStyle:{display:'inline-flex',alignItems:'center',gap:6,fontSize:10.5,fontFamily:mono,textTransform:'uppercase',letterSpacing:'0.06em',color:modTone[a.modality]}})),
+      cardTopStyle:{display:'flex',alignItems:'center',gap:8,padding:'9px 13px',borderBottom:`1px solid ${c.border}`},
+      cardBodyStyle:{padding:'11px 13px 12px',display:'flex',flexDirection:'column',gap:5},
+      cardNameStyle:{fontSize:13.5,fontWeight:500,lineHeight:1.35},
+      cardIdStyle:{fontFamily:mono,fontSize:11,color:c.fg},
+      cardMetaStyle:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:c.mutedFg,flexWrap:'wrap'},
+      dividerStyle:{color:c.border},
+      cardFootStyle:{display:'flex',alignItems:'center',gap:8,marginTop:4,paddingTop:8,borderTop:`1px solid ${c.border}`},
+      monoSmallStyle:{fontFamily:mono,fontSize:10.5,color:c.mutedFg,letterSpacing:'0.04em'},
+      locateLinkStyle:{fontSize:12,color:c.primary},
+      isEmpty:list.length===0,
+      emptyStyle:{padding:'36px 0',color:c.mutedFg,fontSize:13,textAlign:'center'},
+
+      mapOuterStyle:{display:'flex',height:'100%',minHeight:0},
+      mapColStyle:{flex:1,minWidth:0,padding:18,display:'flex',flexDirection:'column',gap:12,boxSizing:'border-box'},
+      hasSelected:!!s.selected,selected:s.selected||{id:'',name:'',bbox:''},
+      locateBarStyle:{display:'flex',alignItems:'center',gap:12,padding:'8px 12px',border:`1px solid ${c.mapFootprint}`,borderRadius:6,background:`color-mix(in oklab, ${c.mapFootprint} 10%, transparent)`,flexShrink:0},
+      monoIdStyle:{fontFamily:mono,fontSize:12,width:150,flexShrink:0},
+      locateTextStyle:{fontSize:13},
+      mapPaneStyle:{position:'relative',flex:1,minHeight:0,borderRadius:6,border:`1px solid ${c.border}`,overflow:'hidden',background:`linear-gradient(color-mix(in oklab, ${c.fg} 4%, transparent) 1px, transparent 1px),linear-gradient(90deg, color-mix(in oklab, ${c.fg} 4%, transparent) 1px, transparent 1px),color-mix(in oklab, ${c.fg} 3%, ${c.bg})`,backgroundSize:'26px 26px,26px 26px,auto'},
+      answerRectStyle:{position:'absolute',left:'12%',top:'24%',width:'30%',height:'46%',background:`color-mix(in oklab, ${c.mapResult} 18%, transparent)`,border:`2px solid ${c.mapResult}`,borderRadius:2},
+      footprintRectStyle:{position:'absolute',left:(s.selected?s.selected.rect[0]:0)+'%',top:(s.selected?s.selected.rect[1]:0)+'%',width:(s.selected?s.selected.rect[2]:0)+'%',height:(s.selected?s.selected.rect[3]:0)+'%',background:`color-mix(in oklab, ${c.mapFootprint} 14%, transparent)`,border:`1.5px dashed ${c.mapFootprint}`,borderRadius:2},
+      footprintTagStyle:{position:'absolute',top:-9,left:8,background:c.bg,color:c.mapFootprint,fontFamily:mono,fontSize:10,padding:'1px 6px',border:`1px solid ${c.mapFootprint}`,borderRadius:999},
+      legendRowStyle:{display:'flex',gap:16,fontSize:12.5,color:c.mutedFg,alignItems:'center',flexWrap:'wrap'},
+      legendItemStyle:{display:'inline-flex',alignItems:'center',gap:6},
+      answerSwatchStyle:{width:11,height:11,borderRadius:2,background:c.mapResult,display:'inline-block'},
+      footprintSwatchStyle:{width:11,height:11,borderRadius:2,background:c.mapFootprint,display:'inline-block'},
+      selectionSwatchStyle:{width:11,height:11,borderRadius:2,background:c.mapSelection,display:'inline-block'},
+
+      chatPaneStyle:{width:360,flexShrink:0,borderLeft:`1px solid ${c.border}`,display:'flex',flexDirection:'column',minWidth:0},
+      sessionBarStyle:{padding:'10px 14px',borderBottom:`1px solid ${c.border}`,display:'flex'},
+      logStyle:{flex:1,minHeight:0,overflowY:'auto',padding:14,display:'flex',flexDirection:'column',gap:10},
+      userBubbleStyle:{background:c.accent,color:c.accentFg,borderRadius:6,padding:'10px 12px',fontSize:13.5,lineHeight:1.4,maxWidth:'88%',marginLeft:'auto',width:'fit-content'},
+      aiTextStyle:{fontSize:13.5,lineHeight:1.5},
+      chipsRowStyle:{display:'flex',gap:7,flexWrap:'wrap',marginTop:8},
+      citChipStyle:{display:'inline-flex',alignItems:'center',gap:6,padding:'4px 10px',borderRadius:999,border:`1px solid ${c.border}`,fontSize:11.5,fontFamily:mono,color:c.fg},
+      citDotStyle:{width:6,height:6,borderRadius:'50%',background:c.mapResult,display:'inline-block'},
+      composerStyle:{padding:14,borderTop:`1px solid ${c.border}`,display:'flex',gap:8},
+      primaryBtnStyle:{fontFamily:sans,letterSpacing:'-0.015em',cursor:'pointer',border:'none',borderRadius:6,background:c.primary,color:c.primaryFg,padding:'9px 16px',fontSize:13.5,fontWeight:500},
+
+      runsPageStyle:{padding:'22px 24px',width:'100%',maxWidth:900,margin:'0 auto',boxSizing:'border-box',overflowY:'auto'},
+      runsListStyle:{border:`1px solid ${c.border}`,borderRadius:6,background:c.card,marginTop:14},
+      runsVM:this.RUNS.map(r=>{const m=runMeta[r.status];return {id:r.id,started:r.started,duration:r.duration,label:m[1],
+        badgeStyle:{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 9px',borderRadius:999,fontSize:12.5,background:`color-mix(in oklab, ${m[0]} 18%, transparent)`,color:m[0],width:'fit-content'},
+        dotStyle:{width:6,height:6,borderRadius:'50%',background:m[0],display:'inline-block'}};}),
+      runRowStyle:{display:'flex',alignItems:'center',gap:16,padding:'12px 16px',borderBottom:`1px solid ${c.border}`,fontSize:13.5}
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -10,7 +10,9 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import catalog, lake
+from apps.catalog import kb
+
+from . import lake
 from .serializers import (
     AssetDataSerializer,
     AssetDetailSerializer,
@@ -58,11 +60,9 @@ class AssetsAtPointView(APIView):
         point = _PointSerializer(data=request.query_params)
         point.is_valid(raise_exception=True)
 
-        rows = catalog.assets_covering_point(
-            point.validated_data["lon"], point.validated_data["lat"]
-        )
+        rows = kb.assets_covering_point(point.validated_data["lon"], point.validated_data["lat"])
 
-        # catalog orders by data type, so grouping needs no second sort. A point
+        # kb orders by data type, so grouping needs no second sort. A point
         # nothing covers yields no groups — an empty answer, not an error.
         groups = [
             {"data_type": data_type, "assets": list(assets)}
@@ -84,7 +84,7 @@ class AssetDetailView(APIView):
         tags=["map"],
     )
     def get(self, request, asset_id):
-        detail = catalog.asset_detail(asset_id)
+        detail = kb.asset_detail(asset_id)
         if detail is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(AssetDetailSerializer(detail).data)
@@ -112,7 +112,7 @@ class AssetDataView(APIView):
     def get(self, request, asset_id):
         # The lake URI is resolved here and never leaves the server: the client
         # gets features, not a path into the bucket.
-        uri = catalog.vector_source_uri(asset_id)
+        uri = kb.vector_source_uri(asset_id)
         if uri is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
