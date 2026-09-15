@@ -11,7 +11,7 @@ that knowledge base and see the answers.
 
 **Why it exists:** So the team can find out what data exists and what it says — by asking, not by writing SQL or opening GIS tools.
 
-## The two pages
+## The three pages
 
 **Atlas** — the main workspace: a chat panel and the map side by side.
 1. Natural-language questions answered across all sources at once —
@@ -22,6 +22,9 @@ that knowledge base and see the answers.
 3. Click a point to see what data covers it — assets grouped by type,
    with metadata and footprints.
 4. Select an area to scope a question spatially ("ask about here").
+
+**Assets** — the whole catalog, browsable: filter by name, data type and
+ingestion date, then jump to where an asset sits on the map.
 
 **Data Governance** — status and history of the ingestion pipeline runs
 (Dagster), so the team can see data freshness and failures without

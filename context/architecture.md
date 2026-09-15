@@ -76,17 +76,23 @@ client and TanStack Query hooks from that same file via **Orval**, so
 backend and frontend cannot drift.
 
 **Frontend:** a single-page app — **Vite + React + TypeScript**. Shell +
-nested routes (persistent sidebar layout) wrapping the two screens:
+nested routes (persistent sidebar layout) wrapping the three screens. One
+path means one thing to everyone: `/` is the landing page and redirects a
+signed-in visitor to `/map` (docs/adr/009).
 
-- **Atlas** — the main workspace: chat panel + map together. Chat is SSE
-  streamed with citations linked to assets. The map is **MapLibre GL**
+- **Atlas** (`/map`) — the main workspace: chat panel + map together. Chat
+  is SSE streamed with citations linked to assets. The map is **MapLibre GL**
   (via react-map-gl) with **terra-draw** for rectangular area selection;
   it renders result GeoJSON layers, asset footprints on click, and
   "ask about this area". Raster tile display is a later phase.
-- **Data Governance** — Dagster run list/detail via **TanStack Table**,
-  manual refresh only. Admin additionally sees a "trigger pipeline run"
-  action (Viewer does not). Theme: light and dark, user-toggled,
-  tokens-driven.
+- **Assets** (`/assets`) — the catalog, browsable: filter by name, data
+  type and ingestion date, sort, page by offset. Each card links to
+  `/map?asset=<id>`, which frames the map on that asset's coverage and
+  draws its footprint.
+- **Data Governance** (`/runs`) — Dagster run list/detail via **TanStack
+  Table**, manual refresh only. Admin additionally sees a "trigger
+  pipeline run" action (Viewer does not). Theme: light and dark,
+  user-toggled, tokens-driven.
 
 Styling: **Tailwind CSS + shadcn/ui (Radix primitives)**, design tokens
 only. Forms (where they exist): React Hook Form + Zod. Server state:
@@ -125,6 +131,7 @@ geo-portal/
     config/                # settings, urls, asgi (SSE requires ASGI serving)
     apps/
       accounts/            # JWT auth, UserProfile (admin|viewer)
+      catalog/             # kb.py (the kb schema reader) + browse endpoint
       chat/                # sessions, messages, agent loop, SSE streaming
       map/                 # footprint/coverage + asset metadata endpoints
       runs/                # Dagster GraphQL client, run list/detail
@@ -134,7 +141,7 @@ geo-portal/
     src/
       api/                 # Orval-generated client + TanStack Query hooks
       app/                 # shell, routing, providers
-      features/            # workspace/ (map+chat)  runs/
+      features/            # workspace/ (map+chat)  catalog/ (assets)  runs/
       components/ui/       # shadcn/ui primitives
       lib/
     Dockerfile
@@ -169,7 +176,13 @@ geo-portal/
 2. **Map:** viewport or click → `GET /api/map/footprints?bbox=` (from `kb`)
    → GeoJSON. A question scoped to a drawn area runs flow 1 with the
    geometry attached; any vector layer in the answer returns as GeoJSON.
-3. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
+3. **Assets:** filters → `GET /api/catalog/assets` (from `kb`) → one page
+   of rows, the total behind it, and a count per data type. Names are
+   derived from each asset's source path; every ordering breaks ties on
+   `asset_id`, because a whole ingestion run shares one timestamp
+   (docs/adr/010). Following an asset goes to `/map?asset=<id>`, and the
+   map then reads `GET /api/map/assets/{id}` for the footprint.
+4. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
    normalized JSON → TanStack Table. `GET /api/runs/{id}` adds the
    per-step breakdown from Dagster's `stepStats`, and `GET
    /api/runs/{id}/logs` pages the event log. `POST /api/runs/trigger`

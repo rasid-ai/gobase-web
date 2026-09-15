@@ -11,14 +11,20 @@ Pre-auth, outside the shell:
 - **Sign in** (`/signin`) — credentials form; success lands on the Map
   workspace.
 
-Two routes inside the shell (persistent sidebar layout):
+Three routes inside the shell (persistent sidebar layout). Each path means
+one thing to everyone; `/` belongs to the landing page and sends a
+signed-in visitor to the map (docs/adr/009):
 
-- **Atlas** (`/`) — the main workspace. The map fills the page; the chat is
-  a docked, collapsible side panel on the same screen. The panel holds the
-  session list and the active conversation. Vector layers from answers
-  render on this map (toggleable per layer); clicking a point opens the
-  covering-assets list grouped by data type; the rectangle tool scopes the
-  next question to the drawn area.
+- **Atlas** (`/map`) — the main workspace. The map fills the page; the
+  chat is a docked, collapsible side panel on the same screen. The panel
+  holds the session list and the active conversation. Vector layers from
+  answers render on this map (toggleable per layer); clicking a point opens
+  the covering-assets list grouped by data type; the rectangle tool scopes
+  the next question to the drawn area.
+- **Assets** (`/assets`) — the catalog, browsable. A filter rail on the
+  left, a card per asset on the right. Data types come from the API with
+  their counts; the page holds no list of its own and gives no type a
+  colour the others do not get. Each card links to `/map?asset=<id>`.
 - **Data Governance** (`/runs`) — run list, newest first, with a manual
   refresh control; selecting a run expands it in place to its per-step
   detail.

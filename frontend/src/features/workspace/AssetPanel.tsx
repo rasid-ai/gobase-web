@@ -22,7 +22,7 @@ export function AssetList({
   selectedId: string | null
   onSelect: (assetId: string) => void
   /** Load this asset's features onto the map. */
-  onDraw: (asset: AssetSummary) => void
+  onDraw: (assetId: string, name: string) => void
   /** The asset whose features are being fetched, if any. */
   loadingId: string | null
 }) {
@@ -40,7 +40,7 @@ export function AssetList({
                   asset={asset}
                   selected={asset.asset_id === selectedId}
                   onSelect={() => onSelect(asset.asset_id)}
-                  onDraw={() => onDraw(asset)}
+                  onDraw={() => onDraw(asset.asset_id, label(asset))}
                   loading={asset.asset_id === loadingId}
                 />
               </li>
@@ -123,10 +123,26 @@ function Spinner() {
 }
 
 /** The catalog has no display name, so the source it came from is the identity. */
+function name(summary: unknown, sourceUri: unknown, assetId: string): string {
+  if (typeof summary === 'string' && summary) return summary
+  const uri = typeof sourceUri === 'string' ? sourceUri : ''
+  return uri.split('/').filter(Boolean).pop() || uri || assetId
+}
+
 function label(asset: AssetSummary): string {
-  if (asset.summary) return asset.summary
-  const uri = asset.source_uri ?? ''
-  return uri.split('/').filter(Boolean).pop() || uri || asset.asset_id
+  return name(asset.summary, asset.source_uri, asset.asset_id)
+}
+
+/**
+ * The same name, read out of the metadata dict.
+ *
+ * An asset reached from the Assets page has no catalog row here — only its
+ * detail — so the two panels must agree on what an asset is called by sharing
+ * the rule, not by each having one.
+ */
+function labelOf(detail: AssetDetail): string {
+  const metadata = detail.metadata ?? {}
+  return name(metadata.summary, metadata.source_uri, detail.asset_id)
 }
 
 /**
@@ -138,21 +154,50 @@ function label(asset: AssetSummary): string {
 export function AssetDetailPanel({
   detail,
   onClear,
+  onDraw,
+  loading,
 }: {
   detail: AssetDetail
   onClear: () => void
+  /** Load this asset's features onto the map. */
+  onDraw: (assetId: string, name: string) => void
+  /** True while this asset's features are being fetched. */
+  loading: boolean
 }) {
   const entries = Object.entries(detail.metadata ?? {})
+  const { layers } = useLayers()
+  const drawn = layers.find((layer) => layer.assetId === detail.asset_id)
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <p className={MICRO}>{detail.data_type}</p>
         <span className="flex-1" />
+        {/*
+          Drawing is offered here for the same reason it is offered in the row
+          above: an asset reached from the Assets page never passes through
+          that list, so without this the only way to draw it would be to find
+          it again by clicking the map.
+
+          Offered whatever the data type is. Only vector assets have features
+          to draw, but which types those are belongs to the knowledge base and
+          not to this file (specs/map.md) — an asset with nothing to draw says
+          so when asked, exactly as it does from the list.
+        */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onDraw(detail.asset_id, labelOf(detail))}
+          disabled={loading}
+        >
+          {loading ? <Spinner /> : drawn ? 'Redraw' : 'Draw'}
+        </Button>
         <Button variant="outline" size="sm" onClick={onClear}>
           Clear
         </Button>
       </div>
+
+      {drawn?.truncated ? <p className={MICRO}>Showing first {drawn.count} features</p> : null}
 
       <dl className="flex flex-col divide-y divide-border border-y border-border">
         {entries.map(([key, value]) => (

@@ -7,9 +7,9 @@ import Map, {
   Marker,
   Source,
 } from 'react-map-gl/maplibre'
+import { useSearchParams } from 'react-router-dom'
 
 import { mapAssetData, useMapAssetDetail, useMapAssetsAtPoint } from '@/api/generated/map/map'
-import type { AssetSummary } from '@/api/generated/model'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
 
@@ -76,6 +76,17 @@ const OSM: StyleSpecification = {
  */
 const HOME_VIEW = { longitude: 35.87, latitude: 33.87, zoom: 8.5 }
 
+/**
+ * How the view is framed on a box.
+ *
+ * `maxZoom` is the important one. An asset's coverage can be a single point —
+ * a box with no area — and `fitBounds` answers that with the map's maximum
+ * zoom, which is far past the deepest tile the basemap has. The result is an
+ * empty screen that looks like a broken map rather than a place. Capping it
+ * lands on a neighbourhood instead.
+ */
+const FIT = { padding: 48, maxZoom: 16, duration: 600 } as const
+
 type Point = { lon: number; lat: number }
 
 /**
@@ -93,10 +104,18 @@ export function WorkspacePage() {
 }
 
 function MapWorkspace() {
+  // An asset can be chosen from the Assets page, which arrives as `?asset=`
+  // (docs/adr/009). The parameter is the selection rather than a copy of it, so
+  // the link survives a reload and can be shared.
+  const [params, setParams] = useSearchParams()
+  const linkedId = params.get('asset')
+
   const [mode, setMode] = useState<Mode>('point')
   const [point, setPoint] = useState<Point | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [clickedId, setClickedId] = useState<string | null>(null)
   const [loadingId, setLoadingId] = useState<string | null>(null)
+
+  const selectedId = clickedId ?? linkedId
   const tokens = useMapTokens()
   const toast = useToast()
   const { layers, add } = useLayers()
@@ -114,15 +133,44 @@ function MapWorkspace() {
   const groups = assets.data?.status === 200 ? assets.data.data.groups : []
   const selected = detail.data?.status === 200 ? detail.data.data : null
 
+  /**
+   * The selected asset's coverage.
+   *
+   * It is a stand-in for data you cannot see, so it gives way as soon as you
+   * can see it: drawing the asset's features leaves the box outlining the very
+   * thing it was describing. Hiding the layer brings the box back, because
+   * then there is nothing to see again.
+   */
   const footprint = useMemo(() => {
     if (!selected?.footprint) return null
+    const shown = layers.some((layer) => layer.assetId === selected.asset_id && layer.visible)
+    if (shown) return null
     return { type: 'Feature' as const, properties: {}, geometry: selected.footprint }
-  }, [selected])
+  }, [selected, layers])
+
+  /**
+   * Select an asset, or clear the selection.
+   *
+   * One selection with two ways in — a row in the point list, or the `?asset=`
+   * link — so clearing has to take both. Leaving the parameter behind would
+   * re-select the linked asset on the next render.
+   */
+  const select = useCallback(
+    (assetId: string | null) => {
+      setClickedId(assetId)
+      if (params.has('asset')) {
+        const next = new URLSearchParams(params)
+        next.delete('asset')
+        setParams(next, { replace: true })
+      }
+    },
+    [params, setParams],
+  )
 
   function onMapClick(event: MapLayerMouseEvent) {
     // Only point mode inspects; navigate leaves clicks to the map.
     if (mode !== 'point') return
-    setSelectedId(null)
+    select(null)
     setPoint({ lon: event.lngLat.lng, lat: event.lngLat.lat })
   }
 
@@ -137,7 +185,7 @@ function MapWorkspace() {
    */
   function goTo({ lat, lon }: Coordinates) {
     setMode('point')
-    setSelectedId(null)
+    select(null)
     setPoint({ lon, lat })
 
     // Keep the current zoom when it is already close enough to be useful;
@@ -156,7 +204,31 @@ function MapWorkspace() {
 
   // Clearing a selection keeps the list open — deselecting returns you to it.
   // Drawn layers are untouched: they outlive the selection (docs/adr/008).
-  const clearSelection = () => setSelectedId(null)
+  const clearSelection = () => select(null)
+
+  /**
+   * Frame an asset arrived at from the Assets page.
+   *
+   * Only for a linked asset, and only once: a row click leaves the view alone,
+   * because you are already looking at the place you clicked. A link carries no
+   * view at all, so without this the footprint would draw somewhere off-screen.
+   */
+  const framed = useRef<string | null>(null)
+  useEffect(() => {
+    if (!linkedId || clickedId || framed.current === linkedId) return
+
+    const box = selected?.footprint ? boundsOf(selected.footprint) : null
+    if (!box) return
+
+    framed.current = linkedId
+    map.current?.fitBounds(
+      [
+        [box[0], box[1]],
+        [box[2], box[3]],
+      ],
+      FIT,
+    )
+  }, [linkedId, clickedId, selected])
 
   /**
    * Load an asset's features and draw them.
@@ -164,12 +236,15 @@ function MapWorkspace() {
    * Called directly rather than through a query hook: this is an action with a
    * start and an end, not state the page reads, and the result lives in the
    * layer store afterwards rather than in the cache.
+   *
+   * Takes an id and a name rather than a catalog row, because both panels draw:
+   * the point list has a row to hand and the metadata pane does not.
    */
   const draw = useCallback(
-    async (asset: AssetSummary) => {
-      setLoadingId(asset.asset_id)
+    async (assetId: string, name: string) => {
+      setLoadingId(assetId)
       try {
-        const response = await mapAssetData(asset.asset_id)
+        const response = await mapAssetData(assetId)
         if (response.status !== 200) {
           toast.show(
             response.status === 404
@@ -180,15 +255,15 @@ function MapWorkspace() {
         }
 
         const data = response.data
-        // The footprint comes from the detail endpoint, which may not have been
-        // fetched; a layer without one simply draws no outline.
-        const footprint = selectedId === asset.asset_id ? (selected?.footprint ?? null) : null
+        // Only used to frame the view below: the asset's own coverage is a
+        // better box than the extent of whatever features came back, and the
+        // detail endpoint may not have been asked for it.
+        const footprint = selectedId === assetId ? (selected?.footprint ?? null) : null
 
         add({
-          assetId: asset.asset_id,
-          label: label(asset),
+          assetId,
+          label: name,
           features: data.features,
-          footprint,
           truncated: data.truncated,
           count: data.count,
         })
@@ -202,7 +277,7 @@ function MapWorkspace() {
               [box[0], box[1]],
               [box[2], box[3]],
             ],
-            { padding: 48, duration: 600 },
+            FIT,
           )
         }
       } catch {
@@ -256,20 +331,26 @@ function MapWorkspace() {
 
       {/*
         Nothing covering the point renders nothing at all — no panel, no error
-        (specs/map.md).
+        (specs/map.md). An asset reached from the Assets page opens the panel
+        too, with no point clicked and so no list behind it.
       */}
-      {groups.length > 0 ? (
+      {groups.length > 0 || selected ? (
         <aside
-          aria-label="Assets at this point"
+          aria-label={selected ? 'Selected asset' : 'Assets at this point'}
           className="absolute right-4 top-4 bottom-4 z-10 flex w-[22rem] flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur"
         >
           {selected ? (
-            <AssetDetailPanel detail={selected} onClear={clearSelection} />
+            <AssetDetailPanel
+              detail={selected}
+              onClear={clearSelection}
+              onDraw={draw}
+              loading={loadingId === selected.asset_id}
+            />
           ) : (
             <AssetList
               groups={groups}
               selectedId={selectedId}
-              onSelect={setSelectedId}
+              onSelect={select}
               onDraw={draw}
               loadingId={loadingId}
             />
@@ -309,7 +390,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
 }
 
 /**
- * One drawn asset: its features, and its footprint outline when known.
+ * One drawn asset's features.
  *
  * Three layers because a single file may hold points, lines and polygons at
  * once — 10 of the catalog's 22 vector layers are mixed. Each filters on
@@ -378,11 +459,4 @@ function boundsFrom(
       : next
   }
   return box
-}
-
-/** The catalog has no display name, so the source it came from is the identity. */
-function label(asset: AssetSummary): string {
-  if (asset.summary) return asset.summary
-  const uri = asset.source_uri ?? ''
-  return uri.split('/').filter(Boolean).pop() || uri || asset.asset_id
 }

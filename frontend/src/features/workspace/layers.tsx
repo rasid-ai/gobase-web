@@ -20,8 +20,6 @@ export type ActiveLayer = {
   /** What to call it in the panel. The catalog has no display name. */
   label: string
   features: readonly AssetDataFeaturesItem[]
-  /** The asset's coverage, drawn as an outline alongside its features. */
-  footprint: unknown | null
   /** The file held more features than the server returns. */
   truncated: boolean
   count: number
