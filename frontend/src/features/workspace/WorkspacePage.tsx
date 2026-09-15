@@ -67,6 +67,15 @@ const OSM: StyleSpecification = {
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 }
 
+/**
+ * Where the map opens: Lebanon, the area the portal is operated for.
+ *
+ * Centre is the middle of the country's bounding box (lon 35.10-36.63,
+ * lat 33.05-34.69) and the zoom fits the whole of it with a little margin.
+ * This is a starting view, not a limit — nothing constrains panning.
+ */
+const HOME_VIEW = { longitude: 35.87, latitude: 33.87, zoom: 8.5 }
+
 type Point = { lon: number; lat: number }
 
 /**
@@ -209,7 +218,7 @@ function MapWorkspace() {
     <div className="relative h-full w-full">
       <Map
         ref={map}
-        initialViewState={{ longitude: 33.003, latitude: 33.545, zoom: 11 }}
+        initialViewState={HOME_VIEW}
         mapStyle={OSM}
         onClick={onMapClick}
         cursor={mode === 'point' ? 'crosshair' : 'grab'}

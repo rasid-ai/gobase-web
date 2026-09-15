@@ -6,6 +6,13 @@ composition — is in context/ui-rules.md. MapLibre GL, per docs/adr/003.
 Point inspection and drawing an asset's vector data are built. Area
 questions and answer layers are not.
 
+## Opening view — built
+
+The map opens on Lebanon, the area the portal is operated for, zoomed to
+fit the whole country. It is a starting point and not a boundary: panning
+and zooming anywhere is unrestricted, and the view is not remembered
+between visits.
+
 ## Interaction modes
 
 Two mutually exclusive modes are built: **navigate** and **point**.
