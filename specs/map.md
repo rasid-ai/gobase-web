@@ -126,14 +126,26 @@ would otherwise have to be found again by clicking the map.
 Each asset has its own control to draw it — in the list, and on the metadata
 panel once one is selected. That reads the asset's features from the lake and
 renders them: polygons, lines and points
-together, since one file may hold all three. The server caps how many
-features it returns; when it does, the row says how many are shown.
+together, since one file may hold all three.
+
+A layer shows the area the map is showing, and follows it: pan or zoom, and
+what is drawn is read again for where you are now (docs/adr/012). There is
+no cap on an asset any more. What there is instead is a budget per area —
+a view of a whole city can hold more features than are worth reading, and
+when it does the panel says how many are shown and that zooming in gets the
+rest. Zoom in and the layer comes back whole, because a smaller area is
+read in full.
 
 Drawn layers outlive the selection that loaded them (docs/adr/008). Picking
 another asset, clearing a selection or clicking a new point all leave them
 on the map, because the point of drawing them is to see several at once. A
 panel lists what is drawn, and is the only way to hide, remove, or clear
-them. Hiding a layer never refetches it.
+them. Hiding a layer never refetches it, and a hidden layer does not follow
+the map.
+
+A layer that cannot be read says so in the layers panel, and stays. It is
+read again on the next move, so a failure is a state of the layer rather
+than a passing notice.
 
 Only vector assets can be drawn today. The endpoint that serves them names
 that modality rather than inferring it (docs/adr/008); other modalities get
