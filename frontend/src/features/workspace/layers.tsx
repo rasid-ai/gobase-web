@@ -2,27 +2,34 @@ import { createContext, useCallback, useContext, useMemo, useState } from 'react
 import type { ReactNode } from 'react'
 
 import type { AssetDataFeaturesItem } from '@/api/generated/model'
+import type { Bbox } from '@/features/places/bbox'
 
 /**
- * The layers currently drawn on the map.
+ * The layers currently drawn on the map, and the area they are drawn for.
  *
  * Layers outlive the selection that loaded them (docs/adr/008): closing the
  * popup, picking another asset or clearing a point all leave them alone. Only
  * the panel's own controls remove them.
  *
- * A context rather than a state library: this is one list and four operations,
- * and the project has no store to join. It lives above the map so nothing else
- * on the page can reset it by re-rendering.
+ * A layer is an identity and whether it is shown — not its features. The
+ * features belong to an area and are read per window (docs/adr/012), so they
+ * live in the query cache, where panning back to somewhere already read costs
+ * nothing. `useAssetFeatures` is how anything gets at them.
+ *
+ * The window sits here too because it is what every layer is read for, and
+ * because the panels need it as much as the map does. It is the camera, so it
+ * never reaches the URL: `?bbox=` already means the area the *user* chose
+ * (docs/adr/011), and one name cannot carry both.
+ *
+ * A context rather than a state library: this is one list and a handful of
+ * operations, and the project has no store to join. It lives above the map so
+ * nothing else on the page can reset it by re-rendering.
  */
 
 export type ActiveLayer = {
   assetId: string
   /** What to call it in the panel. The catalog has no display name. */
   label: string
-  features: readonly AssetDataFeaturesItem[]
-  /** The file held more features than the server returns. */
-  truncated: boolean
-  count: number
   visible: boolean
 }
 
@@ -34,12 +41,16 @@ type LayersApi = {
   remove: (assetId: string) => void
   clear: () => void
   has: (assetId: string) => boolean
+  /** The area every layer is read for, or null until the map has settled once. */
+  view: Bbox | null
+  setView: (view: Bbox) => void
 }
 
 const LayersContext = createContext<LayersApi | null>(null)
 
 export function LayersProvider({ children }: { children: ReactNode }) {
   const [layers, setLayers] = useState<readonly ActiveLayer[]>([])
+  const [view, setView] = useState<Bbox | null>(null)
 
   const add = useCallback((layer: Omit<ActiveLayer, 'visible'>) => {
     setLayers((current) => {
@@ -72,8 +83,10 @@ export function LayersProvider({ children }: { children: ReactNode }) {
       remove,
       clear,
       has: (assetId: string) => layers.some((one) => one.assetId === assetId),
+      view,
+      setView,
     }),
-    [layers, add, toggle, remove, clear],
+    [layers, add, toggle, remove, clear, view],
   )
 
   return <LayersContext.Provider value={api}>{children}</LayersContext.Provider>

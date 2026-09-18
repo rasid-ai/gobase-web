@@ -9,9 +9,8 @@ import Map, {
 } from 'react-map-gl/maplibre'
 import { useSearchParams } from 'react-router-dom'
 
-import { mapAssetData, useMapAssetDetail, useMapAssetsAtPoint } from '@/api/generated/map/map'
+import { useMapAssetDetail, useMapAssetsAtPoint } from '@/api/generated/map/map'
 import type { Place } from '@/api/generated/model'
-import { useToast } from '@/components/ui/toast'
 import type { Bbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
@@ -28,6 +27,8 @@ import {
   useLayers,
 } from './layers'
 import { useMapTokens } from './mapTokens'
+import { useAssetFeatures } from './useAssetFeatures'
+import { windowFor } from './view'
 
 // Side effect only: points MapLibre at its worker before any map is built.
 import './mapWorker'
@@ -119,13 +120,31 @@ function MapWorkspace() {
   const [mode, setMode] = useState<Mode>('point')
   const [point, setPoint] = useState<Point | null>(null)
   const [clickedId, setClickedId] = useState<string | null>(null)
-  const [loadingId, setLoadingId] = useState<string | null>(null)
 
   const selectedId = clickedId ?? linkedId
   const tokens = useMapTokens()
-  const toast = useToast()
-  const { layers, add } = useLayers()
+  const { layers, add, view, setView } = useLayers()
   const map = useRef<MapRef | null>(null)
+
+  /**
+   * Record what the map is looking at, so the drawn layers can be read for it.
+   *
+   * `moveend` rather than a controlled `viewState`: the camera stays
+   * uncontrolled, and a settled move is the only moment the window can change.
+   * MapLibre fires it once when movement stops, which is the debounce — and
+   * `windowFor` snaps to a grid, so small moves do not even change the key.
+   */
+  const onMoveEnd = useCallback(() => {
+    const instance = map.current
+    if (!instance) return
+    const bounds = instance.getBounds()
+    setView(
+      windowFor(
+        [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+        instance.getZoom(),
+      ),
+    )
+  }, [setView])
 
   const assets = useMapAssetsAtPoint(
     { lon: point?.lon ?? 0, lat: point?.lat ?? 0 },
@@ -272,62 +291,37 @@ function MapWorkspace() {
   }, [linkedId, clickedId, selected, area])
 
   /**
-   * Load an asset's features and draw them.
+   * Draw an asset: put it in the layer list, and go to it.
    *
-   * Called directly rather than through a query hook: this is an action with a
-   * start and an end, not state the page reads, and the result lives in the
-   * layer store afterwards rather than in the cache.
+   * Adding the layer is the whole action. What it shows is read for the area
+   * the map is looking at and read again when that area changes
+   * (docs/adr/012), so there is nothing to await here and no features to hold.
+   *
+   * The frame comes from the asset's own coverage, which is what moves the map
+   * to where the layer is — and the layer then loads for where it landed. With
+   * no coverage to go on the camera stays put, and the layer loads for the
+   * view already on screen.
    *
    * Takes an id and a name rather than a catalog row, because both panels draw:
    * the point list has a row to hand and the metadata pane does not.
    */
   const draw = useCallback(
-    async (assetId: string, name: string) => {
-      setLoadingId(assetId)
-      try {
-        const response = await mapAssetData(assetId)
-        if (response.status !== 200) {
-          toast.show(
-            response.status === 404
-              ? 'That asset has no vector data to draw.'
-              : 'The data lake could not be read. Try again shortly.',
-          )
-          return
-        }
+    (assetId: string, name: string) => {
+      add({ assetId, label: name })
 
-        const data = response.data
-        // Only used to frame the view below: the asset's own coverage is a
-        // better box than the extent of whatever features came back, and the
-        // detail endpoint may not have been asked for it.
-        const footprint = selectedId === assetId ? (selected?.footprint ?? null) : null
+      const footprint = selectedId === assetId ? (selected?.footprint ?? null) : null
+      const box = footprint ? boundsOf(footprint) : null
+      if (!box) return
 
-        add({
-          assetId,
-          label: name,
-          features: data.features,
-          truncated: data.truncated,
-          count: data.count,
-        })
-
-        // The footprint is the asset's own coverage and the better frame when
-        // we have it; otherwise fall back to the extent of what was drawn.
-        const box = (footprint ? boundsOf(footprint) : null) ?? boundsFrom(data.features)
-        if (box) {
-          map.current?.fitBounds(
-            [
-              [box[0], box[1]],
-              [box[2], box[3]],
-            ],
-            FIT,
-          )
-        }
-      } catch {
-        toast.show('The data lake could not be reached. Try again shortly.')
-      } finally {
-        setLoadingId(null)
-      }
+      map.current?.fitBounds(
+        [
+          [box[0], box[1]],
+          [box[2], box[3]],
+        ],
+        FIT,
+      )
     },
-    [add, selected, selectedId, toast],
+    [add, selected, selectedId],
   )
 
   return (
@@ -337,6 +331,8 @@ function MapWorkspace() {
         initialViewState={HOME_VIEW}
         mapStyle={OSM}
         onClick={onMapClick}
+        onLoad={onMoveEnd}
+        onMoveEnd={onMoveEnd}
         cursor={mode === 'point' ? 'crosshair' : 'grab'}
         style={{ position: 'absolute', inset: 0 }}
       >
@@ -345,7 +341,7 @@ function MapWorkspace() {
         ) : null}
 
         {layers.map((layer) => (
-          <DrawnLayer key={layer.assetId} layer={layer} color={tokens.result} />
+          <DrawnLayer key={layer.assetId} layer={layer} view={view} color={tokens.result} />
         ))}
 
         {footprint ? (
@@ -381,20 +377,9 @@ function MapWorkspace() {
           className="absolute right-4 top-4 bottom-4 z-10 flex w-[22rem] flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur"
         >
           {selected ? (
-            <AssetDetailPanel
-              detail={selected}
-              onClear={clearSelection}
-              onDraw={draw}
-              loading={loadingId === selected.asset_id}
-            />
+            <AssetDetailPanel detail={selected} onClear={clearSelection} onDraw={draw} />
           ) : (
-            <AssetList
-              groups={groups}
-              selectedId={selectedId}
-              onSelect={select}
-              onDraw={draw}
-              loadingId={loadingId}
-            />
+            <AssetList groups={groups} selectedId={selectedId} onSelect={select} onDraw={draw} />
           )}
         </aside>
       ) : null}
@@ -449,8 +434,19 @@ const AREA_TYPES = ['Polygon', 'MultiPolygon']
 const LINE_TYPES = ['LineString', 'MultiLineString', ...AREA_TYPES]
 const POINT_TYPES = ['Point', 'MultiPoint']
 
-function DrawnLayer({ layer, color }: { layer: ActiveLayer; color: string }) {
-  const data = useMemo(() => toFeatureCollection(layer.features), [layer.features])
+function DrawnLayer({
+  layer,
+  view,
+  color,
+}: {
+  layer: ActiveLayer
+  view: Bbox | null
+  color: string
+}) {
+  // Only a shown layer reads. Hiding a layer is still a paint change and never
+  // a fetch (docs/adr/008); what changed is that moving the map is a fetch.
+  const { features } = useAssetFeatures(layer.assetId, view, layer.visible)
+  const data = useMemo(() => toFeatureCollection(features), [features])
   const visibility = layer.visible ? 'visible' : 'none'
 
   return (
@@ -480,24 +476,4 @@ function DrawnLayer({ layer, color }: { layer: ActiveLayer; color: string }) {
       />
     </Source>
   )
-}
-
-/** The bounding box across every feature drawn, for the initial zoom. */
-function boundsFrom(
-  features: readonly { geometry: unknown }[],
-): [number, number, number, number] | null {
-  let box: [number, number, number, number] | null = null
-  for (const feature of features) {
-    const next = boundsOf(feature.geometry)
-    if (!next) continue
-    box = box
-      ? [
-          Math.min(box[0], next[0]),
-          Math.min(box[1], next[1]),
-          Math.max(box[2], next[2]),
-          Math.max(box[3], next[3]),
-        ]
-      : next
-  }
-  return box
 }

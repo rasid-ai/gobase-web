@@ -29,6 +29,7 @@ export * from './launchedRun';
 export * from './logError';
 export * from './logEvent';
 export * from './loginRequest';
+export * from './mapAssetDataParams';
 export * from './mapAssetsAtPointParams';
 export * from './me';
 export * from './place';
