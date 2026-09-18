@@ -76,6 +76,10 @@ Indexes: GiST on `extent` (`assets_extent_gix`) and on `topic_path`; btree on
 - Point-in-coverage uses the GiST index via
   `ST_Intersects(a.extent, ST_SetSRID(ST_MakePoint(%s, %s), 4326))`.
 - Everything is SRID 4326. No reprojection is needed for GeoJSON output.
+- Area filtering uses the same index via
+  `ST_Intersects(extent, ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326))`
+  — the catalog browse query's `bbox` parameter (docs/adr/011). It is the one
+  place a bbox is an input rather than an output.
 - **An extent can be invalid, and an invalid extent matches nothing.** A
   polygon whose vertices are all the same coordinate has zero area and
   `ST_IsValid` false, and `ST_Intersects` against it is false for *every*
@@ -83,7 +87,9 @@ Indexes: GiST on `extent` (`assets_extent_gix`) and on `topic_path`; btree on
   finds no assets anywhere, and a map asked to frame that extent zooms past
   the last basemap tile and shows an empty screen. `ST_IsValid(extent)` and
   `ST_Area(extent)` are the checks. The portal cannot fix it — `kb` is
-  read-only (docs/adr/002) — so a bad extent is a data platform bug.
+  read-only (docs/adr/002) — so a bad extent is a data platform bug. This bit
+  once, in September 2026; see the snapshots below. It is fixed, and the check
+  is kept because it cost a session to diagnose the first time.
 
 ## `public.geo_layers` / `public.geo_raster_layers`
 
@@ -121,18 +127,50 @@ Dagster's GraphQL API instead (docs/adr/004), not this table.
 This section is a snapshot and goes stale; check it against the database
 before trusting it. Earlier text is corrected rather than kept.
 
-### Now — read 2026-09-15, evening
+### Now — read 2026-09-18
 
-**Two active assets**, `a.parquet` and `b.parquet`, both `modality = vector`.
-Both extents are **invalid**: `POLYGON((35.5 33.9, 35.5 33.9, ...))`, five
-identical vertices, zero area, `ST_IsValid` false. They look like hand-made
-rows near Beirut. Per the query rule above, nothing on the map can find them
-by clicking, and locating one frames the view past the basemap's deepest
-tile.
+**76 active assets** (77 rows, one superseded or failed), across three
+modalities:
 
-The Dresden extract below is **gone** from the local database. It is kept
-here because what it showed about shape — mixed geometry, feature counts
-past the cap — still describes what real ingested data looks like.
+| `modality` | active | with an extent |
+|---|---|---|
+| `vector` | 34 | 34 |
+| `unparsed` | 31 | 0 |
+| `raster` | 11 | 11 |
+
+**Every extent is valid.** `ST_IsValid` is true and `ST_Area` non-zero for
+all 45 — the invalid zero-area polygons read on 2026-09-15 are gone, and the
+point and area lookups both work against this data. That was a data platform
+defect and it has been fixed there; nothing in this repo changed.
+
+**`unparsed` is new**, and 31 of the 76 carry it. It has no extent and no
+layer rows, so those assets cannot be found by clicking the map or by
+filtering to an area — correctly, since the catalog holds no coverage for
+them. The portal shows the type exactly as written and holds no list of
+types, so this arrived without a code change, which is the point
+(specs/map.md).
+
+**`geo_raster_layers` is no longer empty**: 11 rows, one per raster asset.
+`geo_layers` has 35.
+
+Topics are real now, not a single extract: `airports`, `boundaries`,
+`education_facilities`, `health_facilities`, `google_microsoft_buildings`,
+`esri_landcover_landuse` and more, with `.`-separated sub-paths. 22 of the
+vector assets are still the Dresden extract described below; the rest are
+Lebanon.
+
+Two areas worth knowing for testing the area filter: a Beirut box
+(`35.4,33.8,35.6,34.1`) matches 21 assets and a Dresden box
+(`13.5,50.9,14.1,51.2`) matches 22, with no overlap.
+
+### Two hand-made rows — read 2026-09-15, evening
+
+**Superseded by the reading above; kept because the trap it describes is
+real.** The catalog held two assets, `a.parquet` and `b.parquet`, whose
+extents were `POLYGON((35.5 33.9, 35.5 33.9, ...))` — five identical
+vertices, zero area, `ST_IsValid` false. Point inspection found nothing
+anywhere, and it took a session to establish that the portal was right and
+the data was wrong.
 
 ### The Dresden extract — read 2026-09-11
 

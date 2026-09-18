@@ -4,7 +4,13 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { getMapAssetDataUrl } from '@/api/generated/map/map'
+import type { Bbox } from '@/features/places/bbox'
+import { serializeBbox } from '@/features/places/bbox'
 import { mockFetch, renderApp, resetSession } from '@/test/harness'
+
+import { PAGE_SIZE } from './useAssetFeatures'
+import { windowFor } from './view'
 
 /**
  * MapLibre needs WebGL, which jsdom does not have.
@@ -12,59 +18,117 @@ import { mockFetch, renderApp, resetSession } from '@/test/harness'
  * The map is replaced with plain elements that record what it was asked to
  * draw, so the assertions are about layers and sources rather than pixels.
  */
-/** What the page asked the camera to do, so framing can be asserted. */
-const camera = { fitBounds: vi.fn(), flyTo: vi.fn(), getZoom: () => 8.5 }
+/** Where the stub map is looking. Tests move it to make the window change. */
+const HOME: Bbox = [13.5, 50.9, 14.0, 51.2]
+const camera_view = { bounds: HOME, zoom: 8.5 }
 
-vi.mock('react-map-gl/maplibre', () => ({
-  default: ({
+/** What the page asked the camera to do, so framing can be asserted. */
+const camera = {
+  fitBounds: vi.fn(),
+  flyTo: vi.fn(),
+  getZoom: () => camera_view.zoom,
+  // The page reads the window off the map, so the stub has to have one.
+  getBounds: () => ({
+    getWest: () => camera_view.bounds[0],
+    getSouth: () => camera_view.bounds[1],
+    getEast: () => camera_view.bounds[2],
+    getNorth: () => camera_view.bounds[3],
+  }),
+}
+
+vi.mock('react-map-gl/maplibre', async () => {
+  const { useEffect } = await import('react')
+  // A named component, not an inline arrow on `default`: it uses a hook, and
+  // the rules-of-hooks lint reads a lowercase name as a plain function.
+  function StubMap({
     children,
     onClick,
+    onLoad,
+    onMoveEnd,
     ref,
   }: {
     children?: React.ReactNode
     onClick?: (event: { lngLat: { lng: number; lat: number } }) => void
+    onLoad?: () => void
+    onMoveEnd?: () => void
     ref?: { current: unknown }
-  }) => {
+  }) {
     // react-map-gl hands back a ref the page steers the map through; the stub
     // records the calls instead of moving anything.
     if (ref) ref.current = camera
+    // The real map reports its first view when it loads, and nothing is read
+    // until it does.
+    useEffect(() => {
+      onLoad?.()
+    }, [onLoad])
     return (
       <div data-map>
         {/* Stands in for clicking the map in point mode. */}
         <button type="button" onClick={() => onClick?.({ lngLat: { lng: 13.73, lat: 51.05 } })}>
           map surface
         </button>
+        {/* Stands in for a pan or zoom coming to rest. */}
+        <button type="button" onClick={() => onMoveEnd?.()}>
+          settle map
+        </button>
         {children}
       </div>
     )
-  },
-  Source: ({ id, children }: { id: string; children?: React.ReactNode }) => (
-    <div data-source={id}>{children}</div>
-  ),
-  Layer: ({
-    id,
-    layout,
-    filter,
-  }: {
-    id: string
-    layout?: { visibility?: string }
-    filter?: unknown
-  }) => (
-    <div
-      data-layer={id}
-      data-visibility={layout?.visibility ?? 'visible'}
-      data-filter={JSON.stringify(filter ?? null)}
-    />
-  ),
-  Marker: () => <div data-marker />,
-}))
+  }
+
+  return {
+    default: StubMap,
+    Source: ({ id, children }: { id: string; children?: React.ReactNode }) => (
+      <div data-source={id}>{children}</div>
+    ),
+    Layer: ({
+      id,
+      layout,
+      filter,
+    }: {
+      id: string
+      layout?: { visibility?: string }
+      filter?: unknown
+    }) => (
+      <div
+        data-layer={id}
+        data-visibility={layout?.visibility ?? 'visible'}
+        data-filter={JSON.stringify(filter ?? null)}
+      />
+    ),
+    Marker: () => <div data-marker />,
+  }
+})
 
 const ASSET_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const OTHER_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
 
 const POINT_URL = 'GET /api/map/assets?lon=13.73&lat=51.05'
-const DATA_URL = `GET /api/map/assets/${ASSET_ID}/data`
-const OTHER_DATA_URL = `GET /api/map/assets/${OTHER_ID}/data`
+
+/**
+ * The features request for an asset, for the window the stub map is showing.
+ *
+ * Built with the client's own URL builder and the real `windowFor`, because a
+ * hand-written query string would be asserting the snapping arithmetic in
+ * every test. That arithmetic has its own tests in `view.test.ts`.
+ */
+function dataUrl(id: string, cursor?: number, bounds: Bbox = HOME, zoom = 8.5) {
+  return `GET ${getMapAssetDataUrl(id, {
+    limit: PAGE_SIZE,
+    bbox: serializeBbox(windowFor(bounds, zoom)),
+    ...(cursor === undefined ? {} : { cursor }),
+  })}`
+}
+
+const DATA_URL = dataUrl(ASSET_ID)
+const OTHER_DATA_URL = dataUrl(OTHER_ID)
+
+/** Point the stub map somewhere else, then settle it. */
+async function moveTo(user: ReturnType<typeof userEvent.setup>, bounds: Bbox, zoom = 8.5) {
+  camera_view.bounds = bounds
+  camera_view.zoom = zoom
+  await user.click(screen.getByRole('button', { name: 'settle map' }))
+}
 
 function session() {
   return {
@@ -105,7 +169,7 @@ function data(overrides: Record<string, unknown> = {}) {
   return {
     asset_id: ASSET_ID,
     count: 3,
-    truncated: false,
+    next_cursor: null,
     features: [
       feature('Point', [13.73, 51.05]),
       feature('LineString', [
@@ -139,6 +203,10 @@ afterEach(() => {
 
 beforeEach(() => {
   camera.fitBounds.mockClear()
+  // The stub camera is module state, so a test that moved it would otherwise
+  // hand the next one a different window and a URL nothing mocked.
+  camera_view.bounds = HOME
+  camera_view.zoom = 8.5
 })
 
 describe('drawing a vector asset', () => {
@@ -208,11 +276,15 @@ describe('drawing a vector asset', () => {
     expect(await screen.findByRole('button', { name: /^Redraw roads$/ })).toBeInTheDocument()
   })
 
-  it('says so when the file held more features than were returned', async () => {
+  it('says so when the area holds more than the budget reads', async () => {
+    // Every page offers another, so the budget is what stops it rather than
+    // the data running out.
+    const more = data({ next_cursor: 999 })
     mockFetch({
       ...session(),
       [POINT_URL]: { status: 200, body: groups() },
-      [DATA_URL]: { status: 200, body: data({ count: 5000, truncated: true }) },
+      [DATA_URL]: { status: 200, body: more },
+      [dataUrl(ASSET_ID, 999)]: { status: 200, body: more },
     })
     const user = userEvent.setup()
     renderApp('/map')
@@ -220,7 +292,49 @@ describe('drawing a vector asset', () => {
     await clickMap(user)
     await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
 
-    expect(await screen.findByText('Showing first 5000 features')).toBeInTheDocument()
+    // Two pages of three features, then the budget stops it.
+    expect(await screen.findByText(/6 features shown · zoom in for the rest/)).toBeInTheDocument()
+  })
+
+  it('reads the layer again for the new area when the map settles', async () => {
+    const ELSEWHERE: Bbox = [20.0, 40.0, 20.5, 40.3]
+    const { calls } = mockFetch({
+      ...session(),
+      [POINT_URL]: { status: 200, body: groups() },
+      [DATA_URL]: { status: 200, body: data() },
+      [dataUrl(ASSET_ID, undefined, ELSEWHERE)]: { status: 200, body: data() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await clickMap(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
+    await waitFor(() => expect(calls).toContain(DATA_URL))
+
+    await moveTo(user, ELSEWHERE)
+
+    await waitFor(() => expect(calls).toContain(dataUrl(ASSET_ID, undefined, ELSEWHERE)))
+  })
+
+  it('does not read again for a move that lands in the same window', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [POINT_URL]: { status: 200, body: groups() },
+      [DATA_URL]: { status: 200, body: data() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await clickMap(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
+    await waitFor(() => expect(calls).toContain(DATA_URL))
+    const before = calls.filter((call) => call === DATA_URL).length
+
+    // A nudge far smaller than a grid cell: the window is unchanged, so the
+    // cache answers and nothing goes out.
+    await moveTo(user, [13.51, 50.91, 14.01, 51.21])
+
+    expect(calls.filter((call) => call === DATA_URL).length).toBe(before)
   })
 })
 
@@ -304,7 +418,7 @@ describe('managing drawn layers', () => {
 })
 
 describe('when the lake fails', () => {
-  it('shows the failure and leaves the row usable', async () => {
+  it('says so on the layer, and keeps the layer', async () => {
     mockFetch({
       ...session(),
       [POINT_URL]: { status: 200, body: groups() },
@@ -316,10 +430,10 @@ describe('when the lake fails', () => {
     await clickMap(user)
     await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/could not be read|unreachable/i)
-    // No layer was added, so the row still offers to draw.
-    expect(screen.getByRole('button', { name: /^Draw roads$/ })).toBeEnabled()
-    expect(screen.queryByRole('region', { name: 'Active layers' })).not.toBeInTheDocument()
+    // The failure belongs to the layer, not to the moment: the layer is read
+    // again on every move, so a toast per failed pan would be noise.
+    expect(await screen.findByText('Could not read this layer')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Active layers' })).toBeInTheDocument()
   })
 })
 
@@ -425,7 +539,7 @@ describe('an asset linked from the Assets page', () => {
     const panel = await screen.findByRole('complementary', { name: 'Selected asset' })
     await user.click(within(panel).getByRole('button', { name: 'Draw' }))
 
-    expect(await screen.findByText('That asset has no vector data to draw.')).toBeInTheDocument()
+    expect(await screen.findByText('No vector data to draw')).toBeInTheDocument()
   })
 
   it('drops the coverage box once the data itself is on the map', async () => {

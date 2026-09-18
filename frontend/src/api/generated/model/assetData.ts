@@ -19,8 +19,11 @@ export interface AssetData {
   readonly asset_id: string;
   /** How many features are in this response. */
   readonly count: number;
-  /** True when the file held more features than the server returns. */
-  readonly truncated: boolean;
+  /**
+     * Pass back as `cursor` for the next page of this area. Null when this page is the last.
+     * @nullable
+     */
+  readonly next_cursor: number | null;
   /** GeoJSON Features, SRID 4326. */
   readonly features: readonly AssetDataFeaturesItem[];
 }

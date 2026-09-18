@@ -2,23 +2,24 @@
 
 These do not mock DuckDB. A local path exercises the same code an s3:// URI
 does — only the endpoint configuration differs — so the parsing, the geometry
-column discovery and the truncation arithmetic are all covered for real.
+column discovery, the area filter and the paging arithmetic are all covered
+for real.
 """
 
 import pytest
 
 from apps.map import lake
 
-from .conftest import write_geoparquet
+from .conftest import write_geoparquet, write_spread_points
 
 
 def test_reads_features_with_properties(tmp_path):
     path = write_geoparquet(tmp_path / "mixed.parquet", rows=3)
 
-    result = lake.read_vector_asset(path, limit=100)
+    result = lake.read_vector_features(path, limit=100)
 
     assert result["count"] == 3
-    assert result["truncated"] is False
+    assert result["next_cursor"] is None
 
     kinds = {feature["geometry"]["type"] for feature in result["features"]}
     assert kinds == {"Point", "LineString", "Polygon"}
@@ -30,28 +31,60 @@ def test_reads_features_with_properties(tmp_path):
     assert "geometry" not in first["properties"]
 
 
-def test_truncates_at_the_cap_and_says_so(tmp_path):
+def test_a_full_page_offers_a_cursor(tmp_path):
     path = write_geoparquet(tmp_path / "big.parquet", rows=25)
 
-    result = lake.read_vector_asset(path, limit=10)
+    result = lake.read_vector_features(path, limit=10)
 
     assert result["count"] == 10
-    assert result["truncated"] is True
+    assert result["next_cursor"] is not None
 
 
-def test_a_file_of_exactly_the_cap_is_not_truncated(tmp_path):
+def test_a_file_of_exactly_the_page_size_offers_no_cursor(tmp_path):
     """The scan reads limit+1 rows precisely so this case is not a false positive."""
     path = write_geoparquet(tmp_path / "exact.parquet", rows=10)
 
-    result = lake.read_vector_asset(path, limit=10)
+    result = lake.read_vector_features(path, limit=10)
 
     assert result["count"] == 10
-    assert result["truncated"] is False
+    assert result["next_cursor"] is None
+
+
+def test_a_bbox_keeps_the_read_to_that_area(tmp_path):
+    """The filter is pushed into the scan, so the rest of the file is never built."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=50)
+
+    result = lake.read_vector_features(path, limit=100, bbox=(10.0, -0.5, 13.0, 0.5))
+
+    assert result["count"] == 4
+    assert [f["properties"]["osm_id"] for f in result["features"]] == [10, 11, 12, 13]
+
+
+def test_paging_repeats_nothing_and_skips_nothing(tmp_path):
+    """Why paging is keyset on the file's row number rather than by offset.
+
+    `read_parquet` has no inherent order and DuckDB scans in parallel, so an
+    offset would slide under the pages and lose rows between them.
+    """
+    path = write_spread_points(tmp_path / "many.parquet", rows=47)
+
+    seen: list[int] = []
+    cursor = None
+    for _ in range(20):  # a bound, so a broken cursor fails rather than hangs
+        page = lake.read_vector_features(path, limit=7, cursor=cursor)
+        seen.extend(f["properties"]["osm_id"] for f in page["features"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    else:
+        pytest.fail("the cursor never reached the end")
+
+    assert seen == list(range(47))
 
 
 def test_missing_file_is_a_read_error(tmp_path):
     with pytest.raises(lake.LakeReadError):
-        lake.read_vector_asset(str(tmp_path / "absent.parquet"), limit=10)
+        lake.read_vector_features(str(tmp_path / "absent.parquet"), limit=10)
 
 
 def test_a_file_that_is_not_parquet_is_a_read_error(tmp_path):
@@ -59,7 +92,7 @@ def test_a_file_that_is_not_parquet_is_a_read_error(tmp_path):
     path.write_text("this is not a parquet file")
 
     with pytest.raises(lake.LakeReadError):
-        lake.read_vector_asset(str(path), limit=10)
+        lake.read_vector_features(str(path), limit=10)
 
 
 def test_an_unreachable_endpoint_is_unavailable_not_a_read_error(settings):
@@ -72,7 +105,7 @@ def test_an_unreachable_endpoint_is_unavailable_not_a_read_error(settings):
     lake.reset()
 
     with pytest.raises(lake.LakeUnavailable):
-        lake.read_vector_asset("s3://nothing/here.parquet", limit=10)
+        lake.read_vector_features("s3://nothing/here.parquet", limit=10)
 
 
 def test_values_that_json_cannot_hold_become_strings(tmp_path):
@@ -89,7 +122,7 @@ def test_values_that_json_cannot_hold_become_strings(tmp_path):
     )
     connection.close()
 
-    result = lake.read_vector_asset(path, limit=10)
+    result = lake.read_vector_features(path, limit=10)
 
     properties = result["features"][0]["properties"]
     assert properties["seen"] == "2026-09-11 08:00:00"
@@ -189,4 +222,4 @@ def test_a_local_file_reads_with_no_object_store_configured(settings, tmp_path):
 
     path = write_geoparquet(tmp_path / "local.parquet", rows=2)
 
-    assert lake.read_vector_asset(path, limit=10)["count"] == 2
+    assert lake.read_vector_features(path, limit=10)["count"] == 2

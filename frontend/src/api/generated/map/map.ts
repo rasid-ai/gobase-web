@@ -24,6 +24,7 @@ import type {
   AssetData,
   AssetDetail,
   AssetsAtPoint,
+  MapAssetDataParams,
   MapAssetsAtPointParams
 } from '../model';
 
@@ -301,6 +302,11 @@ export type mapAssetDataResponse200 = {
   status: 200
 }
 
+export type mapAssetDataResponse400 = {
+  data: void
+  status: 400
+}
+
 export type mapAssetDataResponse404 = {
   data: void
   status: 404
@@ -319,18 +325,26 @@ export type mapAssetDataResponse503 = {
 export type mapAssetDataResponseSuccess = (mapAssetDataResponse200) & {
   headers: Headers;
 };
-export type mapAssetDataResponseError = (mapAssetDataResponse404 | mapAssetDataResponse502 | mapAssetDataResponse503) & {
+export type mapAssetDataResponseError = (mapAssetDataResponse400 | mapAssetDataResponse404 | mapAssetDataResponse502 | mapAssetDataResponse503) & {
   headers: Headers;
 };
 
 export type mapAssetDataResponse = (mapAssetDataResponseSuccess | mapAssetDataResponseError)
 
-export const getMapAssetDataUrl = (assetId: string,) => {
+export const getMapAssetDataUrl = (assetId: string,
+    params?: MapAssetDataParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/map/assets/${assetId}/data`
+  return stringifiedParams.length > 0 ? `/api/map/assets/${assetId}/data?${stringifiedParams}` : `/api/map/assets/${assetId}/data`
 }
 
 /**
@@ -341,9 +355,10 @@ export const getMapAssetDataUrl = (assetId: string,) => {
  * (docs/adr/008). Other modalities get their own endpoints.
  * @summary Vector asset features
  */
-export const mapAssetData = async (assetId: string, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetDataResponse> => {
+export const mapAssetData = async (assetId: string,
+    params?: MapAssetDataParams, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetDataResponse> => {
 
-  return httpClient<mapAssetDataResponse>(getMapAssetDataUrl(assetId),
+  return httpClient<mapAssetDataResponse>(getMapAssetDataUrl(assetId,params),
   {
     ...options,
     method: 'GET'
@@ -356,23 +371,25 @@ export const mapAssetData = async (assetId: string, options?: Parameters<typeof 
 
 
 
-export const getMapAssetDataQueryKey = (assetId: string,) => {
+export const getMapAssetDataQueryKey = (assetId: string,
+    params?: MapAssetDataParams,) => {
     return [
-    `/api/map/assets/${assetId}/data`
+    `/api/map/assets/${assetId}/data`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getMapAssetDataQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+export const getMapAssetDataQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(assetId: string,
+    params?: MapAssetDataParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getMapAssetDataQueryKey(assetId);
+  const queryKey =  queryOptions?.queryKey ?? getMapAssetDataQueryKey(assetId,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetData>>> = ({ signal }) => mapAssetData(assetId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetData>>> = ({ signal }) => mapAssetData(assetId,params, { signal, ...requestOptions });
 
 
 
@@ -386,7 +403,8 @@ export type MapAssetDataQueryError = void
 
 
 export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
- assetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>> & Pick<
+ assetId: string,
+    params: undefined |  MapAssetDataParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof mapAssetData>>,
           TError,
@@ -396,7 +414,8 @@ export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
- assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>> & Pick<
+ assetId: string,
+    params?: MapAssetDataParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof mapAssetData>>,
           TError,
@@ -406,7 +425,8 @@ export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
- assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ assetId: string,
+    params?: MapAssetDataParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -414,11 +434,12 @@ export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>
  */
 
 export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>, TError = void>(
- assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ assetId: string,
+    params?: MapAssetDataParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetData>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getMapAssetDataQueryOptions(assetId,options)
+  const queryOptions = getMapAssetDataQueryOptions(assetId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

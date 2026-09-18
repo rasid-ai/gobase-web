@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { AssetListItem, CatalogAssetListSort } from '@/api/generated/model'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Pagination } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
+import { serializeBbox } from '@/features/places/bbox'
+import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
 
 import { AssetFilters, ingestedAfter } from './AssetFilters'
 import { formatBbox, formatBytes, formatIngested } from './formatAsset'
-import { useAssetPages } from './useAssetPages'
+import { PAGE_SIZE, useAssetPage } from './useAssetPage'
 
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
 
@@ -33,26 +36,59 @@ export function AssetsPage() {
   const [types, setTypes] = useState<string[]>([])
   const [window, setWindow] = useState('any')
   const [sort, setSort] = useState<CatalogAssetListSort>('-ingested_at')
+  const [page, setPage] = useState(1)
+  const scroller = useRef<HTMLDivElement>(null)
+  // The area is the one filter that lives in the URL, because it is the one
+  // that crosses to the map and back (docs/adr/011).
+  const [area, setArea] = useAreaParam()
 
-  const filtered = search !== '' || types.length > 0 || window !== 'any'
+  const filtered = search !== '' || types.length > 0 || window !== 'any' || area !== null
 
-  const assets = useAssetPages({
-    ...(search !== '' ? { q: search } : {}),
-    ...(types.length > 0 ? { data_type: types } : {}),
-    ...(ingestedAfter(window) ? { ingested_after: ingestedAfter(window) } : {}),
-    sort,
-  })
+  const assets = useAssetPage(
+    {
+      ...(search !== '' ? { q: search } : {}),
+      ...(types.length > 0 ? { data_type: types } : {}),
+      ...(ingestedAfter(window) ? { ingested_after: ingestedAfter(window) } : {}),
+      // Position matters: the generated client builds the query string in
+      // this object's own order, and the tests key on the whole URL.
+      ...(area ? { bbox: serializeBbox(area.bbox) } : {}),
+      sort,
+    },
+    page,
+  )
 
-  const pages = assets.data?.pages ?? []
-  const first = pages[0]
-  const results = pages.flatMap((page) => (page.status === 200 ? page.data.results : []))
-  const total = first?.status === 200 ? first.data.count : 0
-  const dataTypes = first?.status === 200 ? first.data.data_type_counts : []
+  const answer = assets.data
+  const read = answer?.status === 200
+  const results = read ? answer.data.results : []
+  const total = read ? answer.data.count : 0
+  const dataTypes = read ? answer.data.data_type_counts : []
+  const pageCount = Math.ceil(total / PAGE_SIZE)
+
+  // A refetch can shrink the catalog under a page that no longer exists, and
+  // the empty grid there would read as "nothing matches", which is not what
+  // happened. Set during render, not in an effect: React throws this render
+  // away and redoes it with the corrected page, so the dead one never paints.
+  if (pageCount > 0 && page > pageCount) setPage(pageCount)
+
+  const goToPage = (next: number) => {
+    setPage(next)
+    // The control sits at the foot of a long grid, so without this the new
+    // page opens already scrolled past its first rows.
+    if (scroller.current) scroller.current.scrollTop = 0
+  }
+
+  // Changing what is asked for goes back to page one: page 4 of the old list
+  // has nothing to do with page 4 of the new one.
+  const applyFilter = (change: () => void) => {
+    change()
+    goToPage(1)
+  }
 
   const clear = () => {
     setSearch('')
     setTypes([])
     setWindow('any')
+    setArea(null)
   }
 
   const toggleType = (dataType: string) =>
@@ -66,32 +102,30 @@ export function AssetsPage() {
     <div className="flex h-full min-h-0">
       <AssetFilters
         search={search}
-        onSearch={setSearch}
+        onSearch={(next) => applyFilter(() => setSearch(next))}
         dataTypes={dataTypes}
         selectedTypes={types}
-        onToggleType={toggleType}
+        onToggleType={(dataType) => applyFilter(() => toggleType(dataType))}
         window={window}
-        onWindow={setWindow}
-        onClear={clear}
+        onWindow={(next) => applyFilter(() => setWindow(next))}
+        area={area}
+        onArea={(next) => applyFilter(() => setArea(next))}
+        onClear={() => applyFilter(clear)}
         dirty={filtered}
       />
 
-      <div className="min-w-0 flex-1 overflow-y-auto px-8 py-7">
+      <div ref={scroller} className="min-w-0 flex-1 overflow-y-auto px-8 py-7">
         <header className="flex flex-wrap items-baseline gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Assets</h1>
-          {first?.status === 200 && (
-            <p className="text-sm text-muted-foreground">
-              {results.length === total
-                ? `${total} ${total === 1 ? 'asset' : 'assets'}`
-                : `${results.length} of ${total} assets`}
-            </p>
-          )}
+          {read && <p className="text-sm text-muted-foreground">{countLabel(page, total)}</p>}
           <span className="flex-1" />
           <label className="flex items-center gap-2">
             <span className={MICRO}>Sort</span>
             <select
               value={sort}
-              onChange={(event) => setSort(event.target.value as CatalogAssetListSort)}
+              onChange={(event) =>
+                applyFilter(() => setSort(event.target.value as CatalogAssetListSort))
+              }
               className="h-9 rounded-md border border-input bg-card px-2.5 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               {SORTS.map((option) => (
@@ -103,31 +137,34 @@ export function AssetsPage() {
           </label>
         </header>
 
-        <div className="mt-6">
+        {/*
+          The page being replaced stays legible but dimmed while the next one
+          is read, so a slow step is visible without the grid disappearing.
+        */}
+        <div
+          className={cn('mt-6 transition-opacity', assets.isFetching && 'opacity-60')}
+          aria-busy={assets.isFetching}
+        >
           <AssetsBody
             pending={assets.isPending}
-            status={first?.status}
+            status={answer?.status}
             results={results}
             filtered={filtered}
             onRetry={() => void assets.refetch()}
           />
         </div>
 
-        {assets.hasNextPage && (
-          <div className="mt-6 flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void assets.fetchNextPage()}
-              disabled={assets.isFetchingNextPage}
-            >
-              {assets.isFetchingNextPage ? 'Loading…' : 'Load more'}
-            </Button>
-          </div>
-        )}
+        <Pagination className="mt-6" page={page} pageCount={pageCount} onPage={goToPage} />
       </div>
     </div>
   )
+}
+
+/** How much of the catalog is on screen, and how much there is. */
+function countLabel(page: number, total: number) {
+  if (total <= PAGE_SIZE) return `${total} ${total === 1 ? 'asset' : 'assets'}`
+  const from = (page - 1) * PAGE_SIZE + 1
+  return `${from}–${Math.min(page * PAGE_SIZE, total)} of ${total} assets`
 }
 
 function AssetsBody({

@@ -31,7 +31,10 @@ Changing any of these is a decision worth an ADR.
 - `backend/openapi.yaml` is the only backend↔frontend contract. The
   frontend client is Orval-generated from it, never hand-written.
 - The frontend never talks to S3, DuckDB, Dagster, or any LLM, and never
-  computes an answer — it renders what the API returns.
+  computes an answer — it renders what the API returns. Anything carrying a
+  credential, or returning data about the knowledge base, goes through the
+  backend; the basemap's raster tiles are the one exception and are neither.
+  See docs/adr/011.
 - Agent-issued SQL is SELECT-only, rejected before execution.
 - Dagster only via its GraphQL API; the sole mutation is `launchRun`,
   Admin-only. See docs/adr/004.

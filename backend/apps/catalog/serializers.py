@@ -1,6 +1,53 @@
+import math
+
 from rest_framework import serializers
 
 from .kb import SORTS
+
+
+class BboxField(serializers.CharField):
+    """An area as `min_lon,min_lat,max_lon,max_lat`, SRID 4326.
+
+    One comma-joined parameter rather than four, so the same string travels
+    from a page's `?bbox=` to the API unchanged and a link can be read by a
+    person (docs/adr/011). A CharField subclass because DRF's ListField reads
+    repeated keys, not commas — and because drf-spectacular then renders it as
+    a plain string, which is what the URL actually holds.
+
+    Kept in step with `parseBbox` in frontend/src/features/places/bbox.ts: the
+    two validate the same thing on either side of the wire, and a link the
+    client accepted must not be one the server rejects.
+    """
+
+    default_error_messages = {
+        "shape": "bbox must be four numbers: min_lon,min_lat,max_lon,max_lat.",
+        "range": "Longitudes must be between -180 and 180, latitudes between -90 and 90.",
+        "order": "bbox minimums must not be greater than their maximums.",
+    }
+
+    def to_internal_value(self, data):
+        parts = super().to_internal_value(data).split(",")
+        if len(parts) != 4:
+            self.fail("shape")
+        try:
+            corners = [float(part) for part in parts]
+        except ValueError:
+            self.fail("shape")
+        # float() accepts "nan" and "inf", which reach PostGIS and mean nothing
+        # there.
+        if not all(math.isfinite(corner) for corner in corners):
+            self.fail("shape")
+
+        min_lon, min_lat, max_lon, max_lat = corners
+        if not (-180 <= min_lon <= 180 and -180 <= max_lon <= 180):
+            self.fail("range")
+        if not (-90 <= min_lat <= 90 and -90 <= max_lat <= 90):
+            self.fail("range")
+        # Equal corners are accepted: a zero-area box is a point-in-coverage
+        # test, which is a real question. Only inside-out is refused.
+        if min_lon > max_lon or min_lat > max_lat:
+            self.fail("order")
+        return corners
 
 
 class AssetListQuerySerializer(serializers.Serializer):
@@ -27,6 +74,13 @@ class AssetListQuerySerializer(serializers.Serializer):
     )
     ingested_before = serializers.DateTimeField(
         required=False, help_text="Ingested strictly before this moment."
+    )
+    bbox = BboxField(
+        required=False,
+        help_text=(
+            "Restrict to assets whose coverage overlaps this area: "
+            "min_lon,min_lat,max_lon,max_lat, SRID 4326."
+        ),
     )
     sort = serializers.ChoiceField(
         choices=sorted(SORTS),

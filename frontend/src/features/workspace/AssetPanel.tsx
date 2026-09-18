@@ -2,6 +2,8 @@ import type { AssetDetail, AssetGroup, AssetSummary } from '@/api/generated/mode
 import { Button } from '@/components/ui/button'
 
 import { useLayers } from './layers'
+import type { AssetFeatures } from './useAssetFeatures'
+import { useAssetFeatures } from './useAssetFeatures'
 
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
 
@@ -16,15 +18,12 @@ export function AssetList({
   selectedId,
   onSelect,
   onDraw,
-  loadingId,
 }: {
   groups: readonly AssetGroup[]
   selectedId: string | null
   onSelect: (assetId: string) => void
   /** Load this asset's features onto the map. */
   onDraw: (assetId: string, name: string) => void
-  /** The asset whose features are being fetched, if any. */
-  loadingId: string | null
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -41,7 +40,6 @@ export function AssetList({
                   selected={asset.asset_id === selectedId}
                   onSelect={() => onSelect(asset.asset_id)}
                   onDraw={() => onDraw(asset.asset_id, label(asset))}
-                  loading={asset.asset_id === loadingId}
                 />
               </li>
             ))}
@@ -57,16 +55,18 @@ function AssetRow({
   selected,
   onSelect,
   onDraw,
-  loading,
 }: {
   asset: AssetSummary
   selected: boolean
   onSelect: () => void
   onDraw: () => void
-  loading: boolean
 }) {
-  const { layers } = useLayers()
+  const { layers, view } = useLayers()
   const drawn = layers.find((layer) => layer.assetId === asset.asset_id)
+  // Same asset, same area, same query key as the layer on the map: React Query
+  // hands both this row and the map one answer, not two requests.
+  const features = useAssetFeatures(asset.asset_id, view, Boolean(drawn?.visible))
+  const loading = Boolean(drawn) && features.loading
 
   return (
     <div
@@ -105,10 +105,32 @@ function AssetRow({
         </button>
       </div>
 
-      {drawn?.truncated ? (
-        <p className={`${MICRO} mt-1`}>Showing first {drawn.count} features</p>
-      ) : null}
+      {drawn ? <LayerNote features={features} className="mt-1" /> : null}
     </div>
+  )
+}
+
+/**
+ * What a drawn layer is showing, in a line.
+ *
+ * Silent when the layer is simply drawn and whole — the features on the map
+ * already say that. It speaks when the answer is partial, so "zoom in" is
+ * advice and not decoration: a smaller area is read in full, and that is the
+ * actual fix rather than a limit to live with.
+ */
+function LayerNote({ features, className }: { features: AssetFeatures; className?: string }) {
+  if (features.failed) {
+    return (
+      <p className={`${MICRO} ${className ?? ''}`}>
+        {features.notFound ? 'No vector data to draw' : 'Could not read this layer'}
+      </p>
+    )
+  }
+  if (!features.truncated) return null
+  return (
+    <p className={`${MICRO} ${className ?? ''}`}>
+      {features.count} features shown · zoom in for the rest
+    </p>
   )
 }
 
@@ -155,18 +177,17 @@ export function AssetDetailPanel({
   detail,
   onClear,
   onDraw,
-  loading,
 }: {
   detail: AssetDetail
   onClear: () => void
   /** Load this asset's features onto the map. */
   onDraw: (assetId: string, name: string) => void
-  /** True while this asset's features are being fetched. */
-  loading: boolean
 }) {
   const entries = Object.entries(detail.metadata ?? {})
-  const { layers } = useLayers()
+  const { layers, view } = useLayers()
   const drawn = layers.find((layer) => layer.assetId === detail.asset_id)
+  const features = useAssetFeatures(detail.asset_id, view, Boolean(drawn?.visible))
+  const loading = Boolean(drawn) && features.loading
 
   return (
     <div className="flex flex-col gap-3">
@@ -197,7 +218,7 @@ export function AssetDetailPanel({
         </Button>
       </div>
 
-      {drawn?.truncated ? <p className={MICRO}>Showing first {drawn.count} features</p> : null}
+      {drawn ? <LayerNote features={features} /> : null}
 
       <dl className="flex flex-col divide-y divide-border border-y border-border">
         {entries.map(([key, value]) => (

@@ -9,6 +9,7 @@ urlpatterns = [
     path("api/auth/", include("apps.accounts.urls")),
     path("api/catalog/", include("apps.catalog.urls")),
     path("api/map/", include("apps.map.urls")),
+    path("api/places/", include("apps.places.urls")),
     path("api/runs/", include("apps.runs.urls")),
     # Gated on by infra/deploy.sh; public by necessity.
     path("api/health/", HealthView.as_view(), name="health"),

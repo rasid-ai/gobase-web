@@ -9,6 +9,11 @@ import type { CatalogAssetListSort } from './catalogAssetListSort';
 
 export type CatalogAssetListParams = {
 /**
+ * Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat, SRID 4326.
+ * @minLength 1
+ */
+bbox?: string;
+/**
  * Repeatable. Omitted means every data type.
  * @items.minLength 1
  * @items.maxLength 100

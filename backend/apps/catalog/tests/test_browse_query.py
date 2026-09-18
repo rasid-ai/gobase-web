@@ -112,3 +112,39 @@ def test_every_ordering_ends_in_a_tiebreak(sort):
     the same `ingested_at`, so the default sort alone cannot order them.
     """
     assert kb._order_by(sort).endswith(", asset_id")
+
+
+class TestArea:
+    """The bbox filter, which lives in the CTE so all three reads share it."""
+
+    def test_no_area_adds_no_clause_and_binds_nothing(self):
+        sql, params = kb._catalog(None)
+
+        assert "ST_MakeEnvelope" not in sql
+        assert params == []
+
+    def test_an_area_binds_its_corners_in_envelope_order(self):
+        sql, params = kb._catalog([35.4, 33.8, 35.6, 34.0])
+
+        assert "ST_Intersects(extent, ST_MakeEnvelope(%s, %s, %s, %s, 4326))" in sql
+        # min_lon, min_lat, max_lon, max_lat — the order the URL carries and
+        # the order ST_MakeEnvelope wants, so nothing is swapped between them.
+        assert params == [35.4, 33.8, 35.6, 34.0]
+
+    def test_every_read_is_narrowed_by_the_area(self, run):
+        # The page, the total and the per-type counts all come off one CTE. A
+        # grid showing nothing beside a rail still counting the whole catalog
+        # reads as a broken page, so this is structural, not incidental.
+        kb.asset_list(bbox=[35.4, 33.8, 35.6, 34.0])
+
+        assert len(run) == 3
+        assert all("ST_MakeEnvelope" in sql for sql, _ in run)
+
+    def test_the_area_is_bound_before_the_other_filters(self, run):
+        # The CTE's placeholders come first, then _where's, then the paging
+        # pair. Wrong order binds numbers to the wrong placeholders and returns
+        # a wrong answer rather than raising.
+        kb.asset_list(bbox=[35.4, 33.8, 35.6, 34.0], q="osm", limit=12, offset=24)
+
+        page_params = run[0][1]
+        assert page_params == [35.4, 33.8, 35.6, 34.0, r"%osm%", 12, 24]

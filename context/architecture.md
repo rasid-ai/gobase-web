@@ -34,7 +34,7 @@ belong to the platform repo and are never run from here. See docs/adr/001.
 **Q&A engine:** what is settled regardless of engine choice: answers are
 composed **server-side** across sources (documents, tabular, imagery
 metadata); every data access is read-only and SQL is SELECT-only; a
-drawn-area geometry scopes retrieval via H3/bbox; answers **stream** to
+drawn-area geometry scopes retrieval by PostGIS geometry; answers **stream** to
 the SPA via SSE; citations reference asset UUIDs and persist with the
 message in `portal`, along with the tool/query trace. **The engine itself
 — LLM provider and agent/orchestration design — is still undecided**, and
@@ -173,8 +173,10 @@ geo-portal/
 1. **Ask:** user message → `POST /api/chat/sessions/{id}/messages/` → agent
    loop calls tools (pgvector / DuckDB / STAC) → tokens stream back via SSE
    → completed message + tool trace + citations persist in `portal`.
-2. **Map:** viewport or click → `GET /api/map/footprints?bbox=` (from `kb`)
-   → GeoJSON. A question scoped to a drawn area runs flow 1 with the
+2. **Map:** a click, or a coordinate or place typed into the search box →
+   `GET /api/map/assets?lon=&lat=` (from `kb`) → the assets covering that
+   point, and `GET /api/map/assets/{id}` for one asset's metadata and
+   footprint. A question scoped to a drawn area runs flow 1 with the
    geometry attached; any vector layer in the answer returns as GeoJSON.
 3. **Assets:** filters → `GET /api/catalog/assets` (from `kb`) → one page
    of rows, the total behind it, and a count per data type. Names are
@@ -182,6 +184,9 @@ geo-portal/
    `asset_id`, because a whole ingestion run shares one timestamp
    (docs/adr/010). Following an asset goes to `/map?asset=<id>`, and the
    map then reads `GET /api/map/assets/{id}` for the footprint.
+   `bbox=minLon,minLat,maxLon,maxLat` narrows the page, the total and the
+   type counts together to assets whose coverage overlaps that area — the
+   one place a bbox is an input rather than an output (docs/adr/011).
 4. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
    normalized JSON → TanStack Table. `GET /api/runs/{id}` adds the
    per-step breakdown from Dagster's `stepStats`, and `GET
@@ -190,6 +195,11 @@ geo-portal/
    run id, or 409 when a run is already in progress. Dagster unreachable
    is 503 and a Dagster error is 502 — never a 500, because the portal
    itself is fine.
+5. **Places:** typed text → `GET /api/places/search?q=` → the backend asks
+   Esri's geocoder and returns up to five candidates, each a name, a point
+   and a bbox. The only third-party call the backend makes, and the only
+   one the frontend is not allowed to make itself. Nothing is stored or
+   cached (docs/adr/011, context/integrations/esri.md).
 
 ## Invariants (the AI must never violate)
 

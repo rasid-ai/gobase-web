@@ -26,7 +26,7 @@ Seven settings, all from the environment, all defaulted:
 | `LAKE_S3_URL_STYLE` | `path` | `vhost` |
 | `LAKE_S3_USE_SSL` | `false` locally | `true` |
 | `LAKE_S3_ACCESS_KEY` / `LAKE_S3_SECRET_KEY` | set | set, or **blank** |
-| `LAKE_MAX_FEATURES` | 5000 | 5000 |
+| `LAKE_PAGE_SIZE` | 5000 | 5000 |
 
 No provider is named anywhere in the code. Moving between RustFS and AWS is an
 `.env` edit and a restart.
@@ -63,16 +63,63 @@ mistake (context/integrations/kb.md).
 
 ## Reading
 
-`read_vector_asset(uri, limit)` runs one query:
+`read_vector_features(uri, limit=, bbox=, cursor=)` runs one query. Both
+filters are optional; with neither, the whole file is in scope:
 
 ```sql
-SELECT ST_AsGeoJSON(<geometry>) AS __geometry__, * EXCLUDE (<geometry>)
-FROM read_parquet(?) LIMIT <limit + 1>
+SELECT ST_AsGeoJSON(<geometry>) AS __geometry__,
+       file_row_number          AS __cursor__,
+       * EXCLUDE (<geometry>, file_row_number)
+FROM   read_parquet(?, file_row_number = true)
+WHERE  ST_Intersects_Extent(<geometry>, ST_MakeEnvelope(?, ?, ?, ?))  -- with bbox
+  AND  file_row_number > ?                                      -- with cursor
+ORDER BY file_row_number
+LIMIT  <limit + 1>
 ```
 
-The cap is pushed into the scan, so a 10,000-feature file is never fully
-materialised to return 5,000 of them. It asks for one row beyond the cap, which
-is what distinguishes a file of exactly `limit` features from a truncated one.
+Both filters are pushed into the scan, so a file is never fully materialised to
+return the part of it the map can see. It asks for one row beyond the page,
+which is what distinguishes a page that exactly fills `limit` from one with
+more behind it; the last kept row's `file_row_number` is the `next_cursor`.
+
+**Paging is keyset, never offset.** `read_parquet` has no inherent order and
+DuckDB scans in parallel, so an offset would repeat some rows and skip others
+between pages. `ORDER BY file_row_number` makes the sequence stable, and
+`file_row_number > ?` makes the next page a range scan: a later page costs no
+more than the first (measured flat at ~25-35ms over 200k features), because
+DuckDB stops as soon as it has enough rows rather than reading and skipping.
+
+**The area filter matches bounding boxes, not exact geometry.**
+`ST_Intersects_Extent` is a box-against-box test. It is over-inclusive and
+never under-inclusive: a feature whose box overlaps the area but whose geometry
+does not comes back as well. Free for drawing — it lands off screen — but
+anything that counts or answers from this endpoint has to know.
+
+**There is no row-group pruning on the area filter.** These files carry no
+GeoParquet 1.1 bbox covering column, so every row is looked at whatever the
+window is. The filter saves serialisation and transfer, not I/O, and there is a
+floor under every area query no matter how small the area.
+
+Measured against `lebanon_buildings_full.parquet` — **1,012,407 features**, the
+largest in the catalog, over local RustFS:
+
+| window | `ST_Intersects` | `ST_Intersects_Extent` |
+| --- | --- | --- |
+| whole country | 1730 ms | 1413 ms |
+| a city | 589 ms | 428 ms |
+| a street | 566 ms | 338 ms |
+
+Same rows from both, and the exact predicate costs 18-40% more, which is why
+the extent test is the one in the query. The ~340ms floor at street zoom is the
+scan itself. Reading the whole file is 27 s, which is what the area filter is
+for. This is the ceiling on the approach (docs/adr/012).
+
+**The geometry column reads back as `GEOMETRY`, not `BLOB`.** DuckDB's spatial
+extension types it from the file's `geo` metadata, which is why `ST_Intersects`
+and `ST_AsGeoJSON` take it directly. A Parquet file holding WKB *without* that
+metadata comes back as `BLOB`, and there is no `BLOB -> GEOMETRY` cast — it
+would need `ST_GeomFromWKB`. `parquet_schema` reports `BYTE_ARRAY` for both, so
+it cannot tell them apart; `typeof()` on a read can.
 
 Every non-geometry column becomes a GeoJSON `properties` key. Types are not
 known ahead of time — the columns differ per file — so values JSON cannot hold

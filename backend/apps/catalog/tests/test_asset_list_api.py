@@ -19,6 +19,7 @@ def test_no_filters_asks_for_everything(as_viewer, captured):
     assert captured == {
         "q": None,
         "data_types": None,
+        "bbox": None,
         "ingested_after": None,
         "ingested_before": None,
         "sort": "-ingested_at",
@@ -130,3 +131,39 @@ def test_the_answer_carries_the_page_the_total_and_the_counts(as_viewer, monkeyp
 def test_an_empty_catalog_is_an_answer_not_an_error(as_viewer, captured):
     body = as_viewer.get(URL).data
     assert body == {"count": 0, "results": [], "data_type_counts": []}
+
+
+def test_an_area_reaches_the_query_as_four_numbers(as_viewer, captured):
+    assert as_viewer.get(URL, {"bbox": "35.4,33.8,35.6,34.0"}).status_code == 200
+    assert captured["bbox"] == [35.4, 33.8, 35.6, 34.0]
+
+
+def test_a_zero_area_box_is_a_point_and_is_accepted(as_viewer, captured):
+    # Asking what covers one spot is a real question, not a malformed one.
+    assert as_viewer.get(URL, {"bbox": "35.5,33.9,35.5,33.9"}).status_code == 200
+    assert captured["bbox"] == [35.5, 33.9, 35.5, 33.9]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "35.4,33.8,35.6",  # three numbers
+        "35.4,33.8,35.6,34.0,1",  # five
+        "a,b,c,d",  # not numbers
+        "nan,33.8,35.6,34.0",  # float() takes it, PostGIS cannot use it
+        "200,33.8,201,34.0",  # longitude out of range
+        "35.4,-91,35.6,-92",  # latitude out of range
+        "35.6,33.8,35.4,34.0",  # inside out
+    ],
+)
+def test_a_malformed_area_is_rejected_before_the_query(as_viewer, captured, bad):
+    assert as_viewer.get(URL, {"bbox": bad}).status_code == 400
+    assert captured == {}
+
+
+def test_a_cleared_area_is_not_a_filter(as_viewer, captured):
+    # `bbox=` is what the URL holds for a moment while an area chip is being
+    # removed, and it means the same as no area at all — the same way `q=`
+    # means no search text.
+    assert as_viewer.get(URL, {"bbox": ""}).status_code == 200
+    assert captured["bbox"] is None
