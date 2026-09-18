@@ -138,8 +138,7 @@ class AssetDataSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "Pass back as `cursor` for the next page of this area. "
-            "Null when this page is the last."
+            "Pass back as `cursor` for the next page of this area. Null when this page is the last."
         ),
     )
     features = FeatureListField(

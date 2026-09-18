@@ -134,9 +134,7 @@ def test_no_bbox_reads_the_whole_file(as_viewer, monkeypatch, tmp_path):
     assert as_viewer.get(url()).json()["count"] == 30
 
 
-def test_a_bbox_matching_nothing_is_an_empty_answer_not_an_error(
-    as_viewer, monkeypatch, tmp_path
-):
+def test_a_bbox_matching_nothing_is_an_empty_answer_not_an_error(as_viewer, monkeypatch, tmp_path):
     path = write_spread_points(tmp_path / "spread.parquet", rows=30)
     monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
 
@@ -158,9 +156,7 @@ def test_the_cursor_pages_within_the_bbox(as_viewer, monkeypatch, tmp_path):
     area = "2,-0.5,9,0.5"
 
     first = as_viewer.get(url(), {"bbox": area, "limit": 3}).json()
-    second = as_viewer.get(
-        url(), {"bbox": area, "limit": 3, "cursor": first["next_cursor"]}
-    ).json()
+    second = as_viewer.get(url(), {"bbox": area, "limit": 3, "cursor": first["next_cursor"]}).json()
 
     assert ids(first) == [2, 3, 4]
     assert ids(second) == [5, 6, 7]
@@ -169,9 +165,7 @@ def test_the_cursor_pages_within_the_bbox(as_viewer, monkeypatch, tmp_path):
 # --- limits and bad input -------------------------------------------------
 
 
-def test_limit_is_capped_at_the_configured_page_size(
-    as_viewer, monkeypatch, tmp_path, settings
-):
+def test_limit_is_capped_at_the_configured_page_size(as_viewer, monkeypatch, tmp_path, settings):
     """A caller cannot talk the server into a bigger page than it allows."""
     path = write_spread_points(tmp_path / "many.parquet", rows=30)
     monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
@@ -202,8 +196,15 @@ def test_the_page_size_setting_is_the_default(as_viewer, monkeypatch, tmp_path, 
         {"cursor": "abc"},
         {"limit": "0"},
     ],
-    ids=["short bbox", "unreadable bbox", "inside-out bbox", "out of range bbox",
-         "negative cursor", "unreadable cursor", "zero limit"],
+    ids=[
+        "short bbox",
+        "unreadable bbox",
+        "inside-out bbox",
+        "out of range bbox",
+        "negative cursor",
+        "unreadable cursor",
+        "zero limit",
+    ],
 )
 def test_unreadable_parameters_are_400(as_viewer, monkeypatch, tmp_path, params):
     path = write_spread_points(tmp_path / "spread.parquet", rows=3)
