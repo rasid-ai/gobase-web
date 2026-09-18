@@ -14,6 +14,7 @@ from apps.catalog import kb
 
 from . import lake
 from .serializers import (
+    AssetDataQuerySerializer,
     AssetDataSerializer,
     AssetDetailSerializer,
     AssetsAtPointSerializer,
@@ -99,8 +100,10 @@ class AssetDataView(APIView):
     """
 
     @extend_schema(
+        parameters=[AssetDataQuerySerializer],
         responses={
             200: AssetDataSerializer,
+            400: OpenApiResponse(description="An unreadable bbox, cursor or limit."),
             404: OpenApiResponse(description="No active vector asset with that id."),
             502: OpenApiResponse(description="The file could not be read."),
             503: OpenApiResponse(description="The lake could not be reached."),
@@ -110,6 +113,10 @@ class AssetDataView(APIView):
         tags=["map"],
     )
     def get(self, request, asset_id):
+        query = AssetDataQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        asked = query.validated_data
+
         # The lake URI is resolved here and never leaves the server: the client
         # gets features, not a path into the bucket.
         uri = kb.vector_source_uri(asset_id)
@@ -117,7 +124,12 @@ class AssetDataView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         try:
-            data = lake.read_vector_asset(uri, settings.LAKE_MAX_FEATURES)
+            data = lake.read_vector_features(
+                uri,
+                limit=asked.get("limit", settings.LAKE_PAGE_SIZE),
+                bbox=asked.get("bbox"),
+                cursor=asked.get("cursor"),
+            )
         except lake.LakeUnavailable as exc:
             raise LakeUnreachable() from exc
         except lake.LakeReadError as exc:

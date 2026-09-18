@@ -70,3 +70,22 @@ def write_geoparquet(path, rows: int = 3, mixed: bool = True) -> str:
     )
     connection.close()
     return str(path)
+
+
+def write_spread_points(path, rows: int) -> str:
+    """Write a GeoParquet file of points one degree apart along the equator.
+
+    `write_geoparquet` puts every feature in one small area, which is what a
+    shape test wants and no use at all to an area test. Here `osm_id` is also
+    the longitude, so a bbox picks out a range of ids that is obvious to read
+    in an assertion.
+    """
+    connection = duckdb.connect(":memory:")
+    connection.execute("INSTALL spatial; LOAD spatial;")
+    connection.execute(
+        f"COPY (SELECT i AS osm_id, 'feature-' || i AS name, "
+        f"ST_Point(i * 1.0, 0.0) AS geometry FROM range(0, {int(rows)}) t(i)) "
+        f"TO '{path}' (FORMAT PARQUET)"
+    )
+    connection.close()
+    return str(path)

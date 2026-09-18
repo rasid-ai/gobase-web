@@ -4,9 +4,10 @@ Everything above this speaks GeoJSON. The lake is S3-compatible object storage
 holding GeoParquet written by the data platform; the catalog gives the URI and
 this module turns the file behind it into features (docs/adr/008).
 
-DuckDB rather than a Python GeoParquet reader: it pushes the row cap down into
-the scan, so a 10,000-feature file is never fully materialised to return 5,000
-of them, and `ST_AsGeoJSON` does the geometry conversion in C++.
+DuckDB rather than a Python GeoParquet reader: it pushes the area filter and
+the row cap down into the scan, so a file is never fully materialised to return
+the part of it the map can see, and `ST_AsGeoJSON` does the geometry conversion
+in C++.
 
 DuckDB reads the lake; it never touches Postgres. `kb` stays on Django's
 connection and its read-only role (docs/adr/002).
@@ -212,44 +213,97 @@ def _jsonable(value):
     return str(value)
 
 
-def read_vector_asset(uri: str, limit: int) -> dict:
-    """Read up to `limit` features from a GeoParquet file in the lake.
+def read_vector_features(
+    uri: str,
+    *,
+    limit: int,
+    bbox: tuple[float, float, float, float] | None = None,
+    cursor: int | None = None,
+) -> dict:
+    """Read one page of features from a GeoParquet file in the lake.
 
-    Returns the features, how many there are, and whether the file held more.
-    The scan asks for one row beyond the cap so a file of exactly `limit`
-    features is not reported as truncated.
+    `bbox` is `(min_lon, min_lat, max_lon, max_lat)` in SRID 4326. It keeps the
+    read to the area the caller asked about; without it the whole file is in
+    scope. It matches on bounding boxes, so it is slightly over-inclusive — see
+    the filter below. `cursor` is the `next_cursor` the previous page returned.
+
+    Returns the features, how many this page holds, and the cursor for the next
+    page — None when this page is the last. The scan asks for one row beyond
+    the page so a page that exactly fills `limit` is not reported as having
+    more behind it.
+
+    Paging is keyset on `file_row_number` rather than by offset. `read_parquet`
+    has no inherent order and DuckDB scans in parallel, so an offset would
+    repeat some rows and skip others between pages (the same hazard
+    `catalog/kb.py` documents for the asset list). Ordering by the file's own
+    row number makes the sequence stable and makes the next page a range scan
+    rather than a re-read.
     """
     try:
-        cursor = _shared_connection().cursor()
+        reader = _shared_connection().cursor()
     except duckdb.Error as exc:
         raise LakeUnavailable(str(exc)) from exc
 
     try:
-        geometry = _geometry_column(cursor, uri)
-        # The geometry column is excluded from the star so it cannot also appear
-        # as a property; every remaining column becomes one.
-        cursor.execute(
-            f"SELECT ST_AsGeoJSON({_quote(geometry)}) AS __geometry__, "
-            f"* EXCLUDE ({_quote(geometry)}) "
-            f"FROM read_parquet(?) LIMIT {int(limit) + 1}",
-            [uri],
+        geometry = _quote(_geometry_column(reader, uri))
+
+        # Both filters are optional and each binds its own parameters, so the
+        # WHERE clause is assembled rather than written out.
+        conditions: list[str] = []
+        params: list = [uri]
+        if bbox is not None:
+            # Bounding boxes, not exact geometry. `ST_Intersects_Extent` is a
+            # box-against-box test; the exact predicate does real geometry work
+            # on every row that survives, and every row has to be looked at
+            # because these files have no bbox covering column to prune by.
+            # Measured 40% faster on the 1M-feature buildings layer at street
+            # zoom (566ms -> 338ms).
+            #
+            # It is over-inclusive and never under-inclusive: a feature whose
+            # box overlaps the area but whose geometry does not comes back too.
+            # For drawing that is free — it lands off screen and MapLibre clips
+            # it. Anything counting or answering from this must know it
+            # (docs/adr/012).
+            conditions.append(f"ST_Intersects_Extent({geometry}, ST_MakeEnvelope(?, ?, ?, ?))")
+            params.extend(bbox)
+        if cursor is not None:
+            conditions.append("file_row_number > ?")
+            params.append(cursor)
+        where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
+
+        # The geometry column and the row number are both excluded from the
+        # star so neither can also appear as a property; every remaining column
+        # becomes one.
+        reader.execute(
+            f"SELECT ST_AsGeoJSON({geometry}) AS __geometry__, "
+            f"file_row_number AS __cursor__, "
+            f"* EXCLUDE ({geometry}, file_row_number) "
+            f"FROM read_parquet(?, file_row_number = true) "
+            f"{where}"
+            f"ORDER BY file_row_number "
+            f"LIMIT {int(limit) + 1}",
+            params,
         )
-        columns = [column[0] for column in cursor.description]
-        rows = cursor.fetchall()
+        columns = [column[0] for column in reader.description]
+        rows = reader.fetchall()
     except duckdb.Error as exc:
         raise _classify(exc, uri) from exc
     finally:
-        cursor.close()
+        reader.close()
 
-    truncated = len(rows) > limit
-    features = [_feature(columns, row) for row in rows[:limit]]
-    return {"count": len(features), "truncated": truncated, "features": features}
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    next_cursor = int(page[-1][columns.index("__cursor__")]) if has_more and page else None
+    features = [_feature(columns, row) for row in page]
+    return {"count": len(features), "next_cursor": next_cursor, "features": features}
 
 
 def _feature(columns: list[str], row: tuple) -> dict:
     """One GeoJSON Feature from a result row."""
     values = dict(zip(columns, row, strict=True))
     geometry = values.pop("__geometry__", None)
+    # The paging key is bookkeeping, not one of the file's columns.
+    values.pop("__cursor__", None)
     return {
         "type": "Feature",
         "geometry": json.loads(geometry) if geometry else None,

@@ -238,6 +238,7 @@ LAKE_S3_ACCESS_KEY = env("LAKE_S3_ACCESS_KEY", "")
 LAKE_S3_SECRET_KEY = env("LAKE_S3_SECRET_KEY", "")
 LAKE_S3_USE_SSL = env_bool("LAKE_S3_USE_SSL", True)
 LAKE_S3_URL_STYLE = env("LAKE_S3_URL_STYLE", "vhost")
-# The cap on features returned for one asset. The query asks for one more than
-# this to tell a full page from a truncated one.
-LAKE_MAX_FEATURES = int(env("LAKE_MAX_FEATURES", "5000"))
+# The most features in one page of an asset's features, and the most a caller
+# may ask for. The query asks for one row more than this to tell a full page
+# from the last one. It caps a page, not an asset: a caller walks the pages.
+LAKE_PAGE_SIZE = int(env("LAKE_PAGE_SIZE", "5000"))
