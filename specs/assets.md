@@ -23,12 +23,18 @@ page holds a list of them, groups by a known set, or gives one a colour the
 others do not get; every type is shown the same way, in the type's own
 words.
 
-The page says how many assets match and how many are shown. It loads more
-on request and keeps what it already has.
+The page shows 12 assets at a time and says which of them these are — `13–24
+of 212`. Numbered pages sit under the grid, with a step either side; they
+appear only once there is more than one page. Changing a filter or the sort
+returns to the first page, because page 4 of one list has nothing to do with
+page 4 of another.
+
+The server pages by offset, not by cursor (docs/adr/010): the list sorts five
+ways and reports a total, and a cursor over one id serves neither.
 
 ## Filtering
 
-Three filters, and they combine:
+Four filters, and they combine:
 
 - **Name** — a substring of the derived name. What is typed is matched
   literally, so the underscores that fill these names are not wildcards.
@@ -37,10 +43,41 @@ Three filters, and they combine:
   Those counts answer "what else is there", so they do not shrink to the
   type already selected.
 - **Date of ingestion** — any time, or the last 7, 30 or 90 days.
+- **Area** — assets whose coverage overlaps a place. Set by searching for
+  one in the same box as the name filter, and shown underneath as a chip
+  that removes it.
 
 A filter that matches nothing says so, and offers to clear the filters,
 rather than claiming the catalog is empty. An empty catalog says that
 instead. Clearing is only offered when there is something to clear.
+
+## Searching for a place
+
+The search box does two jobs at once. What is typed filters the grid by asset
+name straight away, exactly as it always has, and the same text is offered to
+a geocoder underneath the box, under a **Places** label.
+
+Both answers are available and you choose. That is how "Beirut" stops being
+ambiguous: nobody has to decide in advance whether it names an asset or a
+place, because the page answers both ways and lets you pick the one you meant.
+
+Picking a place sets the area filter and **leaves the name filter alone** —
+the two combine, so an area plus a name is a question you can ask.
+
+Searching starts at three characters and runs once per pause in typing rather
+than once per letter, because every search is billed (docs/adr/011). Text that
+matches no place says so; a geocoder that cannot be reached says that instead,
+and is not asked again.
+
+## The area is an address
+
+The area lives in the URL as `?place=<name>&bbox=<area>`, so a filtered list
+survives a reload and can be sent to someone. It is the same parameter the map
+uses, so an area found on one page carries to the other (docs/adr/011).
+
+The filter matches assets whose **coverage overlaps** the area — not only
+those wholly inside it. An area in the URL that cannot be read is removed,
+reported once, and the whole catalog is shown.
 
 ## Sorting
 
@@ -74,8 +111,8 @@ nowhere to go.
 
 ## Not built
 
-- **Filtering by area.** Restricting the list to a box on the map is
-  designed for but not built. It arrives with address search, which will
-  turn a typed address into coordinates on both this page and the map.
+- **Drawing the area on the map.** An area can only be reached by naming
+  a place. Drawing a rectangle and filtering to it arrives with the area
+  question path (specs/map.md).
 - **Opening an asset in place.** Selecting an asset shows it on the map;
   there is no detail view on this page.

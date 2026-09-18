@@ -122,6 +122,13 @@ paths:
       summary: Browse the asset catalog
       parameters:
       - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
+          SRID 4326.'
+      - in: query
         name: data_type
         schema:
           type: array
@@ -304,6 +311,37 @@ paths:
           description: The file could not be read.
         '503':
           description: The lake could not be reached.
+  /api/places/search:
+    get:
+      operationId: places_search
+      description: Find places by name or address.
+      summary: Search for a place by name or address
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description: A place name or address, as one line.
+        required: true
+      tags:
+      - places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceSearch'
+          description: ''
+        '400':
+          description: Missing or empty search text.
+        '502':
+          description: The geocoder returned an error.
+        '503':
+          description: The geocoder is unreachable, or no API key is set.
   /api/runs/:
     get:
       operationId: runs_list
@@ -832,6 +870,51 @@ components:
       required:
       - role
       - username
+    Place:
+      type: object
+      description: One candidate place. Nothing here names a vendor.
+      properties:
+        name:
+          type: string
+          readOnly: true
+          description: The place as a single line, for example 'Beirut, Lebanon'.
+        lat:
+          type: number
+          format: double
+          readOnly: true
+        lon:
+          type: number
+          format: double
+          readOnly: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The place's extent as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326 — the same shape as an asset's bbox, so the two can be compared
+            without reordering. Null when the geocoder returned no extent, or one
+            that crosses the antimeridian.
+          maxItems: 4
+          minItems: 4
+      required:
+      - bbox
+      - lat
+      - lon
+      - name
+    PlaceSearch:
+      type: object
+      description: Every candidate for one search, best first.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Place'
+          readOnly: true
+      required:
+      - results
     RoleEnum:
       enum:
       - admin

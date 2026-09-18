@@ -10,12 +10,15 @@ import Map, {
 import { useSearchParams } from 'react-router-dom'
 
 import { mapAssetData, useMapAssetDetail, useMapAssetsAtPoint } from '@/api/generated/map/map'
+import type { Place } from '@/api/generated/model'
 import { useToast } from '@/components/ui/toast'
+import type { Bbox } from '@/features/places/bbox'
+import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
 
 import { AssetDetailPanel, AssetList } from './AssetPanel'
-import { CoordinateSearch } from './CoordinateSearch'
 import { LayersPanel } from './LayersPanel'
+import { PlaceSearch } from './PlaceSearch'
 import type { Coordinates } from './coordinates'
 import {
   type ActiveLayer,
@@ -109,6 +112,9 @@ function MapWorkspace() {
   // the link survives a reload and can be shared.
   const [params, setParams] = useSearchParams()
   const linkedId = params.get('asset')
+  // The searched area travels in the URL too, and is read the same way
+  // (docs/adr/011).
+  const [area, setArea] = useAreaParam()
 
   const [mode, setMode] = useState<Mode>('point')
   const [point, setPoint] = useState<Point | null>(null)
@@ -175,23 +181,52 @@ function MapWorkspace() {
   }
 
   /**
-   * Go to a typed coordinate.
+   * Go to a typed coordinate, or to a place that was searched for.
    *
    * Deliberately the same end state as `onMapClick`: a point set, the previous
    * selection cleared, the marker moved. The only additions are moving the
    * view, since nothing else would show you where you landed, and switching
    * the mode, so the mode switch keeps telling the truth about what a
    * subsequent click will do.
+   *
+   * A place may bring its own extent, which is a better frame than any fixed
+   * zoom: a country and a street corner are not the same trip. FIT's maxZoom is
+   * what stops a tiny extent landing past the deepest tile the basemap has,
+   * exactly as it does for an asset's coverage.
    */
-  function goTo({ lat, lon }: Coordinates) {
+  function goTo({ lat, lon }: Coordinates, box?: Bbox | null) {
     setMode('point')
     select(null)
     setPoint({ lon, lat })
+
+    if (box) {
+      map.current?.fitBounds(
+        [
+          [box[0], box[1]],
+          [box[2], box[3]],
+        ],
+        FIT,
+      )
+      return
+    }
 
     // Keep the current zoom when it is already close enough to be useful;
     // otherwise a marker dropped at world zoom is invisible.
     const current = map.current?.getZoom() ?? 0
     map.current?.flyTo({ center: [lon, lat], zoom: Math.max(current, 12), duration: 800 })
+  }
+
+  /**
+   * Go to a searched place, and put it in the URL.
+   *
+   * The parameters describe an area, so a reload restores the framing and the
+   * name — not the marker or the panel, which are the result of an action
+   * rather than of the area (docs/adr/011).
+   */
+  function goToPlace(place: Place) {
+    const box = place.bbox ? (place.bbox as Bbox) : null
+    goTo({ lat: place.lat, lon: place.lon }, box)
+    setArea(box ? { name: place.name, bbox: box } : null)
   }
 
   // Development only: lets the map be inspected from the console when
@@ -215,12 +250,18 @@ function MapWorkspace() {
    */
   const framed = useRef<string | null>(null)
   useEffect(() => {
-    if (!linkedId || clickedId || framed.current === linkedId) return
+    if (clickedId) return
 
-    const box = selected?.footprint ? boundsOf(selected.footprint) : null
+    // An asset and an area can both be in the URL, and there is one camera.
+    // The asset wins: its coverage is the more specific answer to "where
+    // should I be looking".
+    const target = linkedId ? `asset:${linkedId}` : area ? `bbox:${area.bbox.join(',')}` : null
+    if (!target || framed.current === target) return
+
+    const box = linkedId ? (selected?.footprint ? boundsOf(selected.footprint) : null) : area!.bbox
     if (!box) return
 
-    framed.current = linkedId
+    framed.current = target
     map.current?.fitBounds(
       [
         [box[0], box[1]],
@@ -228,7 +269,7 @@ function MapWorkspace() {
       ],
       FIT,
     )
-  }, [linkedId, clickedId, selected])
+  }, [linkedId, clickedId, selected, area])
 
   /**
    * Load an asset's features and draw them.
@@ -325,7 +366,7 @@ function MapWorkspace() {
 
       <div className="absolute left-4 top-4 z-10 flex flex-col gap-2">
         <ModeSwitch mode={mode} onChange={setMode} />
-        <CoordinateSearch onGo={goTo} />
+        <PlaceSearch onGo={goTo} onGoPlace={goToPlace} />
       </div>
       <LayersPanel />
 

@@ -33,6 +33,7 @@ class AssetListView(APIView):
             # restriction. `q=` is what the search box sends once it is cleared.
             q=filters.get("q") or None,
             data_types=filters.get("data_type") or None,
+            bbox=filters.get("bbox"),
             ingested_after=filters.get("ingested_after"),
             ingested_before=filters.get("ingested_before"),
             sort=filters["sort"],

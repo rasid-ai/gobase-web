@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { FORMAT_HINT, parseCoordinates } from './coordinates'
+import { FORMAT_HINT, looksLikeCoordinates, parseCoordinates } from './coordinates'
 
 /** Latitude first, as every mapping site writes it (specs/map.md). */
 describe('parseCoordinates', () => {
@@ -73,4 +73,26 @@ describe('parseCoordinates', () => {
     expect(parseCoordinates('13.7373, 151.05').ok).toBe(true)
     expect(parseCoordinates('151.05, 13.7373').ok).toBe(false)
   })
+})
+
+describe('looksLikeCoordinates', () => {
+  it.each(['51.0504, 13.7373', '51.0504 13.7373', '0,0', '-33.9 18.4'])(
+    'reads %s as a coordinate',
+    (text) => {
+      expect(looksLikeCoordinates(text)).toBe(true)
+    },
+  )
+
+  it('reads an out-of-range pair as a coordinate, so it gets the range error', () => {
+    // Otherwise a mistyped latitude would be sent to a geocoder, which would
+    // make nothing of it and report the wrong problem.
+    expect(looksLikeCoordinates('91, 13.7373')).toBe(true)
+  })
+
+  it.each(['Beirut', 'Beirut, Lebanon', '51.0504', '', 'Rue 51.05, 13.73'])(
+    'reads %s as text to search for',
+    (text) => {
+      expect(looksLikeCoordinates(text)).toBe(false)
+    },
+  )
 })

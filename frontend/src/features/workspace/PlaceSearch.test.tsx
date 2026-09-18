@@ -1,4 +1,4 @@
-/** Going to a typed coordinate: specs/map.md. */
+/** Going to a place or a typed coordinate: specs/map.md. */
 
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -14,6 +14,7 @@ import { mockFetch, renderApp, resetSession } from '@/test/harness'
  */
 const mapRef = vi.hoisted(() => ({
   flyTo: vi.fn(),
+  fitBounds: vi.fn(),
   getZoom: vi.fn(() => 5),
 }))
 
@@ -87,7 +88,7 @@ function groups() {
 
 async function goTo(user: ReturnType<typeof userEvent.setup>, text: string) {
   // `find`, not `get`: the app renders a boot state until the session resolves.
-  await user.type(await screen.findByLabelText('Latitude, longitude'), text)
+  await user.type(await screen.findByLabelText('Place or coordinates'), text)
   await user.click(screen.getByRole('button', { name: 'Go' }))
 }
 
@@ -185,14 +186,22 @@ describe('going to a coordinate', () => {
 })
 
 describe('when the coordinate cannot be read', () => {
-  it('explains the format and does not move the map', async () => {
-    mockFetch(session())
+  it('says so when the text is neither a coordinate nor a place, and does not move', async () => {
+    mockFetch({
+      ...session(),
+      'GET /api/places/search?q=Dresden': { status: 200, body: { results: [] } },
+    })
     const user = userEvent.setup()
     renderApp('/')
 
-    await goTo(user, 'Dresden')
+    // Typed, not `goTo`: an address search is debounced, so Go pressed before
+    // the answer arrives has nothing to report yet.
+    await user.type(await screen.findByLabelText('Place or coordinates'), 'Dresden')
+    expect(await screen.findByText('No place found.')).toBeInTheDocument()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Enter latitude, longitude/)
+    await user.click(screen.getByRole('button', { name: 'Go' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/No place found/)
     expect(mapRef.flyTo).not.toHaveBeenCalled()
     expect(document.querySelector('[data-marker]')).toBeFalsy()
   })
@@ -215,13 +224,163 @@ describe('when the coordinate cannot be read', () => {
     const user = userEvent.setup()
     renderApp('/')
 
-    await goTo(user, 'nope')
-    const field = await screen.findByLabelText('Latitude, longitude')
+    // An out-of-range pair, not a word: a word is an address now, and an
+    // address that finds nothing is a different message.
+    await goTo(user, '91, 13.7373')
+    const field = await screen.findByLabelText('Place or coordinates')
     expect(field).toHaveAttribute('aria-invalid', 'true')
 
     await user.type(field, '1')
 
     expect(field).not.toHaveAttribute('aria-invalid')
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+describe('searching for a place', () => {
+  const BEIRUT = {
+    name: 'Beirut, Lebanon',
+    lat: 33.8938,
+    lon: 35.5018,
+    bbox: [35.4, 33.8, 35.6, 34.0],
+  }
+  const FOUND = 'GET /api/places/search?q=Beirut'
+
+  function nothingAt(lon: number, lat: number) {
+    return { [`GET /api/map/assets?lon=${lon}&lat=${lat}`]: { status: 200, body: { groups: [] } } }
+  }
+
+  it('asks the geocoder once typing pauses, not once per letter', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [FOUND]: { status: 200, body: { results: [BEIRUT] } },
+    })
+    const user = userEvent.setup()
+    renderApp('/')
+
+    await user.type(await screen.findByLabelText('Place or coordinates'), 'Beirut')
+
+    expect(await screen.findByRole('option', { name: /Beirut, Lebanon/ })).toBeInTheDocument()
+    // Six letters, one search. The error state would hide extra calls, so the
+    // count is what is asserted rather than the absence of a failure.
+    expect(calls.filter((call) => call.startsWith('GET /api/places/search'))).toEqual([FOUND])
+  })
+
+  it('never asks the geocoder about a coordinate', async () => {
+    const { calls } = mockFetch({ ...session(), ...nothingAt(13.7373, 51.0504) })
+    const user = userEvent.setup()
+    renderApp('/')
+
+    await user.type(await screen.findByLabelText('Place or coordinates'), '51.0504, 13.7373')
+    await user.click(screen.getByRole('button', { name: 'Go' }))
+
+    await waitFor(() => expect(mapRef.flyTo).toHaveBeenCalled())
+    expect(calls.filter((call) => call.startsWith('GET /api/places/search'))).toEqual([])
+  })
+
+  it('frames the place, drops the marker, and looks up what is there', async () => {
+    mockFetch({
+      ...session(),
+      [FOUND]: { status: 200, body: { results: [BEIRUT] } },
+      ...nothingAt(35.5018, 33.8938),
+    })
+    const user = userEvent.setup()
+    renderApp('/')
+
+    await user.type(await screen.findByLabelText('Place or coordinates'), 'Beirut')
+    await user.click(await screen.findByRole('option', { name: /Beirut, Lebanon/ }))
+
+    // The extent is a better frame than any fixed zoom, and FIT caps how deep
+    // it may go.
+    await waitFor(() =>
+      expect(mapRef.fitBounds).toHaveBeenCalledWith(
+        [
+          [35.4, 33.8],
+          [35.6, 34.0],
+        ],
+        expect.objectContaining({ maxZoom: 16 }),
+      ),
+    )
+    expect(document.querySelector('[data-marker]')).toBeTruthy()
+  })
+
+  it('flies to a place that has no extent', async () => {
+    mockFetch({
+      ...session(),
+      [FOUND]: { status: 200, body: { results: [{ ...BEIRUT, bbox: null }] } },
+      ...nothingAt(35.5018, 33.8938),
+    })
+    const user = userEvent.setup()
+    renderApp('/')
+
+    await user.type(await screen.findByLabelText('Place or coordinates'), 'Beirut')
+    await user.click(await screen.findByRole('option', { name: /Beirut, Lebanon/ }))
+
+    await waitFor(() => expect(mapRef.flyTo).toHaveBeenCalled())
+    expect(mapRef.fitBounds).not.toHaveBeenCalled()
+  })
+
+  it('picks with the keyboard', async () => {
+    mockFetch({
+      ...session(),
+      [FOUND]: { status: 200, body: { results: [BEIRUT] } },
+      ...nothingAt(35.5018, 33.8938),
+    })
+    const user = userEvent.setup()
+    renderApp('/')
+
+    const field = await screen.findByLabelText('Place or coordinates')
+    await user.type(field, 'Beirut')
+    await screen.findByRole('option', { name: /Beirut, Lebanon/ })
+
+    await user.keyboard('{ArrowDown}{Enter}')
+
+    await waitFor(() => expect(mapRef.fitBounds).toHaveBeenCalled())
+  })
+
+  it('asks once when address search is switched off, not once per letter', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      'GET /api/places/search?q=Bei': { status: 503, body: {} },
+      'GET /api/places/search?q=Beirut': { status: 503, body: {} },
+    })
+    const user = userEvent.setup()
+    renderApp('/')
+
+    await user.type(await screen.findByLabelText('Place or coordinates'), 'Bei')
+    expect(await screen.findByText('Address search is unavailable.')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Place or coordinates'), 'rut')
+
+    // A service that is off will not be on three keystrokes later.
+    expect(calls.filter((call) => call.startsWith('GET /api/places/search'))).toHaveLength(1)
+  })
+})
+
+describe('arriving with an area in the link', () => {
+  it('frames it once', async () => {
+    mockFetch(session())
+    renderApp('/map?place=Beirut&bbox=35.4,33.8,35.6,34.0')
+
+    await waitFor(() =>
+      expect(mapRef.fitBounds).toHaveBeenCalledWith(
+        [
+          [35.4, 33.8],
+          [35.6, 34.0],
+        ],
+        expect.objectContaining({ maxZoom: 16 }),
+      ),
+    )
+    expect(mapRef.fitBounds).toHaveBeenCalledTimes(1)
+  })
+
+  it('says so and shows everything when the area cannot be read', async () => {
+    // Silently widening someone's link from one city to the whole world looks
+    // like a broken filter.
+    mockFetch(session())
+    renderApp('/map?bbox=nonsense')
+
+    expect(await screen.findByText(/area could not be read/)).toBeInTheDocument()
+    expect(mapRef.fitBounds).not.toHaveBeenCalled()
   })
 })

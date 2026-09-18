@@ -41,3 +41,24 @@ def captured(monkeypatch):
 
     monkeypatch.setattr(kb, "asset_list", fake)
     return calls
+
+
+@pytest.fixture
+def run(monkeypatch):
+    """Replace the database read and record every (sql, params) it was given.
+
+    `asset_list` composes three queries off one CTE, and what matters about
+    them — which clauses are in, and in which order the parameters bind — is
+    decided before anything reaches a database.
+    """
+    from apps.catalog import kb
+
+    calls = []
+
+    def fake(sql, params):
+        calls.append((sql, list(params)))
+        # The page read is the one that selects rows; the other two aggregate.
+        return [] if "SELECT * FROM catalog" in sql else [{"count": 0, "modality": "vector"}]
+
+    monkeypatch.setattr(kb, "_rows", fake)
+    return calls

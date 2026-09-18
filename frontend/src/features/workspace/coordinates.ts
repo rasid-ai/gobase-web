@@ -58,3 +58,19 @@ export function parseCoordinates(text: string): ParseResult {
 
   return { ok: true, value: { lat, lon } }
 }
+
+/**
+ * Is this text an attempt at a coordinate pair, valid or not?
+ *
+ * Two numbers, separated by a comma or a space. The answer decides which of
+ * the two searches runs, so it has to be about shape and not about validity:
+ * `91, 13.7` is an out-of-range coordinate and deserves the range error, not a
+ * geocoder that will make nothing of it. `Beirut` is not an attempt at all.
+ */
+export function looksLikeCoordinates(text: string): boolean {
+  const parts = text
+    .trim()
+    .split(/[\s,]+/)
+    .filter(Boolean)
+  return parts.length === 2 && parts.every((part) => DECIMAL.test(part))
+}

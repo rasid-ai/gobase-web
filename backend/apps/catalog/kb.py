@@ -71,7 +71,7 @@ _RASTER_LAYERS = """
 # not visible to WHERE, which is why the browse query is a CTE.
 _DERIVED_NAME = r"regexp_replace(split_part(source_uri, '/', -1), '\.[^.]*$', '')"
 
-_CATALOG = f"""
+_CATALOG_HEAD = f"""
     WITH catalog AS (
         SELECT asset_id, modality, format, topic_path::text AS topic_path,
                bytes, summary, time_start, time_end, ingested_at,
@@ -80,8 +80,33 @@ _CATALOG = f"""
                {_DERIVED_NAME} AS name
         FROM assets
         WHERE status = 'active'
-    )
 """
+
+_AREA = "          AND ST_Intersects(extent, ST_MakeEnvelope(%s, %s, %s, %s, 4326))\n"
+
+
+def _catalog(bbox=None) -> tuple[str, list]:
+    """The browse CTE, optionally narrowed to an area.
+
+    The area belongs inside the CTE rather than in `_where`, and that placement
+    is the whole design: `asset_list` runs three reads off this one CTE, so
+    every one of them -- the page, the total, and the per-type counts -- is
+    narrowed together and cannot drift apart. A page showing nothing beside a
+    filter rail still counting the whole catalog reads as a broken page.
+
+    `ST_Intersects` rather than the `&&` box operator: PostGIS puts a bounding
+    box index condition in front of it anyway, so the GiST index on `extent` is
+    used either way, and the precise test stays correct if extents ever become
+    real footprints instead of the envelopes they are today.
+
+    `ST_MakeEnvelope` takes its corners in the order the `bbox` parameter
+    already carries them -- min_lon, min_lat, max_lon, max_lat -- so nothing is
+    reordered anywhere between the URL and the bind.
+    """
+    if bbox is None:
+        return _CATALOG_HEAD + "    )\n", []
+    return _CATALOG_HEAD + _AREA + "    )\n", list(bbox)
+
 
 # Sort keys are looked up, never interpolated from what a caller typed. An
 # unknown key raises rather than reaching SQL.
@@ -115,6 +140,7 @@ def asset_list(
     *,
     q: str | None = None,
     data_types: list[str] | None = None,
+    bbox: list[float] | None = None,
     ingested_after=None,
     ingested_before=None,
     sort: str = "-ingested_at",
@@ -126,20 +152,29 @@ def asset_list(
     Three reads rather than one: the page, how many rows match, and how many
     rows each data type would match. The last deliberately ignores the caller's
     own `data_types` selection — counts that collapse to the thing you already
-    picked tell you nothing about what else is there (docs/adr/010).
+    picked tell you nothing about what else is there (docs/adr/010). That is
+    the one axis excluded; `q`, the ingestion window and the area all narrow the
+    counts, because each of them describes a different catalog to be counted.
+
+    The area is bound by the CTE and every filter after it by `_where`, so each
+    read's parameters are the area's first and the rest after. Getting that
+    order wrong binds the numbers to the wrong placeholders and returns a wrong
+    answer rather than raising, which is why `test_browse_query` checks it.
     """
+    catalog, area = _catalog(bbox)
+
     where, params = _where(q, data_types, ingested_after, ingested_before)
     page = _rows(
-        f"{_CATALOG} SELECT * FROM catalog{where} ORDER BY {_order_by(sort)} LIMIT %s OFFSET %s",
-        [*params, limit, offset],
+        f"{catalog} SELECT * FROM catalog{where} ORDER BY {_order_by(sort)} LIMIT %s OFFSET %s",
+        [*area, *params, limit, offset],
     )
-    total = _rows(f"{_CATALOG} SELECT count(*) AS count FROM catalog{where}", params)
+    total = _rows(f"{catalog} SELECT count(*) AS count FROM catalog{where}", [*area, *params])
 
     counted_where, counted_params = _where(q, None, ingested_after, ingested_before)
     counts = _rows(
-        f"{_CATALOG} SELECT modality, count(*) AS count FROM catalog{counted_where} "
+        f"{catalog} SELECT modality, count(*) AS count FROM catalog{counted_where} "
         "GROUP BY modality ORDER BY modality",
-        counted_params,
+        [*area, *counted_params],
     )
 
     return {

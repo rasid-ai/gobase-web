@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.catalog",
     "apps.map",
+    "apps.places",
     "apps.runs",
 ]
 
@@ -203,6 +204,23 @@ DAGSTER_REPOSITORY_LOCATION = env("DAGSTER_REPOSITORY_LOCATION", "gobase_orchest
 DAGSTER_REPOSITORY = env("DAGSTER_REPOSITORY", "__repository__")
 DAGSTER_JOB_NAME = env("DAGSTER_JOB_NAME", "weekly_pipeline")
 DAGSTER_TIMEOUT_SECONDS = float(env("DAGSTER_TIMEOUT_SECONDS", "5"))
+
+# The geocoder — the one outside service the portal does not run itself. Only
+# apps/places/esri.py speaks to it (docs/adr/011); context/integrations/esri.md
+# has the request shape and the terms that bound it.
+# Defaults on every one, for the same reason as Dagster's: config.settings.env
+# raises without one and CI's contract job sets no variables at all. A blank
+# key is meaningful rather than missing -- the endpoint answers 503 and the
+# page says address search is unavailable, so the portal runs without an
+# account.
+ESRI_GEOCODE_URL = env(
+    "ESRI_GEOCODE_URL",
+    "https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer",
+)
+ESRI_API_KEY = env("ESRI_API_KEY", "")
+ESRI_TIMEOUT_SECONDS = float(env("ESRI_TIMEOUT_SECONDS", "5"))
+# How many candidates one search may offer. The dropdown shows all of them.
+ESRI_MAX_CANDIDATES = int(env("ESRI_MAX_CANDIDATES", "5"))
 
 # --- the lake (S3-compatible object storage) --------------------------------
 # The silver bucket holds the GeoParquet the Map reads through DuckDB (GP-4).

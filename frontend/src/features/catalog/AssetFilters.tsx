@@ -1,6 +1,12 @@
-import type { DataTypeCount } from '@/api/generated/model'
+import type { DataTypeCount, Place } from '@/api/generated/model'
 import { Button } from '@/components/ui/button'
+import { ComboboxPopup } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
+import { useCombobox } from '@/components/ui/useCombobox'
+import { hasPlaceOptions, PlaceOptions } from '@/features/places/PlaceOptions'
+import type { Area } from '@/features/places/useAreaParam'
+import { usePlaceSearch } from '@/features/places/usePlaceSearch'
+import { formatBbox } from '@/features/catalog/formatAsset'
 import { cn } from '@/lib/utils'
 
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
@@ -33,6 +39,8 @@ export function AssetFilters({
   onToggleType,
   window: windowKey,
   onWindow,
+  area,
+  onArea,
   onClear,
   dirty,
 }: {
@@ -44,6 +52,8 @@ export function AssetFilters({
   onToggleType: (dataType: string) => void
   window: string
   onWindow: (next: string) => void
+  area: Area | null
+  onArea: (area: Area | null) => void
   onClear: () => void
   dirty: boolean
 }) {
@@ -52,13 +62,31 @@ export function AssetFilters({
       aria-label="Filter assets"
       className="flex w-60 shrink-0 flex-col gap-6 overflow-y-auto border-r border-border p-5"
     >
-      <Input
-        type="search"
-        value={search}
-        onChange={(event) => onSearch(event.target.value)}
-        placeholder="Search names…"
-        aria-label="Search asset names"
-      />
+      <SearchBox search={search} onSearch={onSearch} onArea={onArea} />
+
+      {/*
+        The area sits under the box that set it, and is removed from there.
+        With no place name — a hand-written link — the box itself is the label,
+        and a coordinate box is data chrome, so it is mono.
+      */}
+      {area ? (
+        <div className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
+          <span
+            className={cn('min-w-0 flex-1 truncate text-sm', !area.name && 'font-mono text-[11px]')}
+            title={area.name ?? formatBbox(area.bbox) ?? undefined}
+          >
+            {area.name ?? formatBbox(area.bbox)}
+          </span>
+          <button
+            type="button"
+            onClick={() => onArea(null)}
+            aria-label={`Remove area ${area.name ?? 'filter'}`}
+            className="rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
 
       {/*
         The data types are whatever the catalog returned, with the counts it
@@ -166,5 +194,64 @@ function CheckRow({
       </span>
       <span className="font-mono text-[11px] text-muted-foreground">{count}</span>
     </button>
+  )
+}
+
+/**
+ * The rail's search box: asset names and places at once.
+ *
+ * Typing filters the grid by name straight away, exactly as it did before, and
+ * the same text is offered to the geocoder underneath. Both answers are
+ * available and you pick — which is how "Beirut" stops being ambiguous without
+ * anyone having to guess which of the two was meant.
+ */
+function SearchBox({
+  search,
+  onSearch,
+  onArea,
+}: {
+  search: string
+  onSearch: (next: string) => void
+  onArea: (area: Area | null) => void
+}) {
+  const places = usePlaceSearch(search)
+
+  const combobox = useCombobox({
+    count: places.places.length,
+    hasPopup: hasPlaceOptions(places),
+    onSelect: (index) => pick(places.places[index]),
+  })
+
+  function pick(place: Place) {
+    // The name filter is left alone on purpose: the two combine, so an area
+    // plus a name is a question you can ask.
+    if (place.bbox) onArea({ name: place.name, bbox: place.bbox as Area['bbox'] })
+  }
+
+  return (
+    <div {...combobox.rootProps} className="relative">
+      <Input
+        type="search"
+        value={search}
+        onChange={(event) => {
+          onSearch(event.target.value)
+          combobox.reopen()
+        }}
+        placeholder="Search names or places…"
+        aria-label="Search asset names"
+        {...combobox.inputProps}
+      />
+
+      {combobox.open ? (
+        <ComboboxPopup>
+          <PlaceOptions
+            state={places}
+            listId={combobox.listId}
+            optionProps={combobox.optionProps}
+            activeIndex={combobox.activeIndex}
+          />
+        </ComboboxPopup>
+      ) : null}
+    </div>
   )
 }
