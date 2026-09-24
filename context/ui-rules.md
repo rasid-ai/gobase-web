@@ -19,8 +19,9 @@ signed-in visitor to the map (docs/adr/009):
   chat is a docked, collapsible side panel on the same screen. The panel
   holds the session list and the active conversation. Vector layers from
   answers render on this map (toggleable per layer); clicking a point opens
-  the covering-assets list grouped by data type; the rectangle tool scopes
-  the next question to the drawn area.
+  the covering-assets list grouped by data type; drawing a polygon lists the
+  assets overlapping it and scopes drawn layers to it. Asking a question of
+  a drawn area is not built yet (specs/map.md).
 - **Assets** (`/assets`) — the catalog, browsable. A filter rail on the
   left, a card per asset on the right. Data types come from the API with
   their counts; the page holds no list of its own and gives no type a

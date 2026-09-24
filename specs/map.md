@@ -4,8 +4,8 @@ The map half of the Atlas page, at `/map`. Layout — where the chat panel
 sits, page composition — is in context/ui-rules.md. MapLibre GL, per
 docs/adr/003.
 
-Point inspection and drawing an asset's vector data are built. Area
-questions and answer layers are not.
+Point inspection, drawing an area, and drawing an asset's vector data are
+built. Area questions and answer layers are not.
 
 ## Opening view — built
 
@@ -16,11 +16,11 @@ between visits.
 
 ## Interaction modes
 
-Two mutually exclusive modes are built: **navigate** and **point**.
+Three mutually exclusive modes: **navigate**, **point** and **draw area**.
 
-**Draw area** is specified below but is not built, and its control is not
-shown. Showing a mode that switches and then does nothing is worse than
-showing nothing; it returns when the area question path does.
+Navigate leaves clicks to the map. Point inspects what a click lands on.
+Draw area traces a polygon. Switching mode changes what the next click does
+and nothing else — it does not clear a point or an area already chosen.
 
 ## Point inspection — built
 
@@ -121,6 +121,30 @@ action below — offered on the metadata panel itself, because an asset
 reached this way never passes through the list of assets at a point and
 would otherwise have to be found again by clicking the map.
 
+## Drawing an area — built
+
+In draw-area mode the user clicks out a polygon, one corner per click, and
+closes it by clicking the first corner again or pressing Enter; Escape
+abandons it. The finished polygon is outlined on the map and becomes the
+area: the panel lists every catalog asset whose coverage overlaps it,
+grouped by data type exactly as for a point. An area nothing overlaps shows
+nothing at all.
+
+A point and an area are one selection, not two. Clicking a point, or going
+to a searched place, clears the area; finishing an area clears the point.
+Drawing again replaces the area. Clear area removes it, and changing mode
+leaves it where it is, so you can switch to navigate and pan around what you
+drew.
+
+An area has at most 100 corners and its edges cannot cross. The draw tool
+refuses the click that would break either rule, and says why; the server
+checks both again, because neither PostGIS nor DuckDB refuses a polygon that
+crosses itself — each silently returns a wrong answer (docs/adr/014).
+
+The area is not in the URL. It never leaves the map, so by the rule in
+docs/adr/011 it has no parameter, and `?bbox=` keeps meaning the searched
+place. A drawn area is not a link that can be sent to someone.
+
 ## Drawn vector data — built
 
 Each asset has its own control to draw it — in the list, and on the metadata
@@ -135,6 +159,13 @@ a view of a whole city can hold more features than are worth reading, and
 when it does the panel says how many are shown and that zooming in gets the
 rest. Zoom in and the layer comes back whole, because a smaller area is
 read in full.
+
+While an area is drawn, it replaces the view: a layer shows the features
+inside the polygon, and panning or zooming changes nothing about what is
+drawn (docs/adr/014). A feature crossing the outline is drawn whole — the
+map shows what the file holds and never cuts a geometry at the edge. The
+same budget applies, and when it is reached the panel says to draw a
+smaller area, because zooming in does nothing to an area.
 
 Drawn layers outlive the selection that loaded them (docs/adr/008). Picking
 another asset, clearing a selection or clicking a new point all leave them
@@ -161,9 +192,15 @@ quietly refused a button.
 
 ## Area questions — not built
 
-The user draws a rectangle and asks a question scoped to it. The geometry
-travels with the question, and retrieval is restricted to that area. When
-the area is cleared the rectangle disappears from the map.
+The area exists — drawing one is built, above. What is not built is asking
+a question of it: the user draws an area and asks, the polygon travels with
+the question, and retrieval is restricted to it. This waits on the ask path
+(GP-6, GP-7).
+
+Worth knowing when it is built: the features endpoint matches a drawn area
+exactly, but a window only by bounding box (docs/adr/012), so anything that
+counts or answers from a window rather than an area inherits that
+looseness.
 
 ## Answer layers — not built
 

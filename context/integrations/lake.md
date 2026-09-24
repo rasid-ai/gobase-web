@@ -73,7 +73,8 @@ SELECT ST_AsGeoJSON(<geometry>) AS __geometry__,
 FROM   read_parquet(?, file_row_number = true)
 WHERE  bbox.xmin <= ? AND bbox.xmax >= ?                        -- with bbox, if
    AND  bbox.ymin <= ? AND bbox.ymax >= ?                        -- the file has one
-   AND  ST_Intersects_Extent(<geometry>, ST_MakeEnvelope(?, ?, ?, ?))  -- with bbox
+   AND  ST_Intersects_Extent(<geometry>, ST_MakeEnvelope(?, ?, ?, ?))  -- with bbox, or
+   AND  ST_Intersects(<geometry>, ST_GeomFromText(?))                   -- with an area
   AND  file_row_number > ?                                      -- with cursor
 ORDER BY file_row_number
 LIMIT  <limit + 1>
@@ -96,6 +97,28 @@ DuckDB stops as soon as it has enough rows rather than reading and skipping.
 never under-inclusive: a feature whose box overlaps the area but whose geometry
 does not comes back as well. Free for drawing — it lands off screen — but
 anything that counts or answers from this endpoint has to know.
+
+## A drawn area
+
+A drawn polygon reaches the reader as two things: its envelope, passed as
+`bbox`, and the polygon itself as WKT, passed as `area`. The envelope does
+the pruning through the covering column, exactly as a window's does; the
+polygon then replaces `ST_Intersects_Extent` as the final test, and is
+**exact**. `area` without its envelope is refused with a `ValueError`,
+because nothing would prune and every read would be a whole-file scan.
+
+Exact because the outline is on screen. Over a Beirut-sized polygon the
+loose box test returns 30,586 buildings where 25,858 lie inside — 15% of
+them outside the line the user drew, which reads as a bug. The cost is
+nothing that matters: with the envelope pruning it the exact test takes
+56 ms; without the prune the same query is 371 ms. Through the shipped
+reader, the first page of a drawn area was 249 ms against 318 ms for its
+envelope as a plain `bbox`.
+
+The WKT is validated by `AreaField` (backend/apps/catalog/serializers.py)
+before it reaches DuckDB, and that validation is load-bearing: DuckDB, like
+PostGIS, answers a self-intersecting polygon silently with a wrong count
+rather than raising.
 
 ## The covering bbox column
 
