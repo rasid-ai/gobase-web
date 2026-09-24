@@ -1,3 +1,4 @@
+import type { Feature, Geometry } from 'geojson'
 import type { StyleSpecification } from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Map, {
@@ -11,14 +12,17 @@ import { useSearchParams } from 'react-router-dom'
 
 import { useMapAssetDetail, useMapAssetsAtPoint } from '@/api/generated/map/map'
 import type { Place } from '@/api/generated/model'
+import { useToast } from '@/components/ui/toast'
 import type { Bbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
 
 import { AssetDetailPanel, AssetList } from './AssetPanel'
+import { DrawArea } from './DrawArea'
 import { LayersPanel } from './LayersPanel'
 import { PlaceSearch } from './PlaceSearch'
 import type { Coordinates } from './coordinates'
+import { type Ring, areaFeature, serializeArea } from './drawnArea'
 import {
   type ActiveLayer,
   LayersProvider,
@@ -38,24 +42,26 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 /**
  * The Atlas workspace (specs/map.md).
  *
- * Click a point, see the catalog assets whose coverage includes it grouped by
+ * Click a point or draw an area, see the catalog assets it touches grouped by
  * data type, select one to see its metadata and footprint, and draw its
- * features. Draw-area is not here yet: it waits on the Q&A engine decision.
+ * features. A drawn area scopes those features to itself; asking a question
+ * of it is still to come (specs/map.md).
  */
 
 /**
  * The interaction modes, mutually exclusive (specs/map.md).
  *
- * Draw-area is absent rather than disabled: its behaviour needs the ask path,
- * which is blocked on the Q&A engine decision, and a control that switches a
- * mode and then does nothing is worse than no control. It returns with GP-7.
+ * Draw-area was taken out while it could only switch and then do nothing. It
+ * is back because it now filters the catalog and scopes drawn layers to the
+ * polygon (docs/adr/014); the question it will one day carry is still GP-7's.
  */
-const MODES = ['navigate', 'point'] as const
+const MODES = ['navigate', 'point', 'area'] as const
 type Mode = (typeof MODES)[number]
 
 const MODE_LABEL: Record<Mode, string> = {
   navigate: 'Navigate',
   point: 'Point',
+  area: 'Draw area',
 }
 
 const OSM: StyleSpecification = {
@@ -120,10 +126,14 @@ function MapWorkspace() {
   const [mode, setMode] = useState<Mode>('point')
   const [point, setPoint] = useState<Point | null>(null)
   const [clickedId, setClickedId] = useState<string | null>(null)
+  // Set once the map reports its first load. The draw tool waits on it; see
+  // DrawArea for why MapLibre's own readiness check cannot be used.
+  const [mapReady, setMapReady] = useState(false)
 
   const selectedId = clickedId ?? linkedId
   const tokens = useMapTokens()
-  const { layers, add, view, setView } = useLayers()
+  const toast = useToast()
+  const { layers, add, setView, drawnArea, setDrawnArea } = useLayers()
   const map = useRef<MapRef | null>(null)
 
   /**
@@ -146,10 +156,20 @@ function MapWorkspace() {
     )
   }, [setView])
 
+  const onLoad = useCallback(() => {
+    setMapReady(true)
+    onMoveEnd()
+  }, [onMoveEnd])
+
+  // A drawn area and a clicked point are one selection, never both, so one
+  // query answers whichever is set (docs/adr/014). The point keeps its key
+  // order: the generated client builds the URL in the object's own order.
   const assets = useMapAssetsAtPoint(
-    { lon: point?.lon ?? 0, lat: point?.lat ?? 0 },
-    { query: { enabled: point !== null } },
+    drawnArea ? { area: serializeArea(drawnArea) } : { lon: point?.lon ?? 0, lat: point?.lat ?? 0 },
+    { query: { enabled: drawnArea !== null || point !== null } },
   )
+
+  const areaOutline = useMemo(() => (drawnArea ? areaFeature(drawnArea) : null), [drawnArea])
 
   const detail = useMapAssetDetail(selectedId ?? '', {
     query: { enabled: selectedId !== null },
@@ -166,11 +186,13 @@ function MapWorkspace() {
    * thing it was describing. Hiding the layer brings the box back, because
    * then there is nothing to see again.
    */
-  const footprint = useMemo(() => {
+  const footprint = useMemo((): Feature | null => {
     if (!selected?.footprint) return null
     const shown = layers.some((layer) => layer.assetId === selected.asset_id && layer.visible)
     if (shown) return null
-    return { type: 'Feature' as const, properties: {}, geometry: selected.footprint }
+    // The contract types a footprint as an open object; the server builds it
+    // with PostGIS's ST_AsGeoJSON, so it is a GeoJSON geometry.
+    return { type: 'Feature', properties: {}, geometry: selected.footprint as unknown as Geometry }
   }, [selected, layers])
 
   /**
@@ -193,11 +215,31 @@ function MapWorkspace() {
   )
 
   function onMapClick(event: MapLayerMouseEvent) {
-    // Only point mode inspects; navigate leaves clicks to the map.
+    // Only point mode inspects; navigate leaves clicks to the map, and in
+    // draw-area mode they belong to the draw tool.
     if (mode !== 'point') return
     select(null)
+    // A point and an area are one selection: choosing a point drops the area,
+    // and layers go back to following the map.
+    setDrawnArea(null)
     setPoint({ lon: event.lngLat.lng, lat: event.lngLat.lat })
   }
+
+  /**
+   * A polygon was finished.
+   *
+   * The mirror of `onMapClick`: it replaces the point, clears the selection,
+   * and becomes what the panel lists and what drawn layers are read for.
+   * The mode is left alone, so drawing again replaces the area.
+   */
+  const onDrawn = useCallback(
+    (ring: Ring) => {
+      select(null)
+      setPoint(null)
+      setDrawnArea(ring)
+    },
+    [select, setDrawnArea],
+  )
 
   /**
    * Go to a typed coordinate, or to a place that was searched for.
@@ -216,6 +258,7 @@ function MapWorkspace() {
   function goTo({ lat, lon }: Coordinates, box?: Bbox | null) {
     setMode('point')
     select(null)
+    setDrawnArea(null)
     setPoint({ lon, lat })
 
     if (box) {
@@ -331,9 +374,9 @@ function MapWorkspace() {
         initialViewState={HOME_VIEW}
         mapStyle={OSM}
         onClick={onMapClick}
-        onLoad={onMoveEnd}
+        onLoad={onLoad}
         onMoveEnd={onMoveEnd}
-        cursor={mode === 'point' ? 'crosshair' : 'grab'}
+        cursor={mode === 'navigate' ? 'grab' : 'crosshair'}
         style={{ position: 'absolute', inset: 0 }}
       >
         {point ? (
@@ -341,8 +384,27 @@ function MapWorkspace() {
         ) : null}
 
         {layers.map((layer) => (
-          <DrawnLayer key={layer.assetId} layer={layer} view={view} color={tokens.result} />
+          <DrawnLayer key={layer.assetId} layer={layer} color={tokens.result} />
         ))}
+
+        {/*
+          After the layers, so the outline sits on top of what it scopes. The
+          fill is faint on purpose: it marks the area without hiding the data.
+        */}
+        {areaOutline ? (
+          <Source id="drawn-area" type="geojson" data={areaOutline}>
+            <Layer
+              id="drawn-area-fill"
+              type="fill"
+              paint={{ 'fill-color': tokens.selection, 'fill-opacity': 0.08 }}
+            />
+            <Layer
+              id="drawn-area-line"
+              type="line"
+              paint={{ 'line-color': tokens.selection, 'line-width': 2 }}
+            />
+          </Source>
+        ) : null}
 
         {footprint ? (
           <Source id="footprint" type="geojson" data={footprint}>
@@ -360,20 +422,43 @@ function MapWorkspace() {
         ) : null}
       </Map>
 
+      <DrawArea
+        mapRef={map}
+        ready={mapReady}
+        active={mode === 'area'}
+        color={tokens.selection}
+        onDrawn={onDrawn}
+        onRefused={toast.show}
+      />
+
       <div className="absolute left-4 top-4 z-10 flex flex-col gap-2">
-        <ModeSwitch mode={mode} onChange={setMode} />
+        <div className="flex items-center gap-2">
+          <ModeSwitch mode={mode} onChange={setMode} />
+          {drawnArea ? (
+            <button
+              type="button"
+              onClick={() => setDrawnArea(null)}
+              className="rounded-md border border-border bg-background/95 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground backdrop-blur hover:text-foreground"
+            >
+              Clear area
+            </button>
+          ) : null}
+        </div>
         <PlaceSearch onGo={goTo} onGoPlace={goToPlace} />
       </div>
       <LayersPanel />
 
       {/*
-        Nothing covering the point renders nothing at all — no panel, no error
-        (specs/map.md). An asset reached from the Assets page opens the panel
-        too, with no point clicked and so no list behind it.
+        Nothing covering the point or overlapping the area renders nothing at
+        all — no panel, no error (specs/map.md). An asset reached from the
+        Assets page opens the panel too, with nothing chosen and so no list
+        behind it.
       */}
       {groups.length > 0 || selected ? (
         <aside
-          aria-label={selected ? 'Selected asset' : 'Assets at this point'}
+          aria-label={
+            selected ? 'Selected asset' : drawnArea ? 'Assets in this area' : 'Assets at this point'
+          }
           className="absolute right-4 top-4 bottom-4 z-10 flex w-[22rem] flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur"
         >
           {selected ? (
@@ -434,18 +519,11 @@ const AREA_TYPES = ['Polygon', 'MultiPolygon']
 const LINE_TYPES = ['LineString', 'MultiLineString', ...AREA_TYPES]
 const POINT_TYPES = ['Point', 'MultiPoint']
 
-function DrawnLayer({
-  layer,
-  view,
-  color,
-}: {
-  layer: ActiveLayer
-  view: Bbox | null
-  color: string
-}) {
+function DrawnLayer({ layer, color }: { layer: ActiveLayer; color: string }) {
   // Only a shown layer reads. Hiding a layer is still a paint change and never
-  // a fetch (docs/adr/008); what changed is that moving the map is a fetch.
-  const { features } = useAssetFeatures(layer.assetId, view, layer.visible)
+  // a fetch (docs/adr/008). Moving the map is a fetch, unless an area is drawn
+  // — then the area is what is read, and moving changes nothing (docs/adr/014).
+  const { features } = useAssetFeatures(layer.assetId, layer.visible)
   const data = useMemo(() => toFeatureCollection(features), [features])
   const visibility = layer.visible ? 'visible' : 'none'
 

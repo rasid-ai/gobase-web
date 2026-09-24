@@ -1,16 +1,40 @@
-/** Drawing a vector asset on the map: specs/map.md and docs/adr/008. */
+/** Drawing a vector asset on the map: specs/map.md, docs/adr/008 and docs/adr/014. */
 
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getMapAssetDataUrl } from '@/api/generated/map/map'
+import { getMapAssetDataUrl, getMapAssetsAtPointUrl } from '@/api/generated/map/map'
 import type { Bbox } from '@/features/places/bbox'
 import { serializeBbox } from '@/features/places/bbox'
 import { mockFetch, renderApp, resetSession } from '@/test/harness'
 
+import { type Ring, serializeArea } from './drawnArea'
 import { PAGE_BUDGET, PAGE_SIZE } from './useAssetFeatures'
 import { windowFor } from './view'
+
+/** A small polygon around the clicked point, as the draw tool would hand it up. */
+const RING: Ring = [
+  [13.7, 51.0],
+  [13.8, 51.0],
+  [13.8, 51.1],
+  [13.7, 51.1],
+  [13.7, 51.0],
+]
+
+/**
+ * terra-draw needs a real map, and the map here is a stub. So the draw tool is
+ * replaced with a control that finishes RING — only while draw-area mode is
+ * active, as the real one only draws then.
+ */
+vi.mock('./DrawArea', () => ({
+  DrawArea: ({ active, onDrawn }: { active: boolean; onDrawn: (ring: Ring) => void }) =>
+    active ? (
+      <button type="button" onClick={() => onDrawn(RING)}>
+        finish drawing
+      </button>
+    ) : null,
+}))
 
 /**
  * MapLibre needs WebGL, which jsdom does not have.
@@ -122,6 +146,24 @@ function dataUrl(id: string, cursor?: number, bounds: Bbox = HOME, zoom = 8.5) {
 
 const DATA_URL = dataUrl(ASSET_ID)
 const OTHER_DATA_URL = dataUrl(OTHER_ID)
+
+/** The assets query for RING, built the way the client builds it. */
+const AREA_ASSETS_URL = `GET ${getMapAssetsAtPointUrl({ area: serializeArea(RING) })}`
+
+/** The features request for RING: scoped to the area, not the window. */
+function areaDataUrl(id: string, cursor?: number) {
+  return `GET ${getMapAssetDataUrl(id, {
+    limit: PAGE_SIZE,
+    area: serializeArea(RING),
+    ...(cursor === undefined ? {} : { cursor }),
+  })}`
+}
+
+/** Switch to draw-area mode and finish RING. */
+async function drawArea(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('radio', { name: 'Draw area' }))
+  await user.click(screen.getByRole('button', { name: 'finish drawing' }))
+}
 
 /** Point the stub map somewhere else, then settle it. */
 async function moveTo(user: ReturnType<typeof userEvent.setup>, bounds: Bbox, zoom = 8.5) {
@@ -649,5 +691,152 @@ describe('an asset linked from the Assets page', () => {
 
     await screen.findByRole('complementary', { name: 'Selected asset' })
     expect(calls.filter((call) => call === DETAIL_URL)).toHaveLength(1)
+  })
+})
+
+describe('drawing an area', () => {
+  it('offers draw area as a third mode', async () => {
+    mockFetch(session())
+    renderApp('/map')
+
+    const modes = await screen.findByRole('radiogroup', { name: 'Map mode' })
+    expect(
+      within(modes)
+        .getAllByRole('radio')
+        .map((mode) => mode.textContent),
+    ).toEqual(['Navigate', 'Point', 'Draw area'])
+  })
+
+  it('lists the assets overlapping the drawn area', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await drawArea(user)
+
+    const panel = await screen.findByRole('complementary', { name: 'Assets in this area' })
+    expect(within(panel).getByText('roads')).toBeInTheDocument()
+    // The area replaced the point: the point question was never asked.
+    expect(calls).not.toContain(POINT_URL)
+  })
+
+  it('reads a drawn layer for the area, not the window', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      [areaDataUrl(ASSET_ID)]: { status: 200, body: data() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await drawArea(user)
+    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+
+    await waitFor(() => expect(calls).toContain(areaDataUrl(ASSET_ID)))
+    expect(calls).not.toContain(DATA_URL)
+  })
+
+  it('does not read again when the map moves, while an area is set', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      [areaDataUrl(ASSET_ID)]: { status: 200, body: data() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await drawArea(user)
+    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+    await waitFor(() => expect(calls).toContain(areaDataUrl(ASSET_ID)))
+    const before = calls.length
+
+    // Far away — a whole new window, which would be a new read without an area.
+    await moveTo(user, [20.0, 40.0, 20.5, 40.3])
+
+    expect(calls.length).toBe(before)
+  })
+
+  it('tells the user to draw a smaller area, not to zoom in', async () => {
+    // Zooming changes nothing when the area is what is read, so "zoom in"
+    // would be advice that does not work.
+    const more = data({ next_cursor: 999 })
+    mockFetch({
+      ...session(),
+      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      [areaDataUrl(ASSET_ID)]: { status: 200, body: more },
+      [areaDataUrl(ASSET_ID, 999)]: { status: 200, body: more },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await drawArea(user)
+    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+
+    expect(await screen.findByText(/draw a smaller area for the rest/)).toBeInTheDocument()
+    expect(screen.queryByText(/zoom in for the rest/)).not.toBeInTheDocument()
+  })
+
+  it('outlines the area on the map, and clearing it removes the outline', async () => {
+    mockFetch({
+      ...session(),
+      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await drawArea(user)
+    await waitFor(() => expect(document.querySelector('[data-source="drawn-area"]')).toBeTruthy())
+
+    await user.click(screen.getByRole('button', { name: 'Clear area' }))
+
+    expect(document.querySelector('[data-source="drawn-area"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Clear area' })).not.toBeInTheDocument()
+  })
+
+  it('clicking a point clears the area, and layers follow the map again', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      [POINT_URL]: { status: 200, body: groups() },
+      [areaDataUrl(ASSET_ID)]: { status: 200, body: data() },
+      [DATA_URL]: { status: 200, body: data() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await drawArea(user)
+    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+    await waitFor(() => expect(calls).toContain(areaDataUrl(ASSET_ID)))
+
+    // A point and an area are one selection: choosing the point drops the area.
+    await user.click(screen.getByRole('radio', { name: 'Point' }))
+    // Not `clickMap`, which waits for a "Draw roads" button: roads is already
+    // drawn here, so its row rightly offers "Redraw roads" instead.
+    await user.click(screen.getByRole('button', { name: 'map surface' }))
+
+    expect(document.querySelector('[data-source="drawn-area"]')).toBeNull()
+    expect(
+      await screen.findByRole('complementary', { name: 'Assets at this point' }),
+    ).toBeInTheDocument()
+    // The drawn layer survives (docs/adr/008) and is read for the window again.
+    await waitFor(() => expect(calls).toContain(DATA_URL))
+  })
+
+  it('leaves the area alone when only the mode changes', async () => {
+    // So you can switch to navigate and pan around the area you drew.
+    mockFetch({
+      ...session(),
+      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await drawArea(user)
+    await user.click(screen.getByRole('radio', { name: 'Navigate' }))
+
+    expect(document.querySelector('[data-source="drawn-area"]')).toBeTruthy()
   })
 })

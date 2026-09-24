@@ -1,6 +1,5 @@
 import type { ActiveLayer } from './layers'
 import { useLayers } from './layers'
-import type { Bbox } from '@/features/places/bbox'
 import { useAssetFeatures } from './useAssetFeatures'
 
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
@@ -13,7 +12,7 @@ const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-fore
  * panel would be chrome for its own sake.
  */
 export function LayersPanel() {
-  const { layers, toggle, remove, clear, view } = useLayers()
+  const { layers, toggle, remove, clear } = useLayers()
 
   if (layers.length === 0) return null
 
@@ -38,7 +37,6 @@ export function LayersPanel() {
           <LayerRow
             key={layer.assetId}
             layer={layer}
-            view={view}
             onToggle={() => toggle(layer.assetId)}
             onRemove={() => remove(layer.assetId)}
           />
@@ -57,16 +55,14 @@ export function LayersPanel() {
  */
 function LayerRow({
   layer,
-  view,
   onToggle,
   onRemove,
 }: {
   layer: ActiveLayer
-  view: Bbox | null
   onToggle: () => void
   onRemove: () => void
 }) {
-  const features = useAssetFeatures(layer.assetId, view, layer.visible)
+  const features = useAssetFeatures(layer.assetId, layer.visible)
 
   return (
     <li className="flex items-center gap-2 border-b border-border/60 px-3 py-2 last:border-b-0">
@@ -80,7 +76,10 @@ function LayerRow({
       <span className="flex-1 truncate text-sm" title={layer.label}>
         {layer.label}
       </span>
-      <span className={MICRO} title="Features in view">
+      <span
+        className={MICRO}
+        title={features.scope === 'area' ? 'Features in the drawn area' : 'Features in view'}
+      >
         {features.failed ? '—' : features.count}
         {features.truncated ? '+' : ''}
       </span>

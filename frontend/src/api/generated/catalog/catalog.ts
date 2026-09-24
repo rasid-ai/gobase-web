@@ -86,8 +86,9 @@ export const getCatalogAssetListUrl = (params?: CatalogAssetListParams,) => {
  * One page of the catalog, filtered and sorted.
  *
  * Browsing is not a map feature, which is why this is its own app: the map's
- * `/api/map/assets` already means "the assets covering this point" and cannot
- * carry a second meaning (docs/adr/010).
+ * `/api/map/assets` already means "the assets covering this place" — a
+ * clicked point or a drawn area, one question asked with two geometries — and
+ * cannot carry a second, different question (docs/adr/010, docs/adr/014).
  * @summary Browse the asset catalog
  */
 export const catalogAssetList = async (params?: CatalogAssetListParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogAssetListResponse> => {

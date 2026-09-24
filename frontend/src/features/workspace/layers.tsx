@@ -1,8 +1,11 @@
+import type { Feature, FeatureCollection } from 'geojson'
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type { AssetDataFeaturesItem } from '@/api/generated/model'
 import type { Bbox } from '@/features/places/bbox'
+
+import type { Ring } from './drawnArea'
 
 /**
  * The layers currently drawn on the map, and the area they are drawn for.
@@ -20,6 +23,11 @@ import type { Bbox } from '@/features/places/bbox'
  * because the panels need it as much as the map does. It is the camera, so it
  * never reaches the URL: `?bbox=` already means the area the *user* chose
  * (docs/adr/011), and one name cannot carry both.
+ *
+ * So does the drawn area, for the same reason. While one is set it replaces
+ * the window as the thing every layer is read for, and layers stop following
+ * the map (docs/adr/014). Called `drawnArea`, not `area`: `useAreaParam`
+ * already means the searched place by that word.
  *
  * A context rather than a state library: this is one list and a handful of
  * operations, and the project has no store to join. It lives above the map so
@@ -44,6 +52,9 @@ type LayersApi = {
   /** The area every layer is read for, or null until the map has settled once. */
   view: Bbox | null
   setView: (view: Bbox) => void
+  /** A polygon the user drew. While set, layers are read for it, not the view. */
+  drawnArea: Ring | null
+  setDrawnArea: (area: Ring | null) => void
 }
 
 const LayersContext = createContext<LayersApi | null>(null)
@@ -51,6 +62,7 @@ const LayersContext = createContext<LayersApi | null>(null)
 export function LayersProvider({ children }: { children: ReactNode }) {
   const [layers, setLayers] = useState<readonly ActiveLayer[]>([])
   const [view, setView] = useState<Bbox | null>(null)
+  const [drawnArea, setDrawnArea] = useState<Ring | null>(null)
 
   const add = useCallback((layer: Omit<ActiveLayer, 'visible'>) => {
     setLayers((current) => {
@@ -85,8 +97,10 @@ export function LayersProvider({ children }: { children: ReactNode }) {
       has: (assetId: string) => layers.some((one) => one.assetId === assetId),
       view,
       setView,
+      drawnArea,
+      setDrawnArea,
     }),
-    [layers, add, toggle, remove, clear, view],
+    [layers, add, toggle, remove, clear, view, drawnArea],
   )
 
   return <LayersContext.Provider value={api}>{children}</LayersContext.Provider>
@@ -99,14 +113,16 @@ export function useLayers(): LayersApi {
 }
 
 /** A GeoJSON FeatureCollection for MapLibre, from what the API returned. */
-export function toFeatureCollection(features: readonly AssetDataFeaturesItem[]) {
+export function toFeatureCollection(features: readonly AssetDataFeaturesItem[]): FeatureCollection {
   // The contract types `geometry` as an open object because GeoJSON allows
-  // seven geometry types and a null; `@types/geojson` is not installed, so
-  // there is no narrower type to assert to here. MapLibre's `data` prop is
-  // loose enough to take this as it stands.
+  // seven geometry types and a null, and an OpenAPI schema has no plain way to
+  // say which. The server builds these with DuckDB's ST_AsGeoJSON, so they are
+  // GeoJSON Features; the assertion says so once, here, rather than at every
+  // `<Source>`. MapLibre's `data` prop is strictly typed now that
+  // `@types/geojson` is a direct dependency.
   return {
-    type: 'FeatureCollection' as const,
-    features: features as unknown as Record<string, unknown>[],
+    type: 'FeatureCollection',
+    features: features as unknown as Feature[],
   }
 }
 

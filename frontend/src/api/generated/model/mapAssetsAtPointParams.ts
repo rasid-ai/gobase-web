@@ -8,13 +8,20 @@
 
 export type MapAssetsAtPointParams = {
 /**
+ * A drawn polygon as WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing itself. Sent instead of lon and lat.
+ * @minLength 1
+ */
+area?: string;
+/**
+ * Latitude, WGS 84. Sent with `lon`, never with `area`.
  * @minimum -90
  * @maximum 90
  */
-lat: number;
+lat?: number;
 /**
+ * Longitude, WGS 84. Sent with `lat`, never with `area`.
  * @minimum -180
  * @maximum 180
  */
-lon: number;
+lon?: number;
 };

@@ -3,8 +3,10 @@ import { useEffect, useMemo } from 'react'
 
 import { getMapAssetDataQueryKey, mapAssetData } from '@/api/generated/map/map'
 import type { AssetDataFeaturesItem } from '@/api/generated/model'
-import type { Bbox } from '@/features/places/bbox'
 import { serializeBbox } from '@/features/places/bbox'
+
+import { serializeArea } from './drawnArea'
+import { useLayers } from './layers'
 
 /**
  * Features per request. The server caps this at its own page size.
@@ -44,27 +46,38 @@ export type AssetFeatures = {
   failed: boolean
   /** The asset has no vector data at all, which is a different thing to say. */
   notFound: boolean
+  /**
+   * What the read was scoped to. It decides how a truncated layer is
+   * explained: zooming in shrinks a window, but does nothing to a drawn area.
+   */
+  scope: 'view' | 'area'
 }
 
 /**
- * One asset's features for the area the map is showing.
+ * One asset's features for the drawn area if there is one, else the window.
  *
  * The generated hook fetches a single page; a layer needs to keep the pages it
  * has and ask for the next, so the generated request function is driven by an
  * infinite query instead — the same shape `useRunsPages` uses. The cursor is
  * the previous page's last row in the file.
  *
- * Keyed on the window, so panning back to somewhere already read is a cache
- * hit rather than another trip to the lake.
+ * Reads the scope from the layers context itself rather than taking it as an
+ * argument. The map, the asset row and the layers panel all call this for the
+ * same asset, and one request serves all three only if all three build the
+ * same query key — which is guaranteed when none of them can pass a different
+ * scope.
+ *
+ * Keyed on the scope, so panning back to a window already read, or redrawing
+ * nothing, is a cache hit rather than another trip to the lake.
  */
-export function useAssetFeatures(
-  assetId: string,
-  view: Bbox | null,
-  enabled: boolean,
-): AssetFeatures {
+export function useAssetFeatures(assetId: string, enabled: boolean): AssetFeatures {
+  const { view, drawnArea } = useLayers()
+  const scope = drawnArea ? 'area' : 'view'
+  // Order matters: the generated client builds the query string in this
+  // object's own order, and the tests key on the whole URL.
   const params = {
     limit: PAGE_SIZE,
-    ...(view ? { bbox: serializeBbox(view) } : {}),
+    ...(drawnArea ? { area: serializeArea(drawnArea) } : view ? { bbox: serializeBbox(view) } : {}),
   }
 
   const query = useInfiniteQuery({
@@ -77,7 +90,9 @@ export function useAssetFeatures(
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) =>
       last.status === 200 ? (last.data.next_cursor ?? undefined) : undefined,
-    enabled: enabled && view !== null,
+    // A drawn area needs no window. A window-scoped read waits for the map to
+    // report one, rather than asking for the whole file in the meantime.
+    enabled: enabled && (drawnArea !== null || view !== null),
   })
 
   const pages = query.data?.pages
@@ -109,5 +124,6 @@ export function useAssetFeatures(
     loading: query.isFetching,
     failed: query.isError || refused !== undefined,
     notFound: refused?.status === 404,
+    scope,
   }
 }

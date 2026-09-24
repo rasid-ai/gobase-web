@@ -8,6 +8,11 @@
 
 export type MapAssetDataParams = {
 /**
+ * Read only the features that intersect this drawn polygon: WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing itself. Matching is exact. Sent instead of bbox.
+ * @minLength 1
+ */
+area?: string;
+/**
  * Read only the features whose bounding box overlaps this area: min_lon,min_lat,max_lon,max_lat, SRID 4326. Matching is on bounding boxes, so a feature just outside the area may be included. Without it the whole file is in scope.
  * @minLength 1
  */

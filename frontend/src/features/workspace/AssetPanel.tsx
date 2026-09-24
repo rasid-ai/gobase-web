@@ -61,11 +61,11 @@ function AssetRow({
   onSelect: () => void
   onDraw: () => void
 }) {
-  const { layers, view } = useLayers()
+  const { layers } = useLayers()
   const drawn = layers.find((layer) => layer.assetId === asset.asset_id)
   // Same asset, same area, same query key as the layer on the map: React Query
   // hands both this row and the map one answer, not two requests.
-  const features = useAssetFeatures(asset.asset_id, view, Boolean(drawn?.visible))
+  const features = useAssetFeatures(asset.asset_id, Boolean(drawn?.visible))
   const loading = Boolean(drawn) && features.loading
 
   return (
@@ -114,9 +114,11 @@ function AssetRow({
  * What a drawn layer is showing, in a line.
  *
  * Silent when the layer is simply drawn and whole — the features on the map
- * already say that. It speaks when the answer is partial, so "zoom in" is
- * advice and not decoration: a smaller area is read in full, and that is the
- * actual fix rather than a limit to live with.
+ * already say that. It speaks when the answer is partial, and the advice is
+ * the actual fix rather than a limit to live with: a smaller area is read in
+ * full. Which smaller area depends on the scope. Zooming in shrinks a window,
+ * but a drawn area is fixed, so zooming in does nothing to it — there the fix
+ * is to draw a smaller one.
  */
 function LayerNote({ features, className }: { features: AssetFeatures; className?: string }) {
   if (features.failed) {
@@ -129,7 +131,8 @@ function LayerNote({ features, className }: { features: AssetFeatures; className
   if (!features.truncated) return null
   return (
     <p className={`${MICRO} ${className ?? ''}`}>
-      {features.count} features shown · zoom in for the rest
+      {features.count} features shown ·{' '}
+      {features.scope === 'area' ? 'draw a smaller area for the rest' : 'zoom in for the rest'}
     </p>
   )
 }
@@ -184,9 +187,9 @@ export function AssetDetailPanel({
   onDraw: (assetId: string, name: string) => void
 }) {
   const entries = Object.entries(detail.metadata ?? {})
-  const { layers, view } = useLayers()
+  const { layers } = useLayers()
   const drawn = layers.find((layer) => layer.assetId === detail.asset_id)
-  const features = useAssetFeatures(detail.asset_id, view, Boolean(drawn?.visible))
+  const features = useAssetFeatures(detail.asset_id, Boolean(drawn?.visible))
   const loading = Boolean(drawn) && features.loading
 
   return (
