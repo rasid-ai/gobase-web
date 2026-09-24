@@ -71,7 +71,9 @@ SELECT ST_AsGeoJSON(<geometry>) AS __geometry__,
        file_row_number          AS __cursor__,
        * EXCLUDE (<geometry>, file_row_number)
 FROM   read_parquet(?, file_row_number = true)
-WHERE  ST_Intersects_Extent(<geometry>, ST_MakeEnvelope(?, ?, ?, ?))  -- with bbox
+WHERE  bbox.xmin <= ? AND bbox.xmax >= ?                        -- with bbox, if
+   AND  bbox.ymin <= ? AND bbox.ymax >= ?                        -- the file has one
+   AND  ST_Intersects_Extent(<geometry>, ST_MakeEnvelope(?, ?, ?, ?))  -- with bbox
   AND  file_row_number > ?                                      -- with cursor
 ORDER BY file_row_number
 LIMIT  <limit + 1>
@@ -95,24 +97,42 @@ never under-inclusive: a feature whose box overlaps the area but whose geometry
 does not comes back as well. Free for drawing — it lands off screen — but
 anything that counts or answers from this endpoint has to know.
 
-**There is no row-group pruning on the area filter.** These files carry no
-GeoParquet 1.1 bbox covering column, so every row is looked at whatever the
-window is. The filter saves serialisation and transfer, not I/O, and there is a
-floor under every area query no matter how small the area.
+## The covering bbox column
 
-Measured against `lebanon_buildings_full.parquet` — **1,012,407 features**, the
-largest in the catalog, over local RustFS:
+Silver writes a `bbox STRUCT(xmin, ymin, xmax, ymax)` column beside the
+geometry — one box per feature, the GeoParquet 1.1 "covering" column — with
+rows in Hilbert order and row groups of 25,000. `bbox` is not the file's data.
+It is derived from the geometry, it exists for readers to prune with, and it is
+excluded from the properties so it never reaches the map.
 
-| window | `ST_Intersects` | `ST_Intersects_Extent` |
+**The query has to name it.** DuckDB 1.5.5 does not derive a range test from
+`ST_Intersects` or `ST_Intersects_Extent`, so without the explicit
+`bbox.xmin <= ? AND …` condition the covering column buys nothing and every row
+of the file is read off the object store to answer any area query. With it,
+DuckDB checks each row group's min/max statistics and skips the groups that
+miss, before reading any geometry.
+
+`gobase/cli/export.py` — `is_covering_bbox()` and `bbox_filter()` — is the
+other half of this agreement. Both repos hardcode the name `bbox` and the
+`STRUCT(XMIN…` type test; they must not drift.
+
+**A file without the column still reads**, it just reads all of itself to
+answer an area query. That is a defect in what wrote the file, not a failure to
+raise, so the reader logs a warning once per URI and carries on. Breaking the
+map over it would be worse than the thing being reported.
+
+Measured through `read_vector_features` over a million features, same rows
+either way:
+
+| window | no covering column | with it |
 | --- | --- | --- |
-| whole country | 1730 ms | 1413 ms |
-| a city | 589 ms | 428 ms |
-| a street | 566 ms | 338 ms |
+| a city | 392 ms | 71 ms |
+| a street | 300 ms | 22 ms |
 
-Same rows from both, and the exact predicate costs 18-40% more, which is why
-the extent test is the one in the query. The ~340ms floor at street zoom is the
-scan itself. Reading the whole file is 27 s, which is what the area filter is
-for. This is the ceiling on the approach (docs/adr/012).
+The exact `ST_Intersects` predicate was also measured, at 18-40% slower than
+`ST_Intersects_Extent` for identical rows on the real layers, which is why the
+extent test is the one in the query. Reading `lebanon_buildings_full.parquet`
+whole is 27 s, which is what the area filter is for (docs/adr/013).
 
 **The geometry column reads back as `GEOMETRY`, not `BLOB`.** DuckDB's spatial
 extension types it from the file's `geo` metadata, which is why `ST_Intersects`
