@@ -6,13 +6,28 @@ column discovery, the area filter and the paging arithmetic are all covered
 for real.
 """
 
+import json
 import logging
 
+import duckdb
 import pytest
 
 from apps.map import lake
 
 from .conftest import write_covered_points, write_geoparquet, write_spread_points
+
+
+def _features(result):
+    """The features a read returned, parsed from the JSON text it hands back.
+
+    Strictly: Python's json accepts a bare NaN, which a browser does not, so a
+    test that would pass here and fail in the page must fail here too.
+    """
+
+    def refuse(constant):
+        raise ValueError(f"not JSON: {constant}")
+
+    return json.loads(result["features_json"], parse_constant=refuse)
 
 
 def test_reads_features_with_properties(tmp_path):
@@ -23,10 +38,10 @@ def test_reads_features_with_properties(tmp_path):
     assert result["count"] == 3
     assert result["next_cursor"] is None
 
-    kinds = {feature["geometry"]["type"] for feature in result["features"]}
+    kinds = {feature["geometry"]["type"] for feature in _features(result)}
     assert kinds == {"Point", "LineString", "Polygon"}
 
-    first = result["features"][0]
+    first = _features(result)[0]
     assert first["type"] == "Feature"
     assert first["properties"]["name"] == "feature-0"
     # The geometry column must not survive as a property as well.
@@ -59,7 +74,7 @@ def test_a_bbox_keeps_the_read_to_that_area(tmp_path):
     result = lake.read_vector_features(path, limit=100, bbox=(10.0, -0.5, 13.0, 0.5))
 
     assert result["count"] == 4
-    assert [f["properties"]["osm_id"] for f in result["features"]] == [10, 11, 12, 13]
+    assert [f["properties"]["osm_id"] for f in _features(result)] == [10, 11, 12, 13]
 
 
 def test_paging_repeats_nothing_and_skips_nothing(tmp_path):
@@ -74,7 +89,7 @@ def test_paging_repeats_nothing_and_skips_nothing(tmp_path):
     cursor = None
     for _ in range(20):  # a bound, so a broken cursor fails rather than hangs
         page = lake.read_vector_features(path, limit=7, cursor=cursor)
-        seen.extend(f["properties"]["osm_id"] for f in page["features"])
+        seen.extend(f["properties"]["osm_id"] for f in _features(page))
         cursor = page["next_cursor"]
         if cursor is None:
             break
@@ -95,8 +110,8 @@ def test_a_covering_bbox_column_is_used_and_never_shown(tmp_path):
 
     result = lake.read_vector_features(path, limit=100, bbox=(10.0, -0.5, 13.0, 0.5))
 
-    assert [f["properties"]["osm_id"] for f in result["features"]] == [10, 11, 12, 13]
-    assert set(result["features"][0]["properties"]) == {"osm_id", "name"}
+    assert [f["properties"]["osm_id"] for f in _features(result)] == [10, 11, 12, 13]
+    assert set(_features(result)[0]["properties"]) == {"osm_id", "name"}
 
 
 def test_a_covered_file_and_a_plain_one_answer_the_same(tmp_path):
@@ -111,7 +126,7 @@ def test_a_covered_file_and_a_plain_one_answer_the_same(tmp_path):
 
     def ids(path):
         page = lake.read_vector_features(path, limit=100, bbox=area)
-        return [f["properties"]["osm_id"] for f in page["features"]]
+        return [f["properties"]["osm_id"] for f in _features(page)]
 
     assert ids(covered) == ids(plain)
 
@@ -151,7 +166,7 @@ TRIANGLE_ENVELOPE = (0.0, -1.0, 10.0, 1.0)
 
 
 def _ids(page):
-    return [f["properties"]["osm_id"] for f in page["features"]]
+    return [f["properties"]["osm_id"] for f in _features(page)]
 
 
 @pytest.mark.parametrize(
@@ -191,6 +206,71 @@ def test_an_area_without_its_envelope_is_a_programming_error(tmp_path):
 
     with pytest.raises(ValueError, match="envelope"):
         lake.read_vector_features(path, limit=10, area=TRIANGLE)
+
+
+def _typed_file(path, select: str) -> str:
+    connection = duckdb.connect(":memory:")
+    connection.execute("INSTALL spatial; LOAD spatial;")
+    connection.execute(f"COPY ({select}) TO '{path}' (FORMAT PARQUET)")
+    connection.close()
+    return str(path)
+
+
+def test_a_time_zone_timestamp_reads(tmp_path):
+    """Regression: this crashed the whole read with "Required module 'pytz'".
+
+    The old reader turned every value into a Python object, and DuckDB needs
+    pytz to make a zoned datetime. Two live assets carry one such column. The
+    page is now written as JSON inside DuckDB, so no datetime is ever made.
+    """
+    path = _typed_file(
+        tmp_path / "zoned.parquet",
+        "SELECT TIMESTAMPTZ '2020-09-04 11:58:40+00' AS changed, ST_Point(1, 2) AS geometry",
+    )
+
+    properties = _features(lake.read_vector_features(path, limit=10))[0]["properties"]
+
+    assert properties["changed"].startswith("2020-09-04 11:58:40")
+
+
+def test_non_finite_numbers_become_null_so_the_page_is_valid_json(tmp_path):
+    """A bare NaN is not JSON, and one would make the browser reject the page."""
+    path = _typed_file(
+        tmp_path / "nan.parquet",
+        "SELECT 'nan'::DOUBLE AS a, 'inf'::DOUBLE AS b, 1.5::DOUBLE AS c, "
+        "ST_Point(1, 2) AS geometry",
+    )
+
+    properties = _features(lake.read_vector_features(path, limit=10))[0]["properties"]
+
+    assert properties == {"a": None, "b": None, "c": 1.5}
+
+
+def test_a_file_with_no_attribute_columns_has_empty_properties(tmp_path):
+    """DuckDB refuses to pack an empty struct, so this case is written by hand."""
+    path = _typed_file(tmp_path / "bare.parquet", "SELECT ST_Point(1, 2) AS geometry")
+
+    assert _features(lake.read_vector_features(path, limit=10))[0]["properties"] == {}
+
+
+def test_a_read_that_matches_nothing_is_an_empty_array(tmp_path):
+    path = write_spread_points(tmp_path / "spread.parquet", rows=5)
+
+    result = lake.read_vector_features(path, limit=10, bbox=(100.0, 40.0, 101.0, 41.0))
+
+    assert result == {"count": 0, "next_cursor": None, "features_json": "[]"}
+
+
+def test_column_names_that_need_escaping_survive(tmp_path):
+    """Real files have names like `fill-opacity`; JSON keys must come out intact."""
+    path = _typed_file(
+        tmp_path / "names.parquet",
+        """SELECT 0.5 AS "fill-opacity", 'x"y' AS "quo""te", ST_Point(1, 2) AS geometry""",
+    )
+
+    properties = _features(lake.read_vector_features(path, limit=10))[0]["properties"]
+
+    assert properties == {"fill-opacity": 0.5, 'quo"te': 'x"y'}
 
 
 def test_missing_file_is_a_read_error(tmp_path):
@@ -235,7 +315,7 @@ def test_values_that_json_cannot_hold_become_strings(tmp_path):
 
     result = lake.read_vector_features(path, limit=10)
 
-    properties = result["features"][0]["properties"]
+    properties = _features(result)[0]["properties"]
     assert properties["seen"] == "2026-09-11 08:00:00"
     assert float(properties["ratio"]) == 1.25
 

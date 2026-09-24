@@ -307,6 +307,11 @@ export type mapAssetDataResponse200 = {
   status: 200
 }
 
+export type mapAssetDataResponse304 = {
+  data: void
+  status: 304
+}
+
 export type mapAssetDataResponse400 = {
   data: void
   status: 400
@@ -330,7 +335,7 @@ export type mapAssetDataResponse503 = {
 export type mapAssetDataResponseSuccess = (mapAssetDataResponse200) & {
   headers: Headers;
 };
-export type mapAssetDataResponseError = (mapAssetDataResponse400 | mapAssetDataResponse404 | mapAssetDataResponse502 | mapAssetDataResponse503) & {
+export type mapAssetDataResponseError = (mapAssetDataResponse304 | mapAssetDataResponse400 | mapAssetDataResponse404 | mapAssetDataResponse502 | mapAssetDataResponse503) & {
   headers: Headers;
 };
 
@@ -358,6 +363,18 @@ export const getMapAssetDataUrl = (assetId: string,
  * Vector only, and the endpoint says so rather than inferring it: `assets`
  * holds every modality and the lake read only makes sense for GeoParquet
  * (docs/adr/008). Other modalities get their own endpoints.
+ *
+ * The one endpoint that writes its own body instead of going through DRF's
+ * renderer, and the one that is compressed and cached (docs/adr/015). A page
+ * is megabytes of GeoJSON that DuckDB has already written, so rendering it
+ * again would only parse and re-serialise it. `AssetDataSerializer` still
+ * declares its shape to the contract.
+ *
+ * Compressed here, not site-wide: Django's middleware also compresses
+ * streaming responses, which would hold back the server-sent events the Ask
+ * slice will use, and compressing only this keeps it away from any response
+ * that carries a secret (BREACH). See `_compressed` for why not Django's own
+ * `gzip_page` either.
  * @summary Vector asset features
  */
 export const mapAssetData = async (assetId: string,

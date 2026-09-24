@@ -301,6 +301,18 @@ paths:
         Vector only, and the endpoint says so rather than inferring it: `assets`
         holds every modality and the lake read only makes sense for GeoParquet
         (docs/adr/008). Other modalities get their own endpoints.
+
+        The one endpoint that writes its own body instead of going through DRF's
+        renderer, and the one that is compressed and cached (docs/adr/015). A page
+        is megabytes of GeoJSON that DuckDB has already written, so rendering it
+        again would only parse and re-serialise it. `AssetDataSerializer` still
+        declares its shape to the contract.
+
+        Compressed here, not site-wide: Django's middleware also compresses
+        streaming responses, which would hold back the server-sent events the Ask
+        slice will use, and compressing only this keeps it away from any response
+        that carries a secret (BREACH). See `_compressed` for why not Django's own
+        `gzip_page` either.
       summary: Vector asset features
       parameters:
       - in: query
@@ -350,6 +362,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/AssetData'
           description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held. A browser handles this itself and hands the client its cached
+            200.
         '400':
           description: An unreadable bbox, area, cursor or limit, or both bbox and
             area.

@@ -6,8 +6,8 @@ this module turns the file behind it into features (docs/adr/008).
 
 DuckDB rather than a Python GeoParquet reader: it pushes the area filter and
 the row cap down into the scan, so a file is never fully materialised to return
-the part of it the map can see, and `ST_AsGeoJSON` does the geometry conversion
-in C++.
+the part of it the map can see — and it writes the page's GeoJSON itself, so no
+feature ever becomes a Python object on its way out (docs/adr/015).
 
 DuckDB reads the lake; it never touches Postgres. `kb` stays on Django's
 connection and its read-only role (docs/adr/002).
@@ -203,7 +203,13 @@ def _geometry_column(cursor, uri: str) -> str:
     return row[0]
 
 
-def _covering_bbox_column(cursor, uri: str) -> str | None:
+def _describe(cursor, uri: str) -> list[tuple[str, str]]:
+    """Every column in the file, with its DuckDB type, in file order."""
+    cursor.execute("DESCRIBE SELECT * FROM read_parquet(?)", [uri])
+    return [(name, str(dtype)) for name, dtype, *_ in cursor.fetchall()]
+
+
+def _covering_bbox_column(columns: list[tuple[str, str]], uri: str) -> str | None:
     """The GeoParquet 1.1 covering column, or None if the file has none.
 
     One box per feature, derived from the geometry. It exists for readers to
@@ -215,9 +221,8 @@ def _covering_bbox_column(cursor, uri: str) -> str | None:
     is the other half of this agreement and tests exactly the same thing; the
     two must not drift.
     """
-    cursor.execute("DESCRIBE SELECT * FROM read_parquet(?)", [uri])
-    for name, dtype, *_ in cursor.fetchall():
-        if name == COVERING_BBOX and str(dtype).upper().startswith("STRUCT(XMIN"):
+    for name, dtype in columns:
+        if name == COVERING_BBOX and dtype.upper().startswith("STRUCT(XMIN"):
             return name
 
     # Every silver file is supposed to have one. A file without it still reads
@@ -234,26 +239,6 @@ def _covering_bbox_column(cursor, uri: str) -> str | None:
             uri,
         )
     return None
-
-
-def _jsonable(value):
-    """Coerce a Parquet value into something JSON can hold.
-
-    Properties come from whatever columns the file has, so the types are not
-    known ahead of time: timestamps, dates, decimals and UUIDs all arrive as
-    Python objects that json cannot serialise.
-    """
-    if value is None or isinstance(value, str | bool | int):
-        return value
-    if isinstance(value, float):
-        return value
-    if isinstance(value, bytes | bytearray):
-        return value.decode("utf-8", "replace")
-    if isinstance(value, list | tuple):
-        return [_jsonable(item) for item in value]
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    return str(value)
 
 
 def read_vector_features(
@@ -301,8 +286,10 @@ def read_vector_features(
         raise LakeUnavailable(str(exc)) from exc
 
     try:
-        geometry = _quote(_geometry_column(reader, uri))
-        covering = _covering_bbox_column(reader, uri)
+        geometry_name = _geometry_column(reader, uri)
+        columns = _describe(reader, uri)
+        covering = _covering_bbox_column(columns, uri)
+        geometry = _quote(geometry_name)
 
         # Both filters are optional and each binds its own parameters, so the
         # WHERE clause is assembled rather than written out.
@@ -349,52 +336,91 @@ def read_vector_features(
         if cursor is not None:
             conditions.append("file_row_number > ?")
             params.append(cursor)
-        where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        # The geometry column, the row number and the covering box are all
-        # excluded from the star so none of them can also appear as a property;
-        # every remaining column becomes one. The covering box is derived from
-        # the geometry and is there to filter with, so it is not the file's
-        # data and must not reach the map.
-        internal = [geometry, "file_row_number"]
-        if covering is not None:
-            internal.append(_quote(covering))
-
+        # The page is written as JSON by DuckDB, not by Python. Today's
+        # alternative parsed every geometry DuckDB had already written as JSON
+        # back into Python objects, built a dict per feature, and serialised
+        # the lot again: 731 ms for 10,000 buildings, against 144 ms for this
+        # (docs/adr/015).
+        #
+        # `LIMIT limit + 1` still decides whether there is a next page; the
+        # extra row is counted but kept out of the features and the cursor.
+        page = int(limit)
+        properties = _properties(columns, exclude={geometry_name, covering})
         reader.execute(
-            f"SELECT ST_AsGeoJSON({geometry}) AS __geometry__, "
-            f"file_row_number AS __cursor__, "
-            f"* EXCLUDE ({', '.join(internal)}) "
-            f"FROM read_parquet(?, file_row_number = true) "
-            f"{where}"
-            f"ORDER BY file_row_number "
-            f"LIMIT {int(limit) + 1}",
+            f"""
+            WITH page AS (
+                SELECT file_row_number AS __cursor__,
+                       ST_AsGeoJSON({geometry}) AS __geometry__,
+                       {properties} AS __properties__
+                FROM read_parquet(?, file_row_number = true)
+                {where}
+                ORDER BY file_row_number
+                LIMIT {page + 1}
+            ),
+            numbered AS (
+                SELECT row_number() OVER (ORDER BY __cursor__) AS __n__, * FROM page
+            )
+            SELECT count(*) FILTER (WHERE __n__ <= {page}),
+                   count(*) > {page},
+                   max(__cursor__) FILTER (WHERE __n__ <= {page}),
+                   string_agg(
+                       '{{"type":"Feature","geometry":' || coalesce(__geometry__, 'null')
+                       || ',"properties":' || __properties__ || '}}',
+                       ',' ORDER BY __cursor__
+                   ) FILTER (WHERE __n__ <= {page})
+            FROM numbered
+            """,
             params,
         )
-        columns = [column[0] for column in reader.description]
-        rows = reader.fetchall()
+        count, more, last, features = reader.fetchone()
     except duckdb.Error as exc:
         raise _classify(exc, uri) from exc
     finally:
         reader.close()
 
-    has_more = len(rows) > limit
-    page = rows[:limit]
-    next_cursor = int(page[-1][columns.index("__cursor__")]) if has_more and page else None
-    features = [_feature(columns, row) for row in page]
-    return {"count": len(features), "next_cursor": next_cursor, "features": features}
-
-
-def _feature(columns: list[str], row: tuple) -> dict:
-    """One GeoJSON Feature from a result row."""
-    values = dict(zip(columns, row, strict=True))
-    geometry = values.pop("__geometry__", None)
-    # The paging key is bookkeeping, not one of the file's columns.
-    values.pop("__cursor__", None)
     return {
-        "type": "Feature",
-        "geometry": json.loads(geometry) if geometry else None,
-        "properties": {key: _jsonable(value) for key, value in values.items()},
+        "count": count,
+        "next_cursor": int(last) if more else None,
+        # A JSON array as text, ready to be written into a response unparsed.
+        "features_json": f"[{features or ''}]",
     }
+
+
+# DuckDB's `to_json` writes a non-finite float as a bare `NaN` or `Infinity`,
+# which is not JSON: one such value would make the browser reject the whole
+# page. These types are the ones that can hold one.
+_FLOATING = {"DOUBLE", "FLOAT", "REAL"}
+
+
+def _properties(columns: list[tuple[str, str]], *, exclude: set) -> str:
+    """SQL for one row's properties as a JSON object, as text.
+
+    Every column but the geometry, the row number and the covering box —
+    those are the file's structure, not its data. Written column by column
+    from DESCRIBE rather than with a star, for two reasons: a file with no
+    attribute columns at all has to produce `{}` (DuckDB refuses to pack an
+    empty struct), and a floating-point column has to turn NaN and infinity
+    into null so the output is always valid JSON.
+
+    `to_json` does the rest: timestamps and dates as text, decimals as
+    numbers, and names like `fill-opacity` escaped properly.
+    """
+    fields = []
+    for name, dtype in columns:
+        if name in exclude:
+            continue
+        column = _quote(name)
+        value = (
+            f"CASE WHEN isfinite({column}) THEN {column} END"
+            if dtype.upper() in _FLOATING
+            else column
+        )
+        fields.append(f"{column} := {value}")
+    if not fields:
+        return "'{}'"
+    return f"to_json(struct_pack({', '.join(fields)}))::VARCHAR"
 
 
 def _quote(identifier: str) -> str:
