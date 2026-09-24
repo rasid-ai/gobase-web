@@ -6,11 +6,13 @@ column discovery, the area filter and the paging arithmetic are all covered
 for real.
 """
 
+import logging
+
 import pytest
 
 from apps.map import lake
 
-from .conftest import write_geoparquet, write_spread_points
+from .conftest import write_covered_points, write_geoparquet, write_spread_points
 
 
 def test_reads_features_with_properties(tmp_path):
@@ -80,6 +82,65 @@ def test_paging_repeats_nothing_and_skips_nothing(tmp_path):
         pytest.fail("the cursor never reached the end")
 
     assert seen == list(range(47))
+
+
+def test_a_covering_bbox_column_is_used_and_never_shown(tmp_path):
+    """The covering column filters; it is not the file's data.
+
+    Silver writes one box per feature so DuckDB can skip row groups without
+    reading geometry. It is derived from the geometry, so it must not arrive as
+    a property — the map would draw a `bbox` field nobody put in the file.
+    """
+    path = write_covered_points(tmp_path / "covered.parquet", rows=200)
+
+    result = lake.read_vector_features(path, limit=100, bbox=(10.0, -0.5, 13.0, 0.5))
+
+    assert [f["properties"]["osm_id"] for f in result["features"]] == [10, 11, 12, 13]
+    assert set(result["features"][0]["properties"]) == {"osm_id", "name"}
+
+
+def test_a_covered_file_and_a_plain_one_answer_the_same(tmp_path):
+    """The range test prunes; it must not change the answer.
+
+    The two files hold identical features and differ only in the covering
+    column, so any difference here is the covering filter dropping real rows.
+    """
+    covered = write_covered_points(tmp_path / "covered.parquet", rows=200)
+    plain = write_spread_points(tmp_path / "plain.parquet", rows=200)
+    area = (10.0, -0.5, 13.0, 0.5)
+
+    def ids(path):
+        page = lake.read_vector_features(path, limit=100, bbox=area)
+        return [f["properties"]["osm_id"] for f in page["features"]]
+
+    assert ids(covered) == ids(plain)
+
+
+def test_a_file_without_a_covering_column_still_reads(tmp_path, caplog):
+    """Silver writes one for every asset, so a file without it is a defect.
+
+    It is reported and not raised: the file reads correctly either way, it just
+    reads all of itself to answer an area query. Breaking the map over it would
+    be worse than the thing being reported.
+    """
+    path = write_spread_points(tmp_path / "plain.parquet", rows=30)
+
+    with caplog.at_level(logging.WARNING, logger="apps.map.lake"):
+        result = lake.read_vector_features(path, limit=100, bbox=(2.0, -0.5, 5.0, 0.5))
+
+    assert result["count"] == 4
+    assert "covering column" in caplog.text
+
+
+def test_the_missing_covering_column_is_reported_once_per_file(tmp_path, caplog):
+    """One line per file, not one per pan. A live map re-reads constantly."""
+    path = write_spread_points(tmp_path / "plain.parquet", rows=30)
+
+    with caplog.at_level(logging.WARNING, logger="apps.map.lake"):
+        for _ in range(3):
+            lake.read_vector_features(path, limit=100, bbox=(2.0, -0.5, 5.0, 0.5))
+
+    assert sum("covering column" in record.message for record in caplog.records) == 1
 
 
 def test_missing_file_is_a_read_error(tmp_path):

@@ -36,6 +36,10 @@ class LakeReadError(Exception):
 _connection = None
 _lock = threading.Lock()
 
+# URIs already reported as having no covering column, so the warning is not
+# repeated on every pan. Bounded by the number of vector assets.
+_warned_uncovered: set[str] = set()
+
 # Substrings that mark a failure as "could not reach the lake" rather than
 # "could not read the file". DuckDB reports both as IOException, so the message
 # is the only thing separating a dead endpoint from a bad path.
@@ -54,6 +58,11 @@ _UNAVAILABLE_MARKERS = (
     "invalidaccesskeyid",
     "signaturedoesnotmatch",
 )
+
+
+# The name the data platform gives the GeoParquet 1.1 covering column. Both
+# repos hardcode it; see `_covering_bbox_column`.
+COVERING_BBOX = "bbox"
 
 
 def _sql_literal(value: str) -> str:
@@ -155,6 +164,7 @@ def reset() -> None:
         if _connection is not None:
             _connection.close()
         _connection = None
+        _warned_uncovered.clear()
 
 
 def _geometry_column(cursor, uri: str) -> str:
@@ -191,6 +201,39 @@ def _geometry_column(cursor, uri: str) -> str:
     if not row:
         raise LakeReadError(f"No geometry column found in {uri}")
     return row[0]
+
+
+def _covering_bbox_column(cursor, uri: str) -> str | None:
+    """The GeoParquet 1.1 covering column, or None if the file has none.
+
+    One box per feature, derived from the geometry. It exists for readers to
+    prune with, so it is a filter and never a property.
+
+    Detected by name and type rather than from the `geo` metadata's `covering`
+    key, because the same rule has to match a file DuckDB wrote — `COPY` emits
+    the column but not that metadata. `gobase/cli/export.py:is_covering_bbox`
+    is the other half of this agreement and tests exactly the same thing; the
+    two must not drift.
+    """
+    cursor.execute("DESCRIBE SELECT * FROM read_parquet(?)", [uri])
+    for name, dtype, *_ in cursor.fetchall():
+        if name == COVERING_BBOX and str(dtype).upper().startswith("STRUCT(XMIN"):
+            return name
+
+    # Every silver file is supposed to have one. A file without it still reads
+    # correctly — it just reads the whole file to answer an area query — so
+    # this is a defect to report, not a failure to raise. Once per URI, since
+    # the alternative is a line per pan per layer.
+    if uri not in _warned_uncovered:
+        _warned_uncovered.add(uri)
+        logger.warning(
+            "No `%s` covering column in %s: area queries read the whole file. "
+            "Silver writes one for every vector asset, so this file predates "
+            "that or was written by something else.",
+            COVERING_BBOX,
+            uri,
+        )
+    return None
 
 
 def _jsonable(value):
@@ -246,18 +289,33 @@ def read_vector_features(
 
     try:
         geometry = _quote(_geometry_column(reader, uri))
+        covering = _covering_bbox_column(reader, uri)
 
         # Both filters are optional and each binds its own parameters, so the
         # WHERE clause is assembled rather than written out.
         conditions: list[str] = []
         params: list = [uri]
         if bbox is not None:
-            # Bounding boxes, not exact geometry. `ST_Intersects_Extent` is a
-            # box-against-box test; the exact predicate does real geometry work
-            # on every row that survives, and every row has to be looked at
-            # because these files have no bbox covering column to prune by.
-            # Measured 40% faster on the 1M-feature buildings layer at street
-            # zoom (566ms -> 338ms).
+            min_lon, min_lat, max_lon, max_lat = bbox
+            if covering is not None:
+                # A plain range test on the covering column, and the whole
+                # reason the area filter is affordable. DuckDB checks it
+                # against each row group's min/max statistics and skips the
+                # groups that miss, before reading any geometry at all. It
+                # will not derive this from ST_Intersects_Extent on its own
+                # (checked on DuckDB 1.5.5), so without it every row of the
+                # file is read off the object store to answer any area query.
+                box = _quote(covering)
+                conditions.append(
+                    f"{box}.xmin <= ? AND {box}.xmax >= ? AND {box}.ymin <= ? AND {box}.ymax >= ?"
+                )
+                params.extend([max_lon, min_lon, max_lat, min_lat])
+
+            # Then the exact-ish test, on whatever survived. Bounding boxes
+            # again, not real geometry: `ST_Intersects_Extent` is a
+            # box-against-box test and the exact predicate does real geometry
+            # work on every surviving row, measured 18-40% slower for the same
+            # rows.
             #
             # It is over-inclusive and never under-inclusive: a feature whose
             # box overlaps the area but whose geometry does not comes back too.
@@ -271,13 +329,19 @@ def read_vector_features(
             params.append(cursor)
         where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
 
-        # The geometry column and the row number are both excluded from the
-        # star so neither can also appear as a property; every remaining column
-        # becomes one.
+        # The geometry column, the row number and the covering box are all
+        # excluded from the star so none of them can also appear as a property;
+        # every remaining column becomes one. The covering box is derived from
+        # the geometry and is there to filter with, so it is not the file's
+        # data and must not reach the map.
+        internal = [geometry, "file_row_number"]
+        if covering is not None:
+            internal.append(_quote(covering))
+
         reader.execute(
             f"SELECT ST_AsGeoJSON({geometry}) AS __geometry__, "
             f"file_row_number AS __cursor__, "
-            f"* EXCLUDE ({geometry}, file_row_number) "
+            f"* EXCLUDE ({', '.join(internal)}) "
             f"FROM read_parquet(?, file_row_number = true) "
             f"{where}"
             f"ORDER BY file_row_number "
