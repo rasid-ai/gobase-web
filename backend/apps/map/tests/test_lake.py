@@ -143,6 +143,56 @@ def test_the_missing_covering_column_is_reported_once_per_file(tmp_path, caplog)
     assert sum("covering column" in record.message for record in caplog.records) == 1
 
 
+# A right triangle over the points at (i, 0). Its envelope spans x 0..10, but
+# its long edge crosses y = 0 at x = 5, so points 6..10 are inside the
+# envelope and outside the polygon — exactly the case a box test gets wrong.
+TRIANGLE = "POLYGON((0 -1, 10 -1, 0 1, 0 -1))"
+TRIANGLE_ENVELOPE = (0.0, -1.0, 10.0, 1.0)
+
+
+def _ids(page):
+    return [f["properties"]["osm_id"] for f in page["features"]]
+
+
+@pytest.mark.parametrize(
+    "writer", [write_covered_points, write_spread_points], ids=["covered", "plain"]
+)
+def test_an_area_is_tested_exactly_not_by_its_envelope(tmp_path, writer):
+    """The outline is on screen, so a feature outside it must not be drawn.
+
+    With and without the covering column: the envelope prunes when it can,
+    but the polygon decides either way.
+    """
+    path = writer(tmp_path / "points.parquet", rows=30)
+
+    boxed = lake.read_vector_features(path, limit=100, bbox=TRIANGLE_ENVELOPE)
+    drawn = lake.read_vector_features(path, limit=100, bbox=TRIANGLE_ENVELOPE, area=TRIANGLE)
+
+    assert _ids(boxed) == list(range(0, 11))
+    assert _ids(drawn) == [0, 1, 2, 3, 4, 5]
+
+
+def test_an_area_pages_like_a_window(tmp_path):
+    path = write_covered_points(tmp_path / "points.parquet", rows=30)
+
+    first = lake.read_vector_features(path, limit=4, bbox=TRIANGLE_ENVELOPE, area=TRIANGLE)
+    second = lake.read_vector_features(
+        path, limit=4, bbox=TRIANGLE_ENVELOPE, area=TRIANGLE, cursor=first["next_cursor"]
+    )
+
+    assert _ids(first) == [0, 1, 2, 3]
+    assert _ids(second) == [4, 5]
+    assert second["next_cursor"] is None
+
+
+def test_an_area_without_its_envelope_is_a_programming_error(tmp_path):
+    """Without the envelope nothing prunes and every read is a whole-file scan."""
+    path = write_covered_points(tmp_path / "points.parquet", rows=3)
+
+    with pytest.raises(ValueError, match="envelope"):
+        lake.read_vector_features(path, limit=10, area=TRIANGLE)
+
+
 def test_missing_file_is_a_read_error(tmp_path):
     with pytest.raises(lake.LakeReadError):
         lake.read_vector_features(str(tmp_path / "absent.parquet"), limit=10)

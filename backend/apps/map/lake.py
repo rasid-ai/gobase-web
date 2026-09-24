@@ -261,14 +261,24 @@ def read_vector_features(
     *,
     limit: int,
     bbox: tuple[float, float, float, float] | None = None,
+    area: str | None = None,
     cursor: int | None = None,
 ) -> dict:
     """Read one page of features from a GeoParquet file in the lake.
 
     `bbox` is `(min_lon, min_lat, max_lon, max_lat)` in SRID 4326. It keeps the
     read to the area the caller asked about; without it the whole file is in
-    scope. It matches on bounding boxes, so it is slightly over-inclusive — see
-    the filter below. `cursor` is the `next_cursor` the previous page returned.
+    scope. On its own it matches on bounding boxes, so it is slightly
+    over-inclusive — see the filter below.
+
+    `area` is a drawn polygon as WKT, and refines `bbox` rather than replacing
+    it: the caller passes the polygon's envelope as `bbox` and the polygon as
+    `area`. The envelope does the pruning, which is what makes a polygon
+    affordable, and the polygon then decides exactly. It arrives validated by
+    `AreaField`, which is the only thing standing between a self-intersecting
+    shape and a silently wrong answer.
+
+    `cursor` is the `next_cursor` the previous page returned.
 
     Returns the features, how many this page holds, and the cursor for the next
     page — None when this page is the last. The scan asks for one row beyond
@@ -282,6 +292,9 @@ def read_vector_features(
     row number makes the sequence stable and makes the next page a range scan
     rather than a re-read.
     """
+    if area is not None and bbox is None:
+        raise ValueError("an area needs its envelope passed as bbox, for pruning")
+
     try:
         reader = _shared_connection().cursor()
     except duckdb.Error as exc:
@@ -311,19 +324,28 @@ def read_vector_features(
                 )
                 params.extend([max_lon, min_lon, max_lat, min_lat])
 
-            # Then the exact-ish test, on whatever survived. Bounding boxes
-            # again, not real geometry: `ST_Intersects_Extent` is a
-            # box-against-box test and the exact predicate does real geometry
-            # work on every surviving row, measured 18-40% slower for the same
-            # rows.
-            #
-            # It is over-inclusive and never under-inclusive: a feature whose
-            # box overlaps the area but whose geometry does not comes back too.
-            # For drawing that is free — it lands off screen and MapLibre clips
-            # it. Anything counting or answering from this must know it
-            # (docs/adr/012).
-            conditions.append(f"ST_Intersects_Extent({geometry}, ST_MakeEnvelope(?, ?, ?, ?))")
-            params.extend(bbox)
+            if area is not None:
+                # A drawn polygon is tested exactly. Its outline is on screen,
+                # so a feature drawn outside it reads as a bug rather than as
+                # an optimisation: over Beirut the loose box test returns 15%
+                # more buildings than lie inside the polygon. The exact test
+                # only runs on what the envelope let through, which is why it
+                # is affordable (56 ms against 371 ms unpruned, docs/adr/014).
+                conditions.append(f"ST_Intersects({geometry}, ST_GeomFromText(?))")
+                params.append(area)
+            else:
+                # A window is tested on bounding boxes, not real geometry:
+                # `ST_Intersects_Extent` is a box-against-box test and the
+                # exact predicate does real geometry work on every surviving
+                # row, measured 18-40% slower for the same rows.
+                #
+                # It is over-inclusive and never under-inclusive: a feature
+                # whose box overlaps the window but whose geometry does not
+                # comes back too. For a window that is free — it lands off
+                # screen and MapLibre clips it. Anything counting or answering
+                # from this must know it (docs/adr/012).
+                conditions.append(f"ST_Intersects_Extent({geometry}, ST_MakeEnvelope(?, ?, ?, ?))")
+                params.extend(bbox)
         if cursor is not None:
             conditions.append("file_row_number > ?")
             params.append(cursor)

@@ -162,6 +162,41 @@ def test_the_cursor_pages_within_the_bbox(as_viewer, monkeypatch, tmp_path):
     assert ids(second) == [5, 6, 7]
 
 
+# --- drawn area -------------------------------------------------------------
+
+
+def test_an_area_returns_only_what_is_inside_it(as_viewer, monkeypatch, tmp_path):
+    """Points 6..10 sit inside the triangle's envelope and outside the triangle."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=30)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    body = as_viewer.get(url(), {"area": "POLYGON((0 -1, 10 -1, 0 1, 0 -1))"}).json()
+
+    assert ids(body) == [0, 1, 2, 3, 4, 5]
+
+
+def test_a_bbox_and_an_area_together_are_refused(as_viewer, monkeypatch, tmp_path):
+    """Two answers to "where" is a caller bug, not something to guess between."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(
+        url(), {"bbox": "0,-1,10,1", "area": "POLYGON((0 -1, 10 -1, 0 1, 0 -1))"}
+    )
+
+    assert response.status_code == 400
+
+
+def test_a_self_crossing_area_is_refused(as_viewer, monkeypatch, tmp_path):
+    """DuckDB would answer this one silently and wrongly."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(url(), {"area": "POLYGON((0 0, 1 1, 1 0, 0 1, 0 0))"})
+
+    assert response.status_code == 400
+
+
 # --- limits and bad input -------------------------------------------------
 
 

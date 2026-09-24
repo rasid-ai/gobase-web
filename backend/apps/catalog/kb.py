@@ -30,6 +30,17 @@ _COVERING_POINT = """
     ORDER BY modality, source_uri
 """
 
+# The same question with a drawn polygon in place of a point, so the same
+# columns and the same order: the view groups either answer without knowing
+# which it asked. The WKT reaches here already validated by `AreaField`.
+_COVERING_AREA = """
+    SELECT asset_id, modality, source_uri, format, summary, time_start, time_end
+    FROM assets
+    WHERE status = 'active'
+      AND ST_Intersects(extent, ST_GeomFromText(%s, 4326))
+    ORDER BY modality, source_uri
+"""
+
 _ASSET = """
     SELECT asset_id, modality, source_uri, format, summary, topic_path::text,
            bytes, time_start, time_end, ingested_at,
@@ -252,6 +263,16 @@ def assets_covering_point(lon: float, lat: float) -> list[dict]:
     error (specs/map.md).
     """
     return _rows(_COVERING_POINT, [lon, lat])
+
+
+def assets_overlapping_area(wkt: str) -> list[dict]:
+    """Active catalog assets whose coverage overlaps a drawn polygon.
+
+    Overlapping rather than inside: an asset whose coverage only crosses part
+    of the area is still data about that area. Ordered as the point query is,
+    so the caller groups either the same way.
+    """
+    return _rows(_COVERING_AREA, [wkt])
 
 
 def asset_detail(asset_id) -> dict | None:

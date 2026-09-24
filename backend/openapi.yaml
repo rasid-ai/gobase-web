@@ -117,8 +117,9 @@ paths:
         One page of the catalog, filtered and sorted.
 
         Browsing is not a map feature, which is why this is its own app: the map's
-        `/api/map/assets` already means "the assets covering this point" and cannot
-        carry a second meaning (docs/adr/010).
+        `/api/map/assets` already means "the assets covering this place" — a
+        clicked point or a drawn area, one question asked with two geometries — and
+        cannot carry a second, different question (docs/adr/010, docs/adr/014).
       summary: Browse the asset catalog
       parameters:
       - in: query
@@ -220,9 +221,22 @@ paths:
   /api/map/assets:
     get:
       operationId: map_assets_at_point
-      description: List the catalog assets whose coverage includes a point.
-      summary: Assets covering a point
+      description: |-
+        List the catalog assets covering a clicked point or overlapping a drawn area.
+
+        One endpoint for both because they are one question — "what data is about
+        this place" — asked with two geometries, and the answer has the same shape
+        either way (docs/adr/014). The operation keeps its original id so the
+        generated client's hook keeps its name.
+      summary: Assets covering a point or a drawn area
       parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: A drawn polygon as WKT, POLYGON((lon lat, ...)), SRID 4326, at
+          most 100 corners and not crossing itself. Sent instead of lon and lat.
       - in: query
         name: lat
         schema:
@@ -230,7 +244,7 @@ paths:
           format: double
           maximum: 90
           minimum: -90
-        required: true
+        description: Latitude, WGS 84. Sent with `lon`, never with `area`.
       - in: query
         name: lon
         schema:
@@ -238,7 +252,7 @@ paths:
           format: double
           maximum: 180
           minimum: -180
-        required: true
+        description: Longitude, WGS 84. Sent with `lat`, never with `area`.
       tags:
       - map
       security:
@@ -251,7 +265,8 @@ paths:
                 $ref: '#/components/schemas/AssetsAtPoint'
           description: ''
         '400':
-          description: Missing or out-of-range coordinates.
+          description: No place given, both given, or a point or area that cannot
+            be read.
   /api/map/assets/{asset_id}:
     get:
       operationId: map_asset_detail
@@ -288,6 +303,14 @@ paths:
         (docs/adr/008). Other modalities get their own endpoints.
       summary: Vector asset features
       parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Read only the features that intersect this drawn polygon: WKT,
+          POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself. Matching is exact. Sent instead of bbox.'
       - in: path
         name: asset_id
         schema:
@@ -328,7 +351,8 @@ paths:
                 $ref: '#/components/schemas/AssetData'
           description: ''
         '400':
-          description: An unreadable bbox, cursor or limit.
+          description: An unreadable bbox, area, cursor or limit, or both bbox and
+            area.
         '404':
           description: No active vector asset with that id.
         '502':
