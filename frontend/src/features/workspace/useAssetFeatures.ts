@@ -9,15 +9,19 @@ import { serializeArea } from './drawnArea'
 import { useLayers } from './layers'
 
 /**
- * Features per request. The server caps this at its own page size.
+ * Features per request. The server caps this at `LAKE_PAGE_SIZE`, so the two
+ * are raised together — a bigger number here alone is silently ignored.
  *
- * Large on purpose. Every request re-opens the file — DuckDB keeps no result
- * between calls — so a page is a round trip, and a big page makes one request
- * the normal case. The scan itself is cheap and does not grow with the page
- * number: the cursor is a range filter, so DuckDB stops as soon as it has
- * enough rows rather than reading the file and skipping.
+ * Large on purpose, and measured on the 1M-feature buildings layer over a
+ * Beirut window. The scan is not where a page's time goes: it is ~12%, and
+ * later pages do not re-read earlier row groups, because DuckDB skips every
+ * row group before the cursor. The other ~88% is building each feature as
+ * JSON, which costs the same per feature however it is paged. So a bigger
+ * page mostly saves round trips — and on this side, re-sends: each page hands
+ * MapLibre's worker the whole growing collection again, so three pages of
+ * 10,000 send 60,000 features in all where five of 5,000 send 75,000.
  */
-export const PAGE_SIZE = 5000
+export const PAGE_SIZE = 10000
 
 /**
  * How many pages one layer will pull for one window before it stops.
@@ -27,13 +31,11 @@ export const PAGE_SIZE = 5000
  * can hold a whole city's worth of features that no one can tell apart on
  * screen, and pulling all of them would cost a long wait for a smudge.
  *
- * Three, because two stopped just short of finishing real layers. Measured
- * against silver after the covering column landed (docs/adr/013): roads over
- * greater Beirut holds 11,431 features and takes three pages — 149ms, 184ms,
- * 66ms — so a budget of two showed 10,000 of them and asked the user to zoom
- * in, for the sake of a third page costing 66ms. At street and district zoom
- * every layer finishes in one page regardless, so this only bites zoomed out,
- * where saying "zoom in for the rest" is honest.
+ * Three pages of 10,000 — up to 30,000 features in a window. Roads over
+ * greater Beirut (11,431) now fits in two, and buildings there (63,682) stops
+ * at 30,000 and says so. At street and district zoom every layer finishes in
+ * one page regardless, so this only bites zoomed out, where saying "zoom in
+ * for the rest" is honest.
  */
 export const PAGE_BUDGET = 3
 

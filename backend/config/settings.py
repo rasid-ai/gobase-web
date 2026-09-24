@@ -241,4 +241,10 @@ LAKE_S3_URL_STYLE = env("LAKE_S3_URL_STYLE", "vhost")
 # The most features in one page of an asset's features, and the most a caller
 # may ask for. The query asks for one row more than this to tell a full page
 # from the last one. It caps a page, not an asset: a caller walks the pages.
-LAKE_PAGE_SIZE = int(env("LAKE_PAGE_SIZE", "5000"))
+#
+# The client's PAGE_SIZE (frontend/src/features/workspace/useAssetFeatures.ts)
+# asks for this many; if it asks for more, this cap quietly wins, so raise the
+# two together. Most of a page's cost is building each feature as JSON, not the
+# scan — the measurements are in that file — so a bigger page mostly saves
+# round trips.
+LAKE_PAGE_SIZE = int(env("LAKE_PAGE_SIZE", "10000"))

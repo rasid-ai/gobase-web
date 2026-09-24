@@ -26,7 +26,7 @@ Seven settings, all from the environment, all defaulted:
 | `LAKE_S3_URL_STYLE` | `path` | `vhost` |
 | `LAKE_S3_USE_SSL` | `false` locally | `true` |
 | `LAKE_S3_ACCESS_KEY` / `LAKE_S3_SECRET_KEY` | set | set, or **blank** |
-| `LAKE_PAGE_SIZE` | 5000 | 5000 |
+| `LAKE_PAGE_SIZE` | 10000 | 10000 |
 
 No provider is named anywhere in the code. Moving between RustFS and AWS is an
 `.env` edit and a restart.
