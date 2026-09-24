@@ -9,7 +9,7 @@ import type { Bbox } from '@/features/places/bbox'
 import { serializeBbox } from '@/features/places/bbox'
 import { mockFetch, renderApp, resetSession } from '@/test/harness'
 
-import { PAGE_SIZE } from './useAssetFeatures'
+import { PAGE_BUDGET, PAGE_SIZE } from './useAssetFeatures'
 import { windowFor } from './view'
 
 /**
@@ -292,8 +292,12 @@ describe('drawing a vector asset', () => {
     await clickMap(user)
     await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
 
-    // Two pages of three features, then the budget stops it.
-    expect(await screen.findByText(/6 features shown · zoom in for the rest/)).toBeInTheDocument()
+    // Three features a page until the budget stops it. Derived rather than
+    // written out, so retuning the budget does not need this edited.
+    const shown = PAGE_BUDGET * 3
+    expect(
+      await screen.findByText(new RegExp(`${shown} features shown · zoom in for the rest`)),
+    ).toBeInTheDocument()
   })
 
   it('reads the layer again for the new area when the map settles', async () => {

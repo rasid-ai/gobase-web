@@ -24,8 +24,16 @@ export const PAGE_SIZE = 5000
  * the same layer comes back whole. It exists because a window at world zoom
  * can hold a whole city's worth of features that no one can tell apart on
  * screen, and pulling all of them would cost a long wait for a smudge.
+ *
+ * Three, because two stopped just short of finishing real layers. Measured
+ * against silver after the covering column landed (docs/adr/013): roads over
+ * greater Beirut holds 11,431 features and takes three pages — 149ms, 184ms,
+ * 66ms — so a budget of two showed 10,000 of them and asked the user to zoom
+ * in, for the sake of a third page costing 66ms. At street and district zoom
+ * every layer finishes in one page regardless, so this only bites zoomed out,
+ * where saying "zoom in for the rest" is honest.
  */
-export const PAGE_BUDGET = 2
+export const PAGE_BUDGET = 3
 
 export type AssetFeatures = {
   features: readonly AssetDataFeaturesItem[]

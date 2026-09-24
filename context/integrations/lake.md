@@ -119,7 +119,9 @@ other half of this agreement. Both repos hardcode the name `bbox` and the
 **A file without the column still reads**, it just reads all of itself to
 answer an area query. That is a defect in what wrote the file, not a failure to
 raise, so the reader logs a warning once per URI and carries on. Breaking the
-map over it would be worse than the thing being reported.
+map over it would be worse than the thing being reported. As of the 2026-09-24
+silver rewrite all 12 active vector assets carry the column, so the warning
+firing at all means something upstream has regressed.
 
 Measured through `read_vector_features` over a million features, same rows
 either way:
