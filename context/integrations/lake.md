@@ -63,7 +63,7 @@ mistake (context/integrations/kb.md).
 
 ## Reading
 
-`read_vector_features(uri, limit=, bbox=, cursor=)` runs one query. Both
+`read_vector_features(uri, limit=, bbox=, area=, cursor=)` runs one query. Both
 filters are optional; with neither, the whole file is in scope:
 
 ```sql
@@ -166,9 +166,33 @@ metadata comes back as `BLOB`, and there is no `BLOB -> GEOMETRY` cast — it
 would need `ST_GeomFromWKB`. `parquet_schema` reports `BYTE_ARRAY` for both, so
 it cannot tell them apart; `typeof()` on a read can.
 
-Every non-geometry column becomes a GeoJSON `properties` key. Types are not
-known ahead of time — the columns differ per file — so values JSON cannot hold
-(timestamps, decimals, UUIDs) are coerced to strings.
+## The page is written by DuckDB
+
+`read_vector_features` returns `features_json` — the page's GeoJSON array as
+text, built inside the query with `ST_AsGeoJSON`, `to_json` and `string_agg`
+— and the view writes it into the response unparsed (docs/adr/015). No feature
+becomes a Python object. The old path parsed every geometry DuckDB had already
+written as JSON back into Python, built a dict per feature, and serialised it
+all again: 731–946 ms for 10,000 buildings, against 188 ms now.
+
+Every column but the geometry, `file_row_number` and the covering `bbox`
+becomes a `properties` key. `to_json` decides how a value is written:
+timestamps and dates as text (`2020-09-04 11:58:40+00` for a zoned one),
+decimals as numbers, UUIDs as text. Two cases are handled by hand, because the
+output has to be JSON a browser accepts:
+
+- **NaN and infinity become `null`.** `to_json` writes them bare, and one bare
+  `NaN` makes the browser reject the whole page.
+- **A file with no attribute columns gets `{}`.** DuckDB refuses to pack an
+  empty struct.
+
+**This also fixed two assets that could not be read at all.**
+`boundaries/lebanon.parquet` and `healt_sites/lebanon_hxl.parquet` carry a
+`TIMESTAMP WITH TIME ZONE` column. Turning one into a Python `datetime` needs
+`pytz`, which the backend does not install, so the old reader crashed with
+"Required module 'pytz' failed to import". A value that stays inside DuckDB
+never needs it. Note that `DESCRIBE` on those files always worked — it reads no
+values — so a check that only describes a file will not catch this.
 
 ## Failures
 
