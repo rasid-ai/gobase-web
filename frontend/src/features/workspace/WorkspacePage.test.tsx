@@ -362,6 +362,33 @@ describe('drawing a vector asset', () => {
     await waitFor(() => expect(calls).toContain(dataUrl(ASSET_ID, undefined, ELSEWHERE)))
   })
 
+  it('does not read again when the map comes back to a window it already read', async () => {
+    // Asset data never changes under its id — changed content gets a new
+    // asset_id (kb `content_hash`) — so a window read once is good for as long
+    // as it stays in the cache.
+    const ELSEWHERE: Bbox = [20.0, 40.0, 20.5, 40.3]
+    const { calls } = mockFetch({
+      ...session(),
+      [POINT_URL]: { status: 200, body: groups() },
+      [DATA_URL]: { status: 200, body: data() },
+      [dataUrl(ASSET_ID, undefined, ELSEWHERE)]: { status: 200, body: data() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await clickMap(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
+    await waitFor(() => expect(calls).toContain(DATA_URL))
+
+    await moveTo(user, ELSEWHERE)
+    await waitFor(() => expect(calls).toContain(dataUrl(ASSET_ID, undefined, ELSEWHERE)))
+    await moveTo(user, HOME)
+    // Give a background refetch every chance to show itself.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(calls.filter((call) => call === DATA_URL)).toHaveLength(1)
+  })
+
   it('does not read again for a move that lands in the same window', async () => {
     const { calls } = mockFetch({
       ...session(),

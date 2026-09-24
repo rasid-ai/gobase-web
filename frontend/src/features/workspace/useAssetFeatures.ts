@@ -95,6 +95,17 @@ export function useAssetFeatures(assetId: string, enabled: boolean): AssetFeatur
     // A drawn area needs no window. A window-scoped read waits for the map to
     // report one, rather than asking for the whole file in the meantime.
     enabled: enabled && (drawnArea !== null || view !== null),
+    // Never stale. Coming back to a window already read used to show the
+    // cached features and then quietly download every page again, because
+    // React Query treats data as stale at once by default. Nothing here can go
+    // stale: an asset's content never changes under its id — changed content
+    // gets a new asset_id (kb `content_hash`) — so a page read once is right
+    // for as long as it is cached. gcTime is left at its default, so windows
+    // you have left are dropped after five minutes and memory stays bounded.
+    //
+    // Across a reload the browser's own cache takes over: the server sends an
+    // ETag and answers a matching one with an empty 304 (docs/adr/015).
+    staleTime: Infinity,
   })
 
   const pages = query.data?.pages
