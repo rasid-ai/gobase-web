@@ -31,13 +31,19 @@ export const PAGE_SIZE = 10000
  * can hold a whole city's worth of features that no one can tell apart on
  * screen, and pulling all of them would cost a long wait for a smudge.
  *
- * Three pages of 10,000 — up to 30,000 features in a window. Roads over
- * greater Beirut (11,431) now fits in two, and buildings there (63,682) stops
- * at 30,000 and says so. At street and district zoom every layer finishes in
- * one page regardless, so this only bites zoomed out, where saying "zoom in
- * for the rest" is honest.
+ * Six pages of 10,000 — up to 60,000 features in a window. At street and
+ * district zoom every layer finishes in one page regardless, so this only
+ * bites zoomed out, where the panel says so.
+ *
+ * Pages come in file order, and since the 2026-09-24 silver rewrite that is
+ * location order (Hilbert). So a window holding more than the budget is drawn
+ * as a solid region of it, not a thinned sample: at country zoom, 30,000
+ * buildings covered 2.8% of Lebanon. The fetched window is also 2.4-3.5x the
+ * screen at city zoom (`windowFor` pads and snaps it). Both are known and
+ * deliberately left for now; the fix discussed was counting a window first and
+ * loading it whole or not at all.
  */
-export const PAGE_BUDGET = 3
+export const PAGE_BUDGET = 6
 
 export type AssetFeatures = {
   features: readonly AssetDataFeaturesItem[]
