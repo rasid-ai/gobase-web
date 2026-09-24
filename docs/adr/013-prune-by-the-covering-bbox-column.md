@@ -98,10 +98,31 @@ ways:
 | a city | 392 ms | 71 ms |
 | a street | 300 ms | 22 ms |
 
-Most of that is the row-group layout rather than the predicate: a file with
-25,000-row groups and spatial ordering already answers a city window in
-~35 ms with the extent test alone. The range test roughly halves what is
-left. The two changes are worth little apart and a lot together.
+The three parts of the change were isolated, because a first reading of
+these numbers credited the wrong one. Same million rows, one variable at a
+time, `threads=1` to take parallelism out of it:
+
+| file | query | ms |
+| --- | --- | --- |
+| one row group | extent only | 259 |
+| 25k row groups, sorted, no bbox | extent only | 254 |
+| 25k row groups, shuffled, bbox | range + extent | 308 |
+| 25k row groups, sorted, bbox | range + extent | **33** |
+
+**Row groups alone skip nothing.** 259 ms to 254 ms. At default threads the
+same file looks 7x faster, but that is DuckDB scanning row groups in
+parallel — a local effect that saves no bytes, which is why the handoff
+still measured 89.4 MiB downloaded per request.
+
+**The range predicate is the only thing that reads less**, and it only
+works because the rows are ordered. Counting row groups whose own bbox
+statistics overlap a Beirut window: 4 of 38 on the sorted file, 38 of 38 on
+the shuffled one. Hilbert order is what puts a window's features into a few
+adjacent groups instead of smearing them across all of them.
+
+So none of the three is redundant and none is sufficient: the column
+carries the statistics, the ordering makes them selective, the predicate is
+what asks. Drop any one and the file is read whole.
 
 ## Revisit when
 
