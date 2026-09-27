@@ -97,7 +97,20 @@ export function DrawArea({
     draw.start()
     draw.setMode('polygon')
 
+    // Leaving the page removes the map before this cleanup runs, and
+    // terra-draw's stop() then writes to sources that no longer exist. That
+    // threw during unmount and blanked the whole app — going from the map to
+    // Assets in draw-area mode did it. A removed map takes the tool's layers
+    // with it, so there is nothing left to stop.
+    let removed = false
+    const onRemove = () => {
+      removed = true
+    }
+    map.once('remove', onRemove)
+
     return () => {
+      map.off('remove', onRemove)
+      if (removed) return
       draw.stop()
       map.doubleClickZoom.enable()
     }
