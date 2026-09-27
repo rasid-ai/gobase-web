@@ -23,9 +23,7 @@ import type {
 import type {
   AssetData,
   AssetDetail,
-  AssetsAtPoint,
-  MapAssetDataParams,
-  MapAssetsAtPointParams
+  MapAssetDataParams
 } from '../model';
 
 import { httpClient } from '../../http-client';
@@ -49,138 +47,6 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
-
-export type mapAssetsAtPointResponse200 = {
-  data: AssetsAtPoint
-  status: 200
-}
-
-export type mapAssetsAtPointResponse400 = {
-  data: void
-  status: 400
-}
-
-export type mapAssetsAtPointResponseSuccess = (mapAssetsAtPointResponse200) & {
-  headers: Headers;
-};
-export type mapAssetsAtPointResponseError = (mapAssetsAtPointResponse400) & {
-  headers: Headers;
-};
-
-export type mapAssetsAtPointResponse = (mapAssetsAtPointResponseSuccess | mapAssetsAtPointResponseError)
-
-export const getMapAssetsAtPointUrl = (params?: MapAssetsAtPointParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/map/assets?${stringifiedParams}` : `/api/map/assets`
-}
-
-/**
- * List the catalog assets covering a clicked point or overlapping a drawn area.
- *
- * One endpoint for both because they are one question — "what data is about
- * this place" — asked with two geometries, and the answer has the same shape
- * either way (docs/adr/014). The operation keeps its original id so the
- * generated client's hook keeps its name.
- * @summary Assets covering a point or a drawn area
- */
-export const mapAssetsAtPoint = async (params?: MapAssetsAtPointParams, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetsAtPointResponse> => {
-
-  return httpClient<mapAssetsAtPointResponse>(getMapAssetsAtPointUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getMapAssetsAtPointQueryKey = (params?: MapAssetsAtPointParams,) => {
-    return [
-    `/api/map/assets`, ...(params ? [params] : [])
-    ] as const;
-    }
-
-
-export const getMapAssetsAtPointQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError = void>(params?: MapAssetsAtPointParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getMapAssetsAtPointQueryKey(params);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetsAtPoint>>> = ({ signal }) => mapAssetsAtPoint(params, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type MapAssetsAtPointQueryResult = NonNullable<Awaited<ReturnType<typeof mapAssetsAtPoint>>>
-export type MapAssetsAtPointQueryError = void
-
-
-export function useMapAssetsAtPoint<TData = Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError = void>(
- params: undefined |  MapAssetsAtPointParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof mapAssetsAtPoint>>,
-          TError,
-          Awaited<ReturnType<typeof mapAssetsAtPoint>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useMapAssetsAtPoint<TData = Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError = void>(
- params?: MapAssetsAtPointParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof mapAssetsAtPoint>>,
-          TError,
-          Awaited<ReturnType<typeof mapAssetsAtPoint>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useMapAssetsAtPoint<TData = Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError = void>(
- params?: MapAssetsAtPointParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Assets covering a point or a drawn area
- */
-
-export function useMapAssetsAtPoint<TData = Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError = void>(
- params?: MapAssetsAtPointParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetsAtPoint>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getMapAssetsAtPointQueryOptions(params,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
 
 export type mapAssetDetailResponse200 = {
   data: AssetDetail

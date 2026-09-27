@@ -2,6 +2,7 @@ import type { DataTypeCount, Place } from '@/api/generated/model'
 import { Button } from '@/components/ui/button'
 import { ComboboxPopup } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
+import { Segmented } from '@/components/ui/segmented'
 import { useCombobox } from '@/components/ui/useCombobox'
 import { hasPlaceOptions, PlaceOptions } from '@/features/places/PlaceOptions'
 import type { Area } from '@/features/places/useAreaParam'
@@ -31,9 +32,24 @@ export function ingestedAfter(windowKey: string, now: Date = new Date()): string
   return new Date(now.getTime() - days * 86_400_000).toISOString()
 }
 
+/**
+ * The two ways to browse (docs/adr/016): datasets first and then their files,
+ * or every asset at once.
+ */
+export type BrowseMode = 'datasets' | 'assets'
+
+const MODES: { value: BrowseMode; label: string }[] = [
+  { value: 'datasets', label: 'Datasets' },
+  { value: 'assets', label: 'Assets' },
+]
+
 export function AssetFilters({
+  mode,
+  onMode,
   search,
   onSearch,
+  searchLabel,
+  placeholder,
   dataTypes,
   selectedTypes,
   onToggleType,
@@ -44,8 +60,13 @@ export function AssetFilters({
   onClear,
   dirty,
 }: {
+  mode: BrowseMode
+  onMode: (next: BrowseMode) => void
   search: string
   onSearch: (next: string) => void
+  /** What the box searches, for assistive technology: it changes with the level. */
+  searchLabel: string
+  placeholder: string
   /** Straight from the API — the portal never holds its own list of data types. */
   dataTypes: readonly DataTypeCount[]
   selectedTypes: readonly string[]
@@ -62,7 +83,15 @@ export function AssetFilters({
       aria-label="Filter assets"
       className="flex w-60 shrink-0 flex-col gap-6 overflow-y-auto border-r border-border p-5"
     >
-      <SearchBox search={search} onSearch={onSearch} onArea={onArea} />
+      <Segmented label="Browse by" value={mode} onChange={onMode} options={MODES} />
+
+      <SearchBox
+        search={search}
+        onSearch={onSearch}
+        label={searchLabel}
+        placeholder={placeholder}
+        onArea={onArea}
+      />
 
       {/*
         The area sits under the box that set it, and is removed from there.
@@ -198,20 +227,25 @@ function CheckRow({
 }
 
 /**
- * The rail's search box: asset names and places at once.
+ * The rail's search box: the catalog and places at once.
  *
- * Typing filters the grid by name straight away, exactly as it did before, and
- * the same text is offered to the geocoder underneath. Both answers are
- * available and you pick — which is how "Beirut" stops being ambiguous without
- * anyone having to guess which of the two was meant.
+ * Typing filters the page straight away — dataset names in the list of
+ * datasets, the metadata of assets everywhere else (docs/adr/016) — and the
+ * same text is offered to the geocoder underneath. Both answers are available
+ * and you pick, which is how "Beirut" stops being ambiguous without anyone
+ * having to guess which of the two was meant.
  */
 function SearchBox({
   search,
   onSearch,
+  label,
+  placeholder,
   onArea,
 }: {
   search: string
   onSearch: (next: string) => void
+  label: string
+  placeholder: string
   onArea: (area: Area | null) => void
 }) {
   const places = usePlaceSearch(search)
@@ -237,8 +271,8 @@ function SearchBox({
           onSearch(event.target.value)
           combobox.reopen()
         }}
-        placeholder="Search names or places…"
-        aria-label="Search asset names"
+        placeholder={placeholder}
+        aria-label={label}
         {...combobox.inputProps}
       />
 

@@ -10,14 +10,14 @@ import Map, {
 } from 'react-map-gl/maplibre'
 import { useSearchParams } from 'react-router-dom'
 
-import { useMapAssetDetail, useMapAssetsAtPoint } from '@/api/generated/map/map'
+import { useMapAssetDetail } from '@/api/generated/map/map'
 import type { Place } from '@/api/generated/model'
 import { useToast } from '@/components/ui/toast'
 import type { Bbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
 
-import { AssetDetailPanel, AssetList } from './AssetPanel'
+import { AssetPane, type PanePlace } from './AssetPanel'
 import { DrawArea } from './DrawArea'
 import { LayersPanel } from './LayersPanel'
 import { PlaceSearch } from './PlaceSearch'
@@ -42,8 +42,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 /**
  * The Atlas workspace (specs/map.md).
  *
- * Click a point or draw an area, see the catalog assets it touches grouped by
- * data type, select one to see its metadata and footprint, and draw its
+ * Click a point or draw an area, see the datasets it touches and then the
+ * files of one, select a file to see its metadata and footprint, and draw its
  * features. A drawn area scopes those features to itself; asking a question
  * of it is still to come (specs/map.md).
  */
@@ -161,13 +161,16 @@ function MapWorkspace() {
     onMoveEnd()
   }, [onMoveEnd])
 
-  // A drawn area and a clicked point are one selection, never both, so one
-  // query answers whichever is set (docs/adr/014). The point keeps its key
-  // order: the generated client builds the URL in the object's own order.
-  const assets = useMapAssetsAtPoint(
-    drawnArea ? { area: serializeArea(drawnArea) } : { lon: point?.lon ?? 0, lat: point?.lat ?? 0 },
-    { query: { enabled: drawnArea !== null || point !== null } },
-  )
+  // A drawn area and a clicked point are one selection, never both, so the
+  // pane asks the catalog about whichever is set (docs/adr/014, docs/adr/016).
+  // The point keeps its key order: the generated client builds the URL in the
+  // object's own order.
+  const place = useMemo((): PanePlace | null => {
+    if (drawnArea) return { area: serializeArea(drawnArea) }
+    if (point) return { lon: point.lon, lat: point.lat }
+    return null
+  }, [drawnArea, point])
+  const placeKey = place ? JSON.stringify(place) : 'none'
 
   const areaOutline = useMemo(() => (drawnArea ? areaFeature(drawnArea) : null), [drawnArea])
 
@@ -175,7 +178,6 @@ function MapWorkspace() {
     query: { enabled: selectedId !== null },
   })
 
-  const groups = assets.data?.status === 200 ? assets.data.data.groups : []
   const selected = detail.data?.status === 200 ? detail.data.data : null
 
   /**
@@ -298,10 +300,6 @@ function MapWorkspace() {
     if (!import.meta.env.DEV) return
     ;(window as unknown as { __map?: unknown }).__map = map.current?.getMap?.() ?? map.current
   })
-
-  // Clearing a selection keeps the list open — deselecting returns you to it.
-  // Drawn layers are untouched: they outlive the selection (docs/adr/008).
-  const clearSelection = () => select(null)
 
   /**
    * Frame an asset arrived at from the Assets page.
@@ -452,22 +450,22 @@ function MapWorkspace() {
         Nothing covering the point or overlapping the area renders nothing at
         all — no panel, no error (specs/map.md). An asset reached from the
         Assets page opens the panel too, with nothing chosen and so no list
-        behind it.
+        behind it. Keyed by place, so a new point or area starts at its
+        datasets with nothing typed.
+
+        Clearing a selection keeps the list open — deselecting returns you to
+        it. Drawn layers are untouched: they outlive the selection
+        (docs/adr/008).
       */}
-      {groups.length > 0 || selected ? (
-        <aside
-          aria-label={
-            selected ? 'Selected asset' : drawnArea ? 'Assets in this area' : 'Assets at this point'
-          }
-          className="absolute right-4 top-4 bottom-4 z-10 flex w-[22rem] flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur"
-        >
-          {selected ? (
-            <AssetDetailPanel detail={selected} onClear={clearSelection} onDraw={draw} />
-          ) : (
-            <AssetList groups={groups} selectedId={selectedId} onSelect={select} onDraw={draw} />
-          )}
-        </aside>
-      ) : null}
+      <AssetPane
+        key={placeKey}
+        place={place}
+        label={drawnArea ? 'Assets in this area' : 'Assets at this point'}
+        selected={selected}
+        selectedId={selectedId}
+        onSelect={select}
+        onDraw={draw}
+      />
     </div>
   )
 }

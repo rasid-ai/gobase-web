@@ -48,14 +48,21 @@ features resolve against.
 | `extent` | `geometry(GEOMETRY, 4326)` | **coverage / footprint** |
 | `time_start`, `time_end` | `timestamptz` | temporal extent |
 | `summary` | `text` | |
-| `status` | `text` | default `active`; also `failed` |
+| `status` | `text` | default `active`; also `failed`, `superseded`, `missing` (the file is gone from storage) |
 | `superseded_by` | `uuid` | supersession chain |
 | `error` | `text` | |
 | `run_id` | `uuid` | → `ingest_runs` |
 | `ingested_at` | `timestamptz` | |
+| `dataset` | `text` | **the dataset**: the top folder the file came from in the raw bucket, recomputed by the data platform on every run |
 
 Indexes: GiST on `extent` (`assets_extent_gix`) and on `topic_path`; btree on
-`(modality, status)`, `source_uri`, and the two unique keys.
+`(modality, status)`, `source_uri`, `dataset` (`assets_dataset_ix`), and the
+two unique keys.
+
+**`dataset` must exist in production before a portal build that reads it
+ships.** The data platform added it on 2026-09-24 (gobase `411bc78`); the
+portal reads it with no fallback, so the two repos deploy together
+(docs/adr/016).
 
 ### How the spec's vocabulary maps onto this
 
@@ -68,6 +75,13 @@ Indexes: GiST on `extent` (`assets_extent_gix`) and on `topic_path`; btree on
 - **"coverage" / "footprint"** → `extent`. One column, SRID 4326, generic
   `GEOMETRY` so it may hold more than polygons.
 - **asset UUID** (citations) → `asset_id`, a native `uuid`.
+- **"dataset"** → `dataset`, shown as a readable label computed in SQL:
+  `points_of_interest_hotsom` reads "Points of interest hotsom"
+  (docs/adr/016). The folder names are the data's own, typos included.
+- **"search"** → the catalog's text about an asset, built per request from
+  `assets`, `geo_layers.columns` (names only) and `geo_raster_layers.tags`
+  (values only) — see `_SEARCH_TEXT` in `apps/catalog/kb.py` and
+  docs/adr/016.
 
 ### Query rules
 
@@ -96,6 +110,12 @@ Indexes: GiST on `extent` (`assets_extent_gix`) and on `topic_path`; btree on
 Per-layer detail hanging off an asset by `asset_id`, each with its own
 `extent` (4326, GiST-indexed) and `layer_name`.
 
+**A raw cursor gets `json` and `jsonb` as text.** Django sets psycopg 3 up
+that way, because its own JSONField decodes them. So `columns`, `bands`,
+`tags` and `stats` arrive as strings unless decoded, and until 2026-09-27
+they reached the client as a line of JSON text. `kb._rows` now decodes every
+JSON column by its type id (114, 3802), not by name.
+
 `geo_layers` (vector) carries `geometry_type`, `native_crs`, `feature_count`,
 `columns` (jsonb), `parquet_uri`. `geo_raster_layers` carries raster properties —
 `width`, `height`, `band_count`, `dtype`, pixel sizes, `nodata`, `is_cog`,
@@ -109,6 +129,8 @@ pin one.
 
 - `v_queryable_layers` — `geo_layers` joined to active assets, `parquet_uri NOT NULL`.
 - `v_queryable_rasters` — `geo_raster_layers` joined to active assets.
+
+Both end with the asset's `dataset` column.
 - `v_inventory` — counts and bytes grouped by `topic_path, modality, format, status`.
 - `v_gaps` — failed assets and layers carrying notes.
 
@@ -127,19 +149,31 @@ Dagster's GraphQL API instead (docs/adr/004), not this table.
 This section is a snapshot and goes stale; check it against the database
 before trusting it. Earlier text is corrected rather than kept.
 
-### Now — read 2026-09-18
+### Now — read 2026-09-27
 
-**76 active assets** (77 rows, one superseded or failed), across three
-modalities:
+**54 active assets** (89 rows: 12 superseded, 22 missing, 1 failed), across
+three modalities:
 
 | `modality` | active | with an extent |
 |---|---|---|
-| `vector` | 34 | 34 |
+| `vector` | 12 | 12 |
 | `unparsed` | 31 | 0 |
 | `raster` | 11 | 11 |
 
+The 22 `missing` rows are the Dresden extract, trashed from silver on
+2026-09-24; the 12 superseded are the Lebanon vector files rewritten that day
+as GeoParquet 1.1. `geo_layers` still holds 35 rows, but only the 12 for
+active assets are in `v_queryable_layers`.
+
+**11 datasets**, and every active asset has one: `airports`, `boundaries`,
+`education_facilities`, `esri_landcover_landuse`,
+`google_microsoft_buildings`, `goverment`, `health_facilities`,
+`healt_sites`, `main_cities_satellite`, `points_of_interest_hotsom`,
+`road_network`. No dataset holds both raster and vector files; several hold
+vector files beside `unparsed` documents.
+
 **Every extent is valid.** `ST_IsValid` is true and `ST_Area` non-zero for
-all 45 — the invalid zero-area polygons read on 2026-09-15 are gone, and the
+all 23 — the invalid zero-area polygons read on 2026-09-15 are gone, and the
 point and area lookups both work against this data. That was a data platform
 defect and it has been fixed there; nothing in this repo changed.
 
@@ -153,15 +187,12 @@ types, so this arrived without a code change, which is the point
 **`geo_raster_layers` is no longer empty**: 11 rows, one per raster asset.
 `geo_layers` has 35.
 
-Topics are real now, not a single extract: `airports`, `boundaries`,
-`education_facilities`, `health_facilities`, `google_microsoft_buildings`,
-`esri_landcover_landuse` and more, with `.`-separated sub-paths. 22 of the
-vector assets are still the Dresden extract described below; the rest are
-Lebanon.
+Topics are real, with `.`-separated sub-paths below the dataset:
+`airports.media`, `health_facilities.hotosm_lbn_health_facilities_osm_gpkg`.
+Everything active is Lebanon.
 
-Two areas worth knowing for testing the area filter: a Beirut box
-(`35.4,33.8,35.6,34.1`) matches 21 assets and a Dresden box
-(`13.5,50.9,14.1,51.2`) matches 22, with no overlap.
+A point in Beirut (`35.5, 33.89`) has 10 datasets under it, which makes it a
+good place to try the map's panel.
 
 ### Two hand-made rows — read 2026-09-15, evening
 

@@ -44,6 +44,21 @@ def captured(monkeypatch):
 
 
 @pytest.fixture
+def captured_datasets(monkeypatch):
+    """Replace the dataset read and record what the view asked it for."""
+    from apps.catalog import kb
+
+    calls = {}
+
+    def fake(**kwargs):
+        calls.update(kwargs)
+        return []
+
+    monkeypatch.setattr(kb, "dataset_list", fake)
+    return calls
+
+
+@pytest.fixture
 def run(monkeypatch):
     """Replace the database read and record every (sql, params) it was given.
 

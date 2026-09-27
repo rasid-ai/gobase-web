@@ -4,27 +4,24 @@ import gzip
 import hashlib
 import logging
 import re
-from itertools import groupby
 
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseNotModified
 from django.utils.cache import patch_vary_headers
 from django.utils.http import parse_etags
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import serializers, status
+from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog import kb
-from apps.catalog.serializers import AreaField
 
 from . import lake
 from .serializers import (
     AssetDataQuerySerializer,
     AssetDataSerializer,
     AssetDetailSerializer,
-    AssetsAtPointSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,85 +35,6 @@ class LakeUnreachable(APIException):
 class LakeFailed(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_detail = "The data lake returned an error"
-
-
-class _PlaceSerializer(serializers.Serializer):
-    """Where to look: a clicked point or a drawn area, exactly one of them.
-
-    Both are optional to the contract and one is required here, because
-    OpenAPI has no plain way to say "either this pair or that one" that the
-    generated client would honour.
-    """
-
-    lon = serializers.FloatField(
-        required=False,
-        min_value=-180,
-        max_value=180,
-        help_text="Longitude, WGS 84. Sent with `lat`, never with `area`.",
-    )
-    lat = serializers.FloatField(
-        required=False,
-        min_value=-90,
-        max_value=90,
-        help_text="Latitude, WGS 84. Sent with `lon`, never with `area`.",
-    )
-    area = AreaField(
-        required=False,
-        help_text=(
-            "A drawn polygon as WKT, POLYGON((lon lat, ...)), SRID 4326, at most "
-            "100 corners and not crossing itself. Sent instead of lon and lat."
-        ),
-    )
-
-    def validate(self, attrs):
-        has_point = "lon" in attrs or "lat" in attrs
-        if "area" in attrs:
-            if has_point:
-                raise serializers.ValidationError("Send a point or an area, not both.")
-            return attrs
-        if "lon" not in attrs or "lat" not in attrs:
-            raise serializers.ValidationError("Send a point (lon and lat) or an area.")
-        return attrs
-
-
-class AssetsAtPointView(APIView):
-    """List the catalog assets covering a clicked point or overlapping a drawn area.
-
-    One endpoint for both because they are one question — "what data is about
-    this place" — asked with two geometries, and the answer has the same shape
-    either way (docs/adr/014). The operation keeps its original id so the
-    generated client's hook keeps its name.
-    """
-
-    @extend_schema(
-        parameters=[_PlaceSerializer],
-        responses={
-            200: AssetsAtPointSerializer,
-            400: OpenApiResponse(
-                description="No place given, both given, or a point or area that cannot be read."
-            ),
-        },
-        operation_id="map_assets_at_point",
-        summary="Assets covering a point or a drawn area",
-        tags=["map"],
-    )
-    def get(self, request):
-        place = _PlaceSerializer(data=request.query_params)
-        place.is_valid(raise_exception=True)
-        asked = place.validated_data
-
-        if "area" in asked:
-            rows = kb.assets_overlapping_area(asked["area"].wkt)
-        else:
-            rows = kb.assets_covering_point(asked["lon"], asked["lat"])
-
-        # kb orders by data type, so grouping needs no second sort. A point
-        # nothing covers yields no groups — an empty answer, not an error.
-        groups = [
-            {"data_type": data_type, "assets": list(assets)}
-            for data_type, assets in groupby(rows, key=lambda row: row["modality"])
-        ]
-        return Response(AssetsAtPointSerializer({"groups": groups}).data)
 
 
 class AssetDetailView(APIView):

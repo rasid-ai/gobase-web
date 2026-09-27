@@ -56,8 +56,8 @@ vi.mock('react-map-gl/maplibre', async () => {
 
 // Dresden, as a mapping site writes it: latitude first.
 const DRESDEN = '51.0504, 13.7373'
-const DRESDEN_URL = 'GET /api/map/assets?lon=13.7373&lat=51.0504'
-const EMPTY_URL = 'GET /api/map/assets?lon=0&lat=0'
+const DRESDEN_URL = 'GET /api/catalog/datasets?lon=13.7373&lat=51.0504'
+const EMPTY_URL = 'GET /api/catalog/datasets?lon=0&lat=0'
 
 function session() {
   return {
@@ -66,21 +66,14 @@ function session() {
   }
 }
 
-function groups() {
+function datasets() {
   return {
-    groups: [
+    results: [
       {
-        data_type: 'vector',
-        assets: [
-          {
-            asset_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-            source_uri: 's3://geobase-silver/vector/roads.parquet',
-            format: 'parquet',
-            summary: 'roads',
-            time_start: null,
-            time_end: null,
-          },
-        ],
+        dataset: 'road_network',
+        label: 'Road network',
+        count: 1,
+        data_type_counts: [{ data_type: 'vector', count: 1 }],
       },
     ],
   }
@@ -104,7 +97,7 @@ afterEach(() => {
 
 describe('going to a coordinate', () => {
   it('moves the marker there and opens the asset panel', async () => {
-    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: groups() } })
+    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: datasets() } })
     const user = userEvent.setup()
     renderApp('/')
 
@@ -119,11 +112,11 @@ describe('going to a coordinate', () => {
     expect(marker.getAttribute('data-lon')).toBe('13.7373')
     expect(marker.getAttribute('data-lat')).toBe('51.0504')
 
-    expect(await screen.findByRole('button', { name: 'Details for roads' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Open Road network' })).toBeInTheDocument()
   })
 
   it('flies to the coordinate', async () => {
-    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: groups() } })
+    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: datasets() } })
     const user = userEvent.setup()
     renderApp('/')
 
@@ -136,7 +129,7 @@ describe('going to a coordinate', () => {
 
   it('zooms in when the view is too far out to see a marker', async () => {
     mapRef.getZoom.mockReturnValue(3)
-    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: groups() } })
+    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: datasets() } })
     const user = userEvent.setup()
     renderApp('/')
 
@@ -147,7 +140,7 @@ describe('going to a coordinate', () => {
 
   it('keeps a closer zoom rather than pulling the view back', async () => {
     mapRef.getZoom.mockReturnValue(16)
-    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: groups() } })
+    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: datasets() } })
     const user = userEvent.setup()
     renderApp('/')
 
@@ -157,7 +150,7 @@ describe('going to a coordinate', () => {
   })
 
   it('switches to point mode, so the mode switch still describes what a click does', async () => {
-    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: groups() } })
+    mockFetch({ ...session(), [DRESDEN_URL]: { status: 200, body: datasets() } })
     const user = userEvent.setup()
     renderApp('/')
 
@@ -172,7 +165,7 @@ describe('going to a coordinate', () => {
   it('still goes there when nothing covers the coordinate', async () => {
     // No panel and no error, exactly as for a click on empty space
     // (specs/map.md). The marker and the map having moved are the feedback.
-    mockFetch({ ...session(), [EMPTY_URL]: { status: 200, body: { groups: [] } } })
+    mockFetch({ ...session(), [EMPTY_URL]: { status: 200, body: { results: [] } } })
     const user = userEvent.setup()
     renderApp('/')
 
@@ -247,7 +240,9 @@ describe('searching for a place', () => {
   const FOUND = 'GET /api/places/search?q=Beirut'
 
   function nothingAt(lon: number, lat: number) {
-    return { [`GET /api/map/assets?lon=${lon}&lat=${lat}`]: { status: 200, body: { groups: [] } } }
+    return {
+      [`GET /api/catalog/datasets?lon=${lon}&lat=${lat}`]: { status: 200, body: { results: [] } },
+    }
   }
 
   it('asks the geocoder once typing pauses, not once per letter', async () => {

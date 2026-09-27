@@ -4,11 +4,13 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getMapAssetDataUrl, getMapAssetsAtPointUrl } from '@/api/generated/map/map'
+import { getCatalogAssetListUrl, getCatalogDatasetListUrl } from '@/api/generated/catalog/catalog'
+import { getMapAssetDataUrl } from '@/api/generated/map/map'
 import type { Bbox } from '@/features/places/bbox'
 import { serializeBbox } from '@/features/places/bbox'
 import { mockFetch, renderApp, resetSession } from '@/test/harness'
 
+import { PANE_LIMIT, type PanePlace } from './AssetPanel'
 import { type Ring, serializeArea } from './drawnArea'
 import { PAGE_BUDGET, PAGE_SIZE } from './useAssetFeatures'
 import { windowFor } from './view'
@@ -127,7 +129,26 @@ vi.mock('react-map-gl/maplibre', async () => {
 const ASSET_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const OTHER_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
 
-const POINT_URL = 'GET /api/map/assets?lon=13.73&lat=51.05'
+const DATASET = 'road_network'
+const POINT: PanePlace = { lon: 13.73, lat: 51.05 }
+const AREA: PanePlace = { area: serializeArea(RING) }
+
+/** The pane's two questions for a place: its datasets, then one dataset's files. */
+function datasetsUrl(place: PanePlace, q?: string) {
+  return `GET ${getCatalogDatasetListUrl({ ...place, ...(q ? { q } : {}) })}`
+}
+
+function filesUrl(place: PanePlace, extra: { q?: string; data_type?: string[] } = {}) {
+  return `GET ${getCatalogAssetListUrl({
+    ...place,
+    dataset: DATASET,
+    ...extra,
+    sort: 'name',
+    limit: PANE_LIMIT,
+  })}`
+}
+
+const POINT_URL = datasetsUrl(POINT)
 
 /**
  * The features request for an asset, for the window the stub map is showing.
@@ -147,9 +168,6 @@ function dataUrl(id: string, cursor?: number, bounds: Bbox = HOME, zoom = 8.5) {
 const DATA_URL = dataUrl(ASSET_ID)
 const OTHER_DATA_URL = dataUrl(OTHER_ID)
 
-/** The assets query for RING, built the way the client builds it. */
-const AREA_ASSETS_URL = `GET ${getMapAssetsAtPointUrl({ area: serializeArea(RING) })}`
-
 /** The features request for RING: scoped to the area, not the window. */
 function areaDataUrl(id: string, cursor?: number) {
   return `GET ${getMapAssetDataUrl(id, {
@@ -163,6 +181,12 @@ function areaDataUrl(id: string, cursor?: number) {
 async function drawArea(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('radio', { name: 'Draw area' }))
   await user.click(screen.getByRole('button', { name: 'finish drawing' }))
+}
+
+/** Open the one dataset the pane lists, and wait for its files. */
+async function openDataset(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'Open Road network' }))
+  await screen.findByRole('button', { name: /^(Re)?[Dd]raw roads$/ })
 }
 
 /** Point the stub map somewhere else, then settle it. */
@@ -182,24 +206,47 @@ function session() {
 function asset(id: string, name: string) {
   return {
     asset_id: id,
-    source_uri: `s3://geobase-silver/vector/${name}.parquet`,
-    format: 'parquet',
-    // The catalog has no display name; a summary is what the panel shows when
-    // one exists, so the fixtures carry one to keep the labels readable.
-    summary: name,
+    name,
+    data_type: 'vector',
+    format: 'geoparquet',
+    dataset: DATASET,
+    dataset_label: 'Road network',
+    topic_path: DATASET,
+    bytes: 1024,
+    bbox: [13.5, 50.9, 14.0, 51.2],
+    summary: null,
     time_start: null,
     time_end: null,
+    ingested_at: '2026-09-24T10:00:00Z',
   }
 }
 
-function groups() {
+function datasets() {
   return {
-    groups: [
+    results: [
       {
-        data_type: 'vector',
-        assets: [asset(ASSET_ID, 'roads'), asset(OTHER_ID, 'rivers')],
+        dataset: DATASET,
+        label: 'Road network',
+        count: 2,
+        data_type_counts: [{ data_type: 'vector', count: 2 }],
       },
     ],
+  }
+}
+
+function files() {
+  return {
+    count: 2,
+    results: [asset(ASSET_ID, 'roads'), asset(OTHER_ID, 'rivers')],
+    data_type_counts: [{ data_type: 'vector', count: 2 }],
+  }
+}
+
+/** What the pane is answered with at a place: its datasets, and the files of the one. */
+function pane(place: PanePlace) {
+  return {
+    [datasetsUrl(place)]: { status: 200, body: datasets() },
+    [filesUrl(place)]: { status: 200, body: files() },
   }
 }
 
@@ -231,10 +278,10 @@ function data(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** Click the map so the point query runs and the asset list appears. */
+/** Click the map, then open the dataset there, so the files appear. */
 async function clickMap(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'map surface' }))
-  await screen.findByRole('button', { name: /^Draw roads$/ })
+  await openDataset(user)
 }
 
 afterEach(() => {
@@ -255,7 +302,7 @@ describe('drawing a vector asset', () => {
   it('draws its features as fill, line and circle layers', async () => {
     mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
     })
     const user = userEvent.setup()
@@ -278,7 +325,7 @@ describe('drawing a vector asset', () => {
     // "Polygon" silently drops every MultiPolygon. The catalog has both.
     mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
     })
     const user = userEvent.setup()
@@ -304,7 +351,7 @@ describe('drawing a vector asset', () => {
   it('lists the layer in the panel and marks the row as drawn', async () => {
     mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
     })
     const user = userEvent.setup()
@@ -324,7 +371,7 @@ describe('drawing a vector asset', () => {
     const more = data({ next_cursor: 999 })
     mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: more },
       [dataUrl(ASSET_ID, 999)]: { status: 200, body: more },
     })
@@ -346,7 +393,7 @@ describe('drawing a vector asset', () => {
     const ELSEWHERE: Bbox = [20.0, 40.0, 20.5, 40.3]
     const { calls } = mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
       [dataUrl(ASSET_ID, undefined, ELSEWHERE)]: { status: 200, body: data() },
     })
@@ -369,7 +416,7 @@ describe('drawing a vector asset', () => {
     const ELSEWHERE: Bbox = [20.0, 40.0, 20.5, 40.3]
     const { calls } = mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
       [dataUrl(ASSET_ID, undefined, ELSEWHERE)]: { status: 200, body: data() },
     })
@@ -392,7 +439,7 @@ describe('drawing a vector asset', () => {
   it('does not read again for a move that lands in the same window', async () => {
     const { calls } = mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
     })
     const user = userEvent.setup()
@@ -415,7 +462,7 @@ describe('managing drawn layers', () => {
   it('hides and shows a layer without fetching again', async () => {
     const { calls } = mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
     })
     const user = userEvent.setup()
@@ -439,7 +486,7 @@ describe('managing drawn layers', () => {
   it('removes one layer and clears them all', async () => {
     mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
       [OTHER_DATA_URL]: { status: 200, body: { ...data(), asset_id: OTHER_ID } },
     })
@@ -466,11 +513,17 @@ describe('managing drawn layers', () => {
   it('keeps layers when the selection is cleared', async () => {
     mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 200, body: data() },
       [`GET /api/map/assets/${ASSET_ID}`]: {
         status: 200,
-        body: { asset_id: ASSET_ID, data_type: 'vector', metadata: {}, footprint: null },
+        body: {
+          asset_id: ASSET_ID,
+          name: 'roads',
+          data_type: 'vector',
+          metadata: {},
+          footprint: null,
+        },
       },
     })
     const user = userEvent.setup()
@@ -494,7 +547,7 @@ describe('when the lake fails', () => {
   it('says so on the layer, and keeps the layer', async () => {
     mockFetch({
       ...session(),
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(POINT),
       [DATA_URL]: { status: 503, body: { detail: 'The data lake is unreachable' } },
     })
     const user = userEvent.setup()
@@ -516,6 +569,7 @@ describe('an asset linked from the Assets page', () => {
   function detail() {
     return {
       asset_id: ASSET_ID,
+      name: 'roads',
       data_type: 'vector',
       metadata: { source_uri: 's3://geobase-silver/vector/roads.parquet' },
       footprint: {
@@ -737,7 +791,7 @@ describe('drawing an area', () => {
   it('lists the assets overlapping the drawn area', async () => {
     const { calls } = mockFetch({
       ...session(),
-      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      ...pane(AREA),
     })
     const user = userEvent.setup()
     renderApp('/map')
@@ -745,6 +799,8 @@ describe('drawing an area', () => {
     await drawArea(user)
 
     const panel = await screen.findByRole('complementary', { name: 'Assets in this area' })
+    expect(within(panel).getByText('Road network')).toBeInTheDocument()
+    await openDataset(user)
     expect(within(panel).getByText('roads')).toBeInTheDocument()
     // The area replaced the point: the point question was never asked.
     expect(calls).not.toContain(POINT_URL)
@@ -753,14 +809,15 @@ describe('drawing an area', () => {
   it('reads a drawn layer for the area, not the window', async () => {
     const { calls } = mockFetch({
       ...session(),
-      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      ...pane(AREA),
       [areaDataUrl(ASSET_ID)]: { status: 200, body: data() },
     })
     const user = userEvent.setup()
     renderApp('/map')
 
     await drawArea(user)
-    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+    await openDataset(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
 
     await waitFor(() => expect(calls).toContain(areaDataUrl(ASSET_ID)))
     expect(calls).not.toContain(DATA_URL)
@@ -769,14 +826,15 @@ describe('drawing an area', () => {
   it('does not read again when the map moves, while an area is set', async () => {
     const { calls } = mockFetch({
       ...session(),
-      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      ...pane(AREA),
       [areaDataUrl(ASSET_ID)]: { status: 200, body: data() },
     })
     const user = userEvent.setup()
     renderApp('/map')
 
     await drawArea(user)
-    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+    await openDataset(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
     await waitFor(() => expect(calls).toContain(areaDataUrl(ASSET_ID)))
     const before = calls.length
 
@@ -792,7 +850,7 @@ describe('drawing an area', () => {
     const more = data({ next_cursor: 999 })
     mockFetch({
       ...session(),
-      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      ...pane(AREA),
       [areaDataUrl(ASSET_ID)]: { status: 200, body: more },
       [areaDataUrl(ASSET_ID, 999)]: { status: 200, body: more },
     })
@@ -800,7 +858,8 @@ describe('drawing an area', () => {
     renderApp('/map')
 
     await drawArea(user)
-    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+    await openDataset(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
 
     expect(await screen.findByText(/draw a smaller area for the rest/)).toBeInTheDocument()
     expect(screen.queryByText(/zoom in for the rest/)).not.toBeInTheDocument()
@@ -809,7 +868,7 @@ describe('drawing an area', () => {
   it('outlines the area on the map, and clearing it removes the outline', async () => {
     mockFetch({
       ...session(),
-      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      ...pane(AREA),
     })
     const user = userEvent.setup()
     renderApp('/map')
@@ -826,8 +885,8 @@ describe('drawing an area', () => {
   it('clicking a point clears the area, and layers follow the map again', async () => {
     const { calls } = mockFetch({
       ...session(),
-      [AREA_ASSETS_URL]: { status: 200, body: groups() },
-      [POINT_URL]: { status: 200, body: groups() },
+      ...pane(AREA),
+      ...pane(POINT),
       [areaDataUrl(ASSET_ID)]: { status: 200, body: data() },
       [DATA_URL]: { status: 200, body: data() },
     })
@@ -835,7 +894,8 @@ describe('drawing an area', () => {
     renderApp('/map')
 
     await drawArea(user)
-    await user.click(await screen.findByRole('button', { name: /^Draw roads$/ }))
+    await openDataset(user)
+    await user.click(screen.getByRole('button', { name: /^Draw roads$/ }))
     await waitFor(() => expect(calls).toContain(areaDataUrl(ASSET_ID)))
 
     // A point and an area are one selection: choosing the point drops the area.
@@ -856,7 +916,7 @@ describe('drawing an area', () => {
     // So you can switch to navigate and pan around the area you drew.
     mockFetch({
       ...session(),
-      [AREA_ASSETS_URL]: { status: 200, body: groups() },
+      ...pane(AREA),
     })
     const user = userEvent.setup()
     renderApp('/map')
@@ -865,5 +925,214 @@ describe('drawing an area', () => {
     await user.click(screen.getByRole('radio', { name: 'Navigate' }))
 
     expect(document.querySelector('[data-source="drawn-area"]')).toBeTruthy()
+  })
+})
+
+describe('browsing a place by dataset', () => {
+  it('lists the datasets here first, and a dataset opens to its files', async () => {
+    mockFetch({ ...session(), ...pane(POINT) })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await user.click(await screen.findByRole('button', { name: 'map surface' }))
+
+    const panel = await screen.findByRole('complementary', { name: 'Assets at this point' })
+    expect(within(panel).getByText('vector 2')).toBeInTheDocument()
+    // A data type means nothing until a dataset is chosen, so none is offered.
+    expect(within(panel).queryByRole('radiogroup', { name: 'Data type' })).toBeNull()
+
+    await openDataset(user)
+    expect(within(panel).getByRole('heading', { name: 'Road network' })).toBeInTheDocument()
+    expect(within(panel).getByText('rivers')).toBeInTheDocument()
+  })
+
+  it('searches dataset names, then the files of the one opened, separately', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      ...pane(POINT),
+      [datasetsUrl(POINT, 'road')]: { status: 200, body: datasets() },
+      [filesUrl(POINT, { q: 'highway' })]: { status: 200, body: files() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await user.click(await screen.findByRole('button', { name: 'map surface' }))
+    await user.type(await screen.findByLabelText('Search datasets'), 'road')
+    await waitFor(() => expect(calls).toContain(datasetsUrl(POINT, 'road')))
+
+    await openDataset(user)
+    // A new level, a new search: the dataset search is not carried in.
+    const box = screen.getByLabelText('Search Road network')
+    expect(box).toHaveValue('')
+    await user.type(box, 'highway')
+    await waitFor(() => expect(calls).toContain(filesUrl(POINT, { q: 'highway' })))
+
+    // Back out, and the dataset search is as it was left.
+    await user.click(screen.getByRole('button', { name: 'Datasets' }))
+    expect(await screen.findByLabelText('Search datasets')).toHaveValue('road')
+  })
+
+  it('chooses between the data types the dataset holds here', async () => {
+    const mixed = {
+      ...files(),
+      data_type_counts: [
+        { data_type: 'raster', count: 1 },
+        { data_type: 'vector', count: 2 },
+      ],
+    }
+    const { calls } = mockFetch({
+      ...session(),
+      [datasetsUrl(POINT)]: { status: 200, body: datasets() },
+      [filesUrl(POINT)]: { status: 200, body: mixed },
+      [filesUrl(POINT, { data_type: ['raster'] })]: { status: 200, body: mixed },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await clickMap(user)
+
+    const toggle = screen.getByRole('radiogroup', { name: 'Data type' })
+    expect(
+      within(toggle)
+        .getAllByRole('radio')
+        .map((option) => option.textContent),
+    ).toEqual(['All', 'raster 1', 'vector 2'])
+    expect(within(toggle).getByRole('radio', { name: 'All' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+
+    await user.click(within(toggle).getByRole('radio', { name: 'raster 1' }))
+    await waitFor(() => expect(calls).toContain(filesUrl(POINT, { data_type: ['raster'] })))
+  })
+
+  it('returns to the same files when a selected file is cleared', async () => {
+    mockFetch({
+      ...session(),
+      ...pane(POINT),
+      [filesUrl(POINT, { q: 'ro' })]: { status: 200, body: files() },
+      [`GET /api/map/assets/${ASSET_ID}`]: {
+        status: 200,
+        body: {
+          asset_id: ASSET_ID,
+          name: 'roads',
+          data_type: 'vector',
+          metadata: {},
+          footprint: null,
+        },
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await clickMap(user)
+    await user.type(screen.getByLabelText('Search Road network'), 'ro')
+    await user.click(screen.getByRole('button', { name: 'Details for roads' }))
+    await user.click(await screen.findByRole('button', { name: 'Clear' }))
+
+    expect(await screen.findByLabelText('Search Road network')).toHaveValue('ro')
+  })
+
+  it('starts again at the datasets for a new place', async () => {
+    mockFetch({ ...session(), ...pane(POINT), ...pane(AREA) })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await clickMap(user)
+    await drawArea(user)
+
+    const panel = await screen.findByRole('complementary', { name: 'Assets in this area' })
+    expect(within(panel).getByRole('button', { name: 'Open Road network' })).toBeInTheDocument()
+    expect(within(panel).getByLabelText('Search datasets')).toHaveValue('')
+  })
+
+  it('keeps the search box when a search fails, and says so', async () => {
+    mockFetch({
+      ...session(),
+      ...pane(POINT),
+      [datasetsUrl(POINT, 'r')]: { status: 500, body: {} },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await user.click(await screen.findByRole('button', { name: 'map surface' }))
+    await user.type(await screen.findByLabelText('Search datasets'), 'r')
+
+    expect(await screen.findByText('The datasets could not be loaded.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Search datasets')).toHaveValue('r')
+  })
+
+  it('says a dataset search matched nothing, rather than closing the pane', async () => {
+    mockFetch({
+      ...session(),
+      ...pane(POINT),
+      [datasetsUrl(POINT, 'zzz')]: { status: 200, body: { results: [] } },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await user.click(await screen.findByRole('button', { name: 'map surface' }))
+    await user.type(await screen.findByLabelText('Search datasets'), 'zzz')
+
+    expect(await screen.findByText('No datasets here match “zzz”.')).toBeInTheDocument()
+  })
+})
+
+describe('the detail pane', () => {
+  const DETAIL_URL = `GET /api/map/assets/${ASSET_ID}`
+
+  function detail() {
+    return {
+      asset_id: ASSET_ID,
+      name: 'roads',
+      data_type: 'vector',
+      metadata: {
+        format: 'geoparquet',
+        feature_count: 2,
+        columns: [
+          { name: 'highway', dtype: 'string' },
+          { name: 'oneway', dtype: 'bool' },
+        ],
+      },
+      footprint: null,
+    }
+  }
+
+  it('shows plain values, and keeps structured ones for the expanded pane', async () => {
+    mockFetch({ ...session(), [DETAIL_URL]: { status: 200, body: detail() } })
+    renderApp(`/map?asset=${ASSET_ID}`)
+
+    const panel = await screen.findByRole('complementary', { name: 'Selected asset' })
+    expect(within(panel).getByRole('heading', { name: 'roads' })).toBeInTheDocument()
+    expect(within(panel).getByText('feature_count')).toBeInTheDocument()
+    expect(within(panel).queryByRole('table')).toBeNull()
+    // Never a line of JSON, in either size.
+    expect(within(panel).queryByText(/"dtype"/)).toBeNull()
+    expect(within(panel).getByRole('button', { name: '1 more field · Expand' })).toBeInTheDocument()
+  })
+
+  it('widens when expanded, and shows the columns as a table', async () => {
+    mockFetch({ ...session(), [DETAIL_URL]: { status: 200, body: detail() } })
+    const user = userEvent.setup()
+    renderApp(`/map?asset=${ASSET_ID}`)
+
+    const panel = await screen.findByRole('complementary', { name: 'Selected asset' })
+    const narrow = panel.className
+    await user.click(within(panel).getByRole('button', { name: 'Expand details' }))
+
+    expect(panel.className).not.toBe(narrow)
+    const columns = within(panel).getByRole('region', { name: 'columns' })
+    const table = within(columns).getByRole('table')
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual(['name', 'dtype'])
+    expect(within(table).getAllByRole('row')).toHaveLength(3)
+    expect(within(table).getByText('highway')).toBeInTheDocument()
+
+    await user.click(within(panel).getByRole('button', { name: 'Collapse details' }))
+    expect(within(panel).queryByRole('table')).toBeNull()
+    expect(panel.className).toBe(narrow)
   })
 })

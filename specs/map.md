@@ -24,20 +24,55 @@ and nothing else — it does not clear a point or an area already chosen.
 
 ## Point inspection — built
 
-Clicking a point in point mode lists every catalog asset whose coverage
-includes it, grouped by data type. Data types come from the knowledge base
-and are never enumerated in portal code (context/integrations/kb.md). A
-point nothing covers shows nothing at all — no panel, no error.
+Clicking a point in point mode opens the panel on the right, which browses
+the catalog assets whose coverage includes it, in three levels
+(docs/adr/016):
 
-Selecting an asset shows its metadata and draws its footprint, with its own
-control to draw its data — the same control the list row carries, so the two
-panels offer the same actions. The panel opens either because a click found
-assets here, or because an asset arrived in the URL; nothing else opens it.
-Metadata is whatever the catalog holds for that asset: there is no fixed
+1. **Datasets.** Every dataset with an asset here, by its readable label,
+   with how many assets and of which data types. A search box above filters
+   them by name.
+2. **Files.** Opening a dataset lists its assets here, by name, each with
+   its data type, format, and a control to draw it. A search box searches
+   their metadata — the same catalog text, and the same exact match, as on
+   the Assets page (specs/assets.md) — and a data type choice (All, or one
+   type) sits beneath it. The choice appears only here: among datasets a
+   type means nothing. Its options and counts are what the catalog reported
+   for this dataset here, never a list held in the portal, and it is shown
+   even when there is one type, because then it says what the dataset holds.
+   **Datasets** goes back, to the dataset search as it was left.
+3. **Detail**, below.
+
+Opening a dataset starts its search empty. Up to 200 files are listed; past
+that the panel says how many there are and to search to narrow.
+
+A point nothing covers shows nothing at all — no panel, no error. A dataset
+search that matches nothing says so, and the panel stays. A new point or a
+new area starts the panel again at its datasets with nothing typed.
+
+Data types come from the knowledge base and are never enumerated in portal
+code (context/integrations/kb.md).
+
+## The detail — built
+
+Selecting an asset shows its name and metadata and draws its footprint, with
+its own control to draw its data — the same control the list row carries, so
+the two panels offer the same actions. The panel opens either because a click
+found assets here, or because an asset arrived in the URL; nothing else opens
+it. Metadata is whatever the catalog holds for that asset: there is no fixed
 field set and it differs by data type. Clearing the selection removes that
-asset's metadata and its footprint; the list of assets stays open so another
-can be picked. Drawn data layers are **not** cleared with the selection —
-see below.
+asset's metadata and its footprint and returns to the files it was chosen
+from, with their search and data type as they were. Drawn data layers are
+**not** cleared with the selection — see below.
+
+**Plain values first, tables when expanded.** Collapsed, the detail shows
+the plain values and says how many more there are. Expanded, the panel
+widens and shows every structured value as a table: a vector file's
+`columns` as one row per column, a raster's `bands` and `stats` the same
+way, and its `tags` as key and value rows, nested as deep as they go. What
+counts as structured is decided by the value's shape — an object, or a list
+holding objects — never by its key. A list of plain values, such as
+overview factors, reads fine on one line and stays one. No value is ever
+shown as raw JSON, and text that happens to hold JSON stays text.
 
 **The footprint gives way to the data.** It is a stand-in for content you
 cannot see, so once that asset's own features are drawn the outline goes: it
@@ -126,9 +161,9 @@ would otherwise have to be found again by clicking the map.
 In draw-area mode the user clicks out a polygon, one corner per click, and
 closes it by clicking the first corner again or pressing Enter; Escape
 abandons it. The finished polygon is outlined on the map and becomes the
-area: the panel lists every catalog asset whose coverage overlaps it,
-grouped by data type exactly as for a point. An area nothing overlaps shows
-nothing at all.
+area: the panel browses every catalog asset whose coverage overlaps it —
+datasets, then files — exactly as for a point. An area nothing overlaps
+shows nothing at all.
 
 A point and an area are one selection, not two. Clicking a point, or going
 to a searched place, clears the area; finishing an area clears the point.

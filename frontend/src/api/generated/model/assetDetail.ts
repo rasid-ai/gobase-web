@@ -12,6 +12,8 @@ import type { AssetDetailMetadata } from './assetDetailMetadata';
  */
 export interface AssetDetail {
   readonly asset_id: string;
+  /** Derived from the asset's source path, extension removed — the same name the catalog list shows (docs/adr/010). */
+  readonly name: string;
   readonly data_type: string;
   /** Whatever the catalog holds for this asset. The key set is not fixed and differs by data type. */
   readonly metadata: AssetDetailMetadata;

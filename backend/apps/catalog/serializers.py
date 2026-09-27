@@ -222,7 +222,72 @@ class AreaField(serializers.CharField):
         return value.wkt if isinstance(value, Area) else value
 
 
-class AssetListQuerySerializer(serializers.Serializer):
+class CatalogScopeSerializer(serializers.Serializer):
+    """The part of the catalog a caller is looking at: a place and a window.
+
+    Shared by the asset list and the dataset list, because a dataset's count
+    has to be the number of assets you then find inside it (docs/adr/016).
+
+    A place is at most one of three: a searched place's `bbox`, a clicked
+    point, or a drawn `area`. The Assets page sends the first and the map's
+    panel the other two. All three are optional to the contract and at most one
+    is accepted here, because OpenAPI has no plain way to say "one of these"
+    that the generated client would honour.
+    """
+
+    bbox = BboxField(
+        required=False,
+        help_text=(
+            "Restrict to assets whose coverage overlaps this area: "
+            "min_lon,min_lat,max_lon,max_lat, SRID 4326. Not sent with a point or an area."
+        ),
+    )
+    lon = serializers.FloatField(
+        required=False,
+        min_value=-180,
+        max_value=180,
+        help_text="Restrict to assets covering this point: longitude, WGS 84. Sent with `lat`.",
+    )
+    lat = serializers.FloatField(
+        required=False,
+        min_value=-90,
+        max_value=90,
+        help_text="Latitude of the point, WGS 84. Sent with `lon`.",
+    )
+    area = AreaField(
+        required=False,
+        help_text=(
+            "Restrict to assets whose coverage overlaps this drawn polygon: WKT, "
+            "POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not "
+            "crossing itself."
+        ),
+    )
+    ingested_after = serializers.DateTimeField(
+        required=False, help_text="Ingested at or after this moment."
+    )
+    ingested_before = serializers.DateTimeField(
+        required=False, help_text="Ingested strictly before this moment."
+    )
+
+    def validate(self, attrs):
+        if ("lon" in attrs) != ("lat" in attrs):
+            raise serializers.ValidationError("A point needs both lon and lat.")
+        places = sum(("bbox" in attrs, "lon" in attrs, "area" in attrs))
+        if places > 1:
+            raise serializers.ValidationError("Send one place at most: a bbox, a point or an area.")
+        return attrs
+
+    def place(self) -> dict:
+        """The validated place as `kb` keyword arguments: at most one of them set."""
+        data = self.validated_data
+        return {
+            "bbox": data.get("bbox"),
+            "point": (data["lon"], data["lat"]) if "lon" in data else None,
+            "area": data["area"].wkt if "area" in data else None,
+        }
+
+
+class AssetListQuerySerializer(CatalogScopeSerializer):
     """The browse filters, validated before they reach the knowledge base.
 
     `sort` is a choice rather than free text because the value chooses a SQL
@@ -234,25 +299,22 @@ class AssetListQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=200,
-        help_text="Case-insensitive substring of the asset name.",
+        help_text=(
+            "Case-insensitive, literal substring of the asset's catalog text: its "
+            "file name, dataset and dataset label, topic, format, data type, "
+            "summary, layer names, vector column names and raster tag values."
+        ),
     )
     data_type = serializers.ListField(
         child=serializers.CharField(max_length=100),
         required=False,
         help_text="Repeatable. Omitted means every data type.",
     )
-    ingested_after = serializers.DateTimeField(
-        required=False, help_text="Ingested at or after this moment."
-    )
-    ingested_before = serializers.DateTimeField(
-        required=False, help_text="Ingested strictly before this moment."
-    )
-    bbox = BboxField(
+    dataset = serializers.CharField(
         required=False,
-        help_text=(
-            "Restrict to assets whose coverage overlaps this area: "
-            "min_lon,min_lat,max_lon,max_lat, SRID 4326."
-        ),
+        allow_blank=True,
+        max_length=200,
+        help_text="Only assets in this dataset, matched exactly. Omitted means every dataset.",
     )
     sort = serializers.ChoiceField(
         choices=sorted(SORTS),
@@ -281,6 +343,16 @@ class AssetListItemSerializer(serializers.Serializer):
     )
     data_type = serializers.CharField(read_only=True)
     format = serializers.CharField(read_only=True, allow_null=True)
+    dataset = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The dataset's name as the catalog holds it: a folder of the raw bucket.",
+    )
+    dataset_label = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The dataset's name made readable: spaced and in sentence case.",
+    )
     topic_path = serializers.CharField(read_only=True, allow_null=True)
     bytes = serializers.IntegerField(read_only=True, allow_null=True)
     bbox = serializers.ListField(
@@ -325,3 +397,38 @@ class AssetListSerializer(serializers.Serializer):
             "Counts per data type for the current filters, ignoring the data_type selection itself."
         ),
     )
+
+
+class DatasetListQuerySerializer(CatalogScopeSerializer):
+    """What narrows the dataset list: a place, a window, and a search."""
+
+    q = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text=(
+            "Case-insensitive, literal substring of the dataset's name or its "
+            "readable label. Its files' metadata is not searched."
+        ),
+    )
+
+
+class DatasetSerializer(serializers.Serializer):
+    """One dataset and what is in it, within the caller's place and window."""
+
+    dataset = serializers.CharField(
+        read_only=True,
+        help_text="The name as the catalog holds it. Send it back as the asset list's `dataset`.",
+    )
+    label = serializers.CharField(
+        read_only=True,
+        help_text="The name made readable: spaced and in sentence case.",
+    )
+    count = serializers.IntegerField(read_only=True, help_text="How many assets match in it.")
+    data_type_counts = DataTypeCountSerializer(many=True, read_only=True)
+
+
+class DatasetListSerializer(serializers.Serializer):
+    """Every dataset holding at least one matching asset, ordered by label."""
+
+    results = DatasetSerializer(many=True, read_only=True)
