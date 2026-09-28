@@ -20,6 +20,16 @@ export interface AssetListItem {
   readonly data_type: string;
   /** @nullable */
   readonly format: string | null;
+  /**
+     * The dataset's name as the catalog holds it: a folder of the raw bucket.
+     * @nullable
+     */
+  readonly dataset: string | null;
+  /**
+     * The dataset's name made readable: spaced and in sentence case.
+     * @nullable
+     */
+  readonly dataset_label: string | null;
   /** @nullable */
   readonly topic_path: string | null;
   /** @nullable */

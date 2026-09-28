@@ -16,9 +16,9 @@ export const PAGE_SIZE = 12
  * through the catalog does not drop the grid to skeletons and back on every
  * click.
  */
-export function useAssetPage(filters: CatalogAssetListParams, page: number) {
+export function useAssetPage(filters: CatalogAssetListParams, page: number, enabled = true) {
   return useCatalogAssetList(
     { ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE },
-    { query: { placeholderData: keepPreviousData } },
+    { query: { enabled, placeholderData: keepPreviousData } },
   )
 }

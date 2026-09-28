@@ -5,6 +5,8 @@ The catalog is faked at its own boundary because tests have no real `kb`
 GeoParquet file, so the response shape is checked against actual output.
 """
 
+import gzip
+import json
 import uuid
 
 import pytest
@@ -160,6 +162,130 @@ def test_the_cursor_pages_within_the_bbox(as_viewer, monkeypatch, tmp_path):
 
     assert ids(first) == [2, 3, 4]
     assert ids(second) == [5, 6, 7]
+
+
+# --- drawn area -------------------------------------------------------------
+
+
+def test_an_area_returns_only_what_is_inside_it(as_viewer, monkeypatch, tmp_path):
+    """Points 6..10 sit inside the triangle's envelope and outside the triangle."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=30)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    body = as_viewer.get(url(), {"area": "POLYGON((0 -1, 10 -1, 0 1, 0 -1))"}).json()
+
+    assert ids(body) == [0, 1, 2, 3, 4, 5]
+
+
+def test_a_bbox_and_an_area_together_are_refused(as_viewer, monkeypatch, tmp_path):
+    """Two answers to "where" is a caller bug, not something to guess between."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(
+        url(), {"bbox": "0,-1,10,1", "area": "POLYGON((0 -1, 10 -1, 0 1, 0 -1))"}
+    )
+
+    assert response.status_code == 400
+
+
+def test_a_self_crossing_area_is_refused(as_viewer, monkeypatch, tmp_path):
+    """DuckDB would answer this one silently and wrongly."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(url(), {"area": "POLYGON((0 0, 1 1, 1 0, 0 1, 0 0))"})
+
+    assert response.status_code == 400
+
+
+# --- compression and caching ------------------------------------------------
+
+
+def test_a_page_is_gzipped_for_a_client_that_accepts_it(as_viewer, monkeypatch, tmp_path):
+    path = write_spread_points(tmp_path / "spread.parquet", rows=200)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(url(), HTTP_ACCEPT_ENCODING="gzip")
+
+    assert response["Content-Encoding"] == "gzip"
+    assert "Accept-Encoding" in response["Vary"]
+    assert json.loads(gzip.decompress(response.content))["count"] == 200
+
+
+def test_a_client_that_does_not_accept_gzip_gets_plain_json(as_viewer, monkeypatch, tmp_path):
+    path = write_spread_points(tmp_path / "spread.parquet", rows=200)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(url())
+
+    assert "Content-Encoding" not in response
+    # Still says it varies, so no cache hands a gzipped copy to this client.
+    assert "Accept-Encoding" in response["Vary"]
+    assert response.json()["count"] == 200
+
+
+def test_a_page_says_it_may_be_kept_but_must_be_revalidated(as_viewer, monkeypatch, tmp_path):
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(url())
+
+    assert response["Cache-Control"] == "private, no-cache"
+    assert response["ETag"].startswith('W/"')
+
+
+def test_a_matching_etag_is_answered_without_reading_the_lake(as_viewer, monkeypatch, tmp_path):
+    """Assets are content-addressed, so the id and the request decide the body."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+    etag = as_viewer.get(url()).headers["ETag"]
+
+    def must_not_read(*args, **kwargs):
+        raise AssertionError("a revalidation read the lake")
+
+    monkeypatch.setattr(lake, "read_vector_features", must_not_read)
+    response = as_viewer.get(url(), HTTP_IF_NONE_MATCH=etag)
+
+    assert response.status_code == 304
+    assert response.content == b""
+    assert response["ETag"] == etag
+
+
+def test_a_different_request_gets_a_different_etag(as_viewer, monkeypatch, tmp_path):
+    path = write_spread_points(tmp_path / "spread.parquet", rows=30)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    tags = {
+        as_viewer.get(url(), params).headers["ETag"]
+        for params in (
+            {},
+            {"bbox": "2,-0.5,5,0.5"},
+            {"area": "POLYGON((0 -1, 10 -1, 0 1, 0 -1))"},
+            {"limit": 5},
+            {"limit": 5, "cursor": 4},
+        )
+    }
+
+    assert len(tags) == 5
+
+
+def test_a_superseded_asset_is_404_even_with_a_matching_etag(as_viewer, monkeypatch, tmp_path):
+    """The ETag is checked after the catalog, so an old copy is never blessed."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+    etag = as_viewer.get(url()).headers["ETag"]
+
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: None)
+
+    assert as_viewer.get(url(), HTTP_IF_NONE_MATCH=etag).status_code == 404
+
+
+def test_revalidation_still_requires_a_login(api, monkeypatch, tmp_path):
+    """A kept copy is never confirmed to someone who is not signed in."""
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: "unused")
+
+    assert api.get(url(), HTTP_IF_NONE_MATCH='W/"anything"').status_code == 401
 
 
 # --- limits and bad input -------------------------------------------------

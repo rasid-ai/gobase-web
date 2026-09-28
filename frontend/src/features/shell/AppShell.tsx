@@ -2,6 +2,7 @@ import { Moon, Sun } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import { useAuth } from '@/app/auth/useAuth'
+import { PageBoundary } from '@/components/PageBoundary'
 import { PortalWordmark } from '@/components/PortalWordmark'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,7 @@ import { useThemeToggle } from './useThemeToggle'
 export function AppShell() {
   const { user, signOut } = useAuth()
   const { theme, toggle } = useThemeToggle()
+  const { pathname } = useLocation()
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -43,7 +45,13 @@ export function AppShell() {
         </Button>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto">
-        <Outlet />
+        {/*
+          Keyed by path: a page that failed is replaced by a fresh boundary
+          the moment you go elsewhere, so no reload is needed to recover.
+        */}
+        <PageBoundary key={pathname}>
+          <Outlet />
+        </PageBoundary>
       </main>
     </div>
   )

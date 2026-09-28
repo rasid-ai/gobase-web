@@ -116,18 +116,27 @@ paths:
       description: |-
         One page of the catalog, filtered and sorted.
 
-        Browsing is not a map feature, which is why this is its own app: the map's
-        `/api/map/assets` already means "the assets covering this point" and cannot
-        carry a second meaning (docs/adr/010).
+        Both pages browse through here. The Assets page narrows it to a searched
+        place, and the map's panel to a clicked point or a drawn area — one
+        question with three geometries, and one answer to it, so the search, the
+        datasets and the counts cannot differ between the two (docs/adr/016).
       summary: Browse the asset catalog
       parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this drawn polygon:
+          WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself.'
       - in: query
         name: bbox
         schema:
           type: string
           minLength: 1
         description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
-          SRID 4326.'
+          SRID 4326. Not sent with a point or an area.'
       - in: query
         name: data_type
         schema:
@@ -137,6 +146,13 @@ paths:
             minLength: 1
             maxLength: 100
         description: Repeatable. Omitted means every data type.
+      - in: query
+        name: dataset
+        schema:
+          type: string
+          maxLength: 200
+        description: Only assets in this dataset, matched exactly. Omitted means every
+          dataset.
       - in: query
         name: ingested_after
         schema:
@@ -150,12 +166,29 @@ paths:
           format: date-time
         description: Ingested strictly before this moment.
       - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        description: Latitude of the point, WGS 84. Sent with `lon`.
+      - in: query
         name: limit
         schema:
           type: integer
           maximum: 200
           minimum: 1
           default: 50
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        description: 'Restrict to assets covering this point: longitude, WGS 84. Sent
+          with `lat`.'
       - in: query
         name: offset
         schema:
@@ -167,7 +200,9 @@ paths:
         schema:
           type: string
           maxLength: 200
-        description: Case-insensitive substring of the asset name.
+        description: 'Case-insensitive, literal substring of the asset''s catalog
+          text: its file name, dataset and dataset label, topic, format, data type,
+          summary, layer names, vector column names and raster tag values.'
       - in: query
         name: sort
         schema:
@@ -199,6 +234,85 @@ paths:
               schema:
                 $ref: '#/components/schemas/AssetList'
           description: ''
+        '400':
+          description: A filter that cannot be read, half a point, or more than one
+            place.
+  /api/catalog/datasets:
+    get:
+      operationId: catalog_dataset_list
+      description: |-
+        The datasets holding matching assets, and how many of each type.
+
+        The first step of browsing by dataset, on both pages: pick one here, then
+        list its assets with `dataset=` on the asset list, sending the same place
+        and window so the count shown here is the count found there.
+      summary: Datasets in the catalog
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this drawn polygon:
+          WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself.'
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
+          SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: ingested_after
+        schema:
+          type: string
+          format: date-time
+        description: Ingested at or after this moment.
+      - in: query
+        name: ingested_before
+        schema:
+          type: string
+          format: date-time
+        description: Ingested strictly before this moment.
+      - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        description: Latitude of the point, WGS 84. Sent with `lon`.
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        description: 'Restrict to assets covering this point: longitude, WGS 84. Sent
+          with `lat`.'
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 200
+        description: Case-insensitive, literal substring of the dataset's name or
+          its readable label. Its files' metadata is not searched.
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetList'
+          description: ''
+        '400':
+          description: A filter that cannot be read, half a point, or more than one
+            place.
   /api/health/:
     get:
       operationId: health_retrieve
@@ -217,41 +331,6 @@ paths:
           description: ''
         '503':
           description: The portal database is unreachable.
-  /api/map/assets:
-    get:
-      operationId: map_assets_at_point
-      description: List the catalog assets whose coverage includes a point.
-      summary: Assets covering a point
-      parameters:
-      - in: query
-        name: lat
-        schema:
-          type: number
-          format: double
-          maximum: 90
-          minimum: -90
-        required: true
-      - in: query
-        name: lon
-        schema:
-          type: number
-          format: double
-          maximum: 180
-          minimum: -180
-        required: true
-      tags:
-      - map
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AssetsAtPoint'
-          description: ''
-        '400':
-          description: Missing or out-of-range coordinates.
   /api/map/assets/{asset_id}:
     get:
       operationId: map_asset_detail
@@ -286,8 +365,28 @@ paths:
         Vector only, and the endpoint says so rather than inferring it: `assets`
         holds every modality and the lake read only makes sense for GeoParquet
         (docs/adr/008). Other modalities get their own endpoints.
+
+        The one endpoint that writes its own body instead of going through DRF's
+        renderer, and the one that is compressed and cached (docs/adr/015). A page
+        is megabytes of GeoJSON that DuckDB has already written, so rendering it
+        again would only parse and re-serialise it. `AssetDataSerializer` still
+        declares its shape to the contract.
+
+        Compressed here, not site-wide: Django's middleware also compresses
+        streaming responses, which would hold back the server-sent events the Ask
+        slice will use, and compressing only this keeps it away from any response
+        that carries a secret (BREACH). See `_compressed` for why not Django's own
+        `gzip_page` either.
       summary: Vector asset features
       parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Read only the features that intersect this drawn polygon: WKT,
+          POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself. Matching is exact. Sent instead of bbox.'
       - in: path
         name: asset_id
         schema:
@@ -327,8 +426,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/AssetData'
           description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held. A browser handles this itself and hands the client its cached
+            200.
         '400':
-          description: An unreadable bbox, cursor or limit.
+          description: An unreadable bbox, area, cursor or limit, or both bbox and
+            area.
         '404':
           description: No active vector asset with that id.
         '502':
@@ -580,6 +684,11 @@ components:
           type: string
           format: uuid
           readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed — the
+            same name the catalog list shows (docs/adr/010).
         data_type:
           type: string
           readOnly: true
@@ -597,25 +706,7 @@ components:
       - data_type
       - footprint
       - metadata
-    AssetGroup:
-      type: object
-      description: |-
-        Assets sharing a data type.
-
-        The data type is whatever the knowledge base classifies the asset as; the
-        portal neither defines nor translates the list (specs/map.md).
-      properties:
-        data_type:
-          type: string
-          readOnly: true
-        assets:
-          type: array
-          items:
-            $ref: '#/components/schemas/AssetSummary'
-          readOnly: true
-      required:
-      - assets
-      - data_type
+      - name
     AssetList:
       type: object
       description: One page of the catalog.
@@ -665,6 +756,18 @@ components:
           type: string
           readOnly: true
           nullable: true
+        dataset:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name as the catalog holds it: a folder of the
+            raw bucket.'
+        dataset_label:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name made readable: spaced and in sentence
+            case.'
         topic_path:
           type: string
           readOnly: true
@@ -708,6 +811,8 @@ components:
       - bbox
       - bytes
       - data_type
+      - dataset
+      - dataset_label
       - format
       - ingested_at
       - name
@@ -715,53 +820,6 @@ components:
       - time_end
       - time_start
       - topic_path
-    AssetSummary:
-      type: object
-      description: One asset as it appears in a point-click list.
-      properties:
-        asset_id:
-          type: string
-          format: uuid
-          readOnly: true
-        source_uri:
-          type: string
-          readOnly: true
-        format:
-          type: string
-          readOnly: true
-          nullable: true
-        summary:
-          type: string
-          readOnly: true
-          nullable: true
-        time_start:
-          type: string
-          format: date-time
-          readOnly: true
-          nullable: true
-        time_end:
-          type: string
-          format: date-time
-          readOnly: true
-          nullable: true
-      required:
-      - asset_id
-      - format
-      - source_uri
-      - summary
-      - time_end
-      - time_start
-    AssetsAtPoint:
-      type: object
-      description: The whole answer to a point click. No coverage means no groups.
-      properties:
-        groups:
-          type: array
-          items:
-            $ref: '#/components/schemas/AssetGroup'
-          readOnly: true
-      required:
-      - groups
     ChangePasswordRequest:
       type: object
       properties:
@@ -793,6 +851,44 @@ components:
       required:
       - count
       - data_type
+    Dataset:
+      type: object
+      description: One dataset and what is in it, within the caller's place and window.
+      properties:
+        dataset:
+          type: string
+          readOnly: true
+          description: The name as the catalog holds it. Send it back as the asset
+            list's `dataset`.
+        label:
+          type: string
+          readOnly: true
+          description: 'The name made readable: spaced and in sentence case.'
+        count:
+          type: integer
+          readOnly: true
+          description: How many assets match in it.
+        data_type_counts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataTypeCount'
+          readOnly: true
+      required:
+      - count
+      - data_type_counts
+      - dataset
+      - label
+    DatasetList:
+      type: object
+      description: Every dataset holding at least one matching asset, ordered by label.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dataset'
+          readOnly: true
+      required:
+      - results
     Health:
       type: object
       properties:

@@ -43,6 +43,22 @@ function resolve(value: string): string {
   return a === 255 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a / 255})`
 }
 
+/**
+ * A resolved token colour as `#rrggbb`.
+ *
+ * The draw tool's styling accepts hex and nothing else. This converts what
+ * `resolve` already produced rather than reading the token a second way, so
+ * the drawn outline and the rest of the map cannot disagree about a colour.
+ * Opacity is dropped: the tool takes it as a separate number.
+ */
+export function hex(colour: string): `#${string}` {
+  const channels = colour
+    .match(/\d+(\.\d+)?/g)
+    ?.slice(0, 3)
+    .map(Number) ?? [0, 0, 0]
+  return `#${channels.map((c) => Math.round(c).toString(16).padStart(2, '0')).join('')}`
+}
+
 function read(): MapTokens {
   const styles = getComputedStyle(document.documentElement)
   const of = (name: string) => resolve(styles.getPropertyValue(name).trim())

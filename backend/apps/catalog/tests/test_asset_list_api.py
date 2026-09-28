@@ -8,6 +8,7 @@ the shape that comes back.
 import pytest
 
 URL = "/api/catalog/assets"
+AREA = "POLYGON((35.47 33.86, 35.55 33.86, 35.58 33.92, 35.50 33.94, 35.47 33.86))"
 
 
 def test_browsing_requires_a_session(api):
@@ -19,7 +20,10 @@ def test_no_filters_asks_for_everything(as_viewer, captured):
     assert captured == {
         "q": None,
         "data_types": None,
+        "dataset": None,
         "bbox": None,
+        "point": None,
+        "area": None,
         "ingested_after": None,
         "ingested_before": None,
         "sort": "-ingested_at",
@@ -99,6 +103,8 @@ def test_the_answer_carries_the_page_the_total_and_the_counts(as_viewer, monkeyp
                     "name": "gis_osm_boundaries_07_1",
                     "data_type": "vector",
                     "format": "geoparquet",
+                    "dataset": "shapefiles_dresden",
+                    "dataset_label": "Shapefiles dresden",
                     "topic_path": "shapefiles_dresden",
                     "bytes": 238368,
                     "bbox": [13.5389, 50.9581, 14.0149, 51.198],
@@ -120,6 +126,8 @@ def test_the_answer_carries_the_page_the_total_and_the_counts(as_viewer, monkeyp
     assert asset["name"] == "gis_osm_boundaries_07_1"
     assert asset["data_type"] == "vector"
     assert asset["bbox"] == [13.5389, 50.9581, 14.0149, 51.198]
+    assert asset["dataset"] == "shapefiles_dresden"
+    assert asset["dataset_label"] == "Shapefiles dresden"
     # Empty across the whole live catalog, and null rather than absent so the
     # interface can render one row shape for every asset.
     assert asset["summary"] is None
@@ -167,3 +175,27 @@ def test_a_cleared_area_is_not_a_filter(as_viewer, captured):
     # means no search text.
     assert as_viewer.get(URL, {"bbox": ""}).status_code == 200
     assert captured["bbox"] is None
+
+
+def test_a_dataset_reaches_the_query_as_given(as_viewer, captured):
+    as_viewer.get(URL, {"dataset": "points_of_interest_hotsom"})
+    assert captured["dataset"] == "points_of_interest_hotsom"
+
+
+def test_a_cleared_dataset_is_not_a_filter(as_viewer, captured):
+    assert as_viewer.get(URL, {"dataset": ""}).status_code == 200
+    assert captured["dataset"] is None
+
+
+def test_a_point_reaches_the_query_longitude_first(as_viewer, captured):
+    """The map's panel asks what covers a clicked point (docs/adr/016)."""
+    assert as_viewer.get(URL, {"lon": 35.5, "lat": 33.9}).status_code == 200
+    assert captured["point"] == (35.5, 33.9)
+    assert captured["bbox"] is None
+    assert captured["area"] is None
+
+
+def test_a_drawn_area_reaches_the_query_as_validated_wkt(as_viewer, captured):
+    assert as_viewer.get(URL, {"area": AREA}).status_code == 200
+    assert captured["area"].startswith("POLYGON((35.47 33.86, ")
+    assert captured["point"] is None

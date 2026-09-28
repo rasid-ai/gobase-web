@@ -5,11 +5,11 @@
  * Internal API for the Geo Portal SPA. Read-only over the knowledge base.
  * OpenAPI spec version: 0.1.0
  */
-import type { AssetGroup } from './assetGroup';
+import type { Dataset } from './dataset';
 
 /**
- * The whole answer to a point click. No coverage means no groups.
+ * Every dataset holding at least one matching asset, ordered by label.
  */
-export interface AssetsAtPoint {
-  readonly groups: readonly AssetGroup[];
+export interface DatasetList {
+  readonly results: readonly Dataset[];
 }

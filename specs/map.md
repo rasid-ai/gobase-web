@@ -4,8 +4,8 @@ The map half of the Atlas page, at `/map`. Layout — where the chat panel
 sits, page composition — is in context/ui-rules.md. MapLibre GL, per
 docs/adr/003.
 
-Point inspection and drawing an asset's vector data are built. Area
-questions and answer layers are not.
+Point inspection, drawing an area, and drawing an asset's vector data are
+built. Area questions and answer layers are not.
 
 ## Opening view — built
 
@@ -16,28 +16,63 @@ between visits.
 
 ## Interaction modes
 
-Two mutually exclusive modes are built: **navigate** and **point**.
+Three mutually exclusive modes: **navigate**, **point** and **draw area**.
 
-**Draw area** is specified below but is not built, and its control is not
-shown. Showing a mode that switches and then does nothing is worse than
-showing nothing; it returns when the area question path does.
+Navigate leaves clicks to the map. Point inspects what a click lands on.
+Draw area traces a polygon. Switching mode changes what the next click does
+and nothing else — it does not clear a point or an area already chosen.
 
 ## Point inspection — built
 
-Clicking a point in point mode lists every catalog asset whose coverage
-includes it, grouped by data type. Data types come from the knowledge base
-and are never enumerated in portal code (context/integrations/kb.md). A
-point nothing covers shows nothing at all — no panel, no error.
+Clicking a point in point mode opens the panel on the right, which browses
+the catalog assets whose coverage includes it, in three levels
+(docs/adr/016):
 
-Selecting an asset shows its metadata and draws its footprint, with its own
-control to draw its data — the same control the list row carries, so the two
-panels offer the same actions. The panel opens either because a click found
-assets here, or because an asset arrived in the URL; nothing else opens it.
-Metadata is whatever the catalog holds for that asset: there is no fixed
+1. **Datasets.** Every dataset with an asset here, by its readable label,
+   with how many assets and of which data types. A search box above filters
+   them by name.
+2. **Files.** Opening a dataset lists its assets here, by name, each with
+   its data type, format, and a control to draw it. A search box searches
+   their metadata — the same catalog text, and the same exact match, as on
+   the Assets page (specs/assets.md) — and a data type choice (All, or one
+   type) sits beneath it. The choice appears only here: among datasets a
+   type means nothing. Its options and counts are what the catalog reported
+   for this dataset here, never a list held in the portal, and it is shown
+   even when there is one type, because then it says what the dataset holds.
+   **Datasets** goes back, to the dataset search as it was left.
+3. **Detail**, below.
+
+Opening a dataset starts its search empty. Up to 200 files are listed; past
+that the panel says how many there are and to search to narrow.
+
+A point nothing covers shows nothing at all — no panel, no error. A dataset
+search that matches nothing says so, and the panel stays. A new point or a
+new area starts the panel again at its datasets with nothing typed.
+
+Data types come from the knowledge base and are never enumerated in portal
+code (context/integrations/kb.md).
+
+## The detail — built
+
+Selecting an asset shows its name and metadata and draws its footprint, with
+its own control to draw its data — the same control the list row carries, so
+the two panels offer the same actions. The panel opens either because a click
+found assets here, or because an asset arrived in the URL; nothing else opens
+it. Metadata is whatever the catalog holds for that asset: there is no fixed
 field set and it differs by data type. Clearing the selection removes that
-asset's metadata and its footprint; the list of assets stays open so another
-can be picked. Drawn data layers are **not** cleared with the selection —
-see below.
+asset's metadata and its footprint and returns to the files it was chosen
+from, with their search and data type as they were. Drawn data layers are
+**not** cleared with the selection — see below.
+
+**Plain values first, tables when expanded.** Collapsed, the detail shows
+the plain values and says how many more there are. Expanded, the panel
+widens and shows every structured value as a table: a vector file's
+`columns` as one row per column, a raster's `bands` and `stats` the same
+way, and its `tags` as key and value rows, nested as deep as they go. What
+counts as structured is decided by the value's shape — an object, or a list
+holding objects — never by its key. A list of plain values, such as
+overview factors, reads fine on one line and stays one. No value is ever
+shown as raw JSON, and text that happens to hold JSON stays text.
 
 **The footprint gives way to the data.** It is a stand-in for content you
 cannot see, so once that asset's own features are drawn the outline goes: it
@@ -121,6 +156,30 @@ action below — offered on the metadata panel itself, because an asset
 reached this way never passes through the list of assets at a point and
 would otherwise have to be found again by clicking the map.
 
+## Drawing an area — built
+
+In draw-area mode the user clicks out a polygon, one corner per click, and
+closes it by clicking the first corner again or pressing Enter; Escape
+abandons it. The finished polygon is outlined on the map and becomes the
+area: the panel browses every catalog asset whose coverage overlaps it —
+datasets, then files — exactly as for a point. An area nothing overlaps
+shows nothing at all.
+
+A point and an area are one selection, not two. Clicking a point, or going
+to a searched place, clears the area; finishing an area clears the point.
+Drawing again replaces the area. Clear area removes it, and changing mode
+leaves it where it is, so you can switch to navigate and pan around what you
+drew.
+
+An area has at most 100 corners and its edges cannot cross. The draw tool
+refuses the click that would break either rule, and says why; the server
+checks both again, because neither PostGIS nor DuckDB refuses a polygon that
+crosses itself — each silently returns a wrong answer (docs/adr/014).
+
+The area is not in the URL. It never leaves the map, so by the rule in
+docs/adr/011 it has no parameter, and `?bbox=` keeps meaning the searched
+place. A drawn area is not a link that can be sent to someone.
+
 ## Drawn vector data — built
 
 Each asset has its own control to draw it — in the list, and on the metadata
@@ -135,6 +194,13 @@ a view of a whole city can hold more features than are worth reading, and
 when it does the panel says how many are shown and that zooming in gets the
 rest. Zoom in and the layer comes back whole, because a smaller area is
 read in full.
+
+While an area is drawn, it replaces the view: a layer shows the features
+inside the polygon, and panning or zooming changes nothing about what is
+drawn (docs/adr/014). A feature crossing the outline is drawn whole — the
+map shows what the file holds and never cuts a geometry at the edge. The
+same budget applies, and when it is reached the panel says to draw a
+smaller area, because zooming in does nothing to an area.
 
 Drawn layers outlive the selection that loaded them (docs/adr/008). Picking
 another asset, clearing a selection or clicking a new point all leave them
@@ -161,9 +227,15 @@ quietly refused a button.
 
 ## Area questions — not built
 
-The user draws a rectangle and asks a question scoped to it. The geometry
-travels with the question, and retrieval is restricted to that area. When
-the area is cleared the rectangle disappears from the map.
+The area exists — drawing one is built, above. What is not built is asking
+a question of it: the user draws an area and asks, the polygon travels with
+the question, and retrieval is restricted to it. This waits on the ask path
+(GP-6, GP-7).
+
+Worth knowing when it is built: the features endpoint matches a drawn area
+exactly, but a window only by bounding box (docs/adr/012), so anything that
+counts or answers from a window rather than an area inherits that
+looseness.
 
 ## Answer layers — not built
 

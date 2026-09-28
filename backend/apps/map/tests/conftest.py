@@ -72,6 +72,28 @@ def write_geoparquet(path, rows: int = 3, mixed: bool = True) -> str:
     return str(path)
 
 
+def write_covered_points(path, rows: int, row_group_size: int = 25) -> str:
+    """The same spread points, written the way silver writes them.
+
+    A `bbox` STRUCT covering column, one box per feature, plus small row groups
+    — which is what makes the covering column worth anything, since DuckDB
+    prunes by row-group statistics. Written by DuckDB's own COPY, so the `geo`
+    metadata carries no `covering` key: that is exactly why the reader detects
+    the column by name and type instead.
+    """
+    connection = duckdb.connect(":memory:")
+    connection.execute("INSTALL spatial; LOAD spatial;")
+    connection.execute(
+        f"COPY (SELECT ST_Point(i * 1.0, 0.0) AS geometry, i AS osm_id, "
+        f"'feature-' || i AS name, "
+        f"{{'xmin': i * 1.0, 'ymin': 0.0, 'xmax': i * 1.0, 'ymax': 0.0}} AS bbox "
+        f"FROM range(0, {int(rows)}) t(i)) "
+        f"TO '{path}' (FORMAT PARQUET, ROW_GROUP_SIZE {int(row_group_size)})"
+    )
+    connection.close()
+    return str(path)
+
+
 def write_spread_points(path, rows: int) -> str:
     """Write a GeoParquet file of points one degree apart along the equator.
 

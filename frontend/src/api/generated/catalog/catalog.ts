@@ -22,7 +22,9 @@ import type {
 
 import type {
   AssetList,
-  CatalogAssetListParams
+  CatalogAssetListParams,
+  CatalogDatasetListParams,
+  DatasetList
 } from '../model';
 
 import { httpClient } from '../../http-client';
@@ -52,12 +54,19 @@ export type catalogAssetListResponse200 = {
   status: 200
 }
 
+export type catalogAssetListResponse400 = {
+  data: void
+  status: 400
+}
+
 export type catalogAssetListResponseSuccess = (catalogAssetListResponse200) & {
   headers: Headers;
 };
-;
+export type catalogAssetListResponseError = (catalogAssetListResponse400) & {
+  headers: Headers;
+};
 
-export type catalogAssetListResponse = (catalogAssetListResponseSuccess)
+export type catalogAssetListResponse = (catalogAssetListResponseSuccess | catalogAssetListResponseError)
 
 export const getCatalogAssetListUrl = (params?: CatalogAssetListParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -85,9 +94,10 @@ export const getCatalogAssetListUrl = (params?: CatalogAssetListParams,) => {
 /**
  * One page of the catalog, filtered and sorted.
  *
- * Browsing is not a map feature, which is why this is its own app: the map's
- * `/api/map/assets` already means "the assets covering this point" and cannot
- * carry a second meaning (docs/adr/010).
+ * Both pages browse through here. The Assets page narrows it to a searched
+ * place, and the map's panel to a clicked point or a drawn area — one
+ * question with three geometries, and one answer to it, so the search, the
+ * datasets and the counts cannot differ between the two (docs/adr/016).
  * @summary Browse the asset catalog
  */
 export const catalogAssetList = async (params?: CatalogAssetListParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogAssetListResponse> => {
@@ -112,7 +122,7 @@ export const getCatalogAssetListQueryKey = (params?: CatalogAssetListParams,) =>
     }
 
 
-export const getCatalogAssetListQueryOptions = <TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = unknown>(params?: CatalogAssetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogAssetList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+export const getCatalogAssetListQueryOptions = <TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = void>(params?: CatalogAssetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogAssetList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -131,10 +141,10 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type CatalogAssetListQueryResult = NonNullable<Awaited<ReturnType<typeof catalogAssetList>>>
-export type CatalogAssetListQueryError = unknown
+export type CatalogAssetListQueryError = void
 
 
-export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = unknown>(
+export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = void>(
  params: undefined |  CatalogAssetListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogAssetList>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof catalogAssetList>>,
@@ -144,7 +154,7 @@ export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAss
       >, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = unknown>(
+export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = void>(
  params?: CatalogAssetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogAssetList>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof catalogAssetList>>,
@@ -154,7 +164,7 @@ export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAss
       >, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = unknown>(
+export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = void>(
  params?: CatalogAssetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogAssetList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
@@ -162,12 +172,143 @@ export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAss
  * @summary Browse the asset catalog
  */
 
-export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = unknown>(
+export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAssetList>>, TError = void>(
  params?: CatalogAssetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogAssetList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getCatalogAssetListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type catalogDatasetListResponse200 = {
+  data: DatasetList
+  status: 200
+}
+
+export type catalogDatasetListResponse400 = {
+  data: void
+  status: 400
+}
+
+export type catalogDatasetListResponseSuccess = (catalogDatasetListResponse200) & {
+  headers: Headers;
+};
+export type catalogDatasetListResponseError = (catalogDatasetListResponse400) & {
+  headers: Headers;
+};
+
+export type catalogDatasetListResponse = (catalogDatasetListResponseSuccess | catalogDatasetListResponseError)
+
+export const getCatalogDatasetListUrl = (params?: CatalogDatasetListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/catalog/datasets?${stringifiedParams}` : `/api/catalog/datasets`
+}
+
+/**
+ * The datasets holding matching assets, and how many of each type.
+ *
+ * The first step of browsing by dataset, on both pages: pick one here, then
+ * list its assets with `dataset=` on the asset list, sending the same place
+ * and window so the count shown here is the count found there.
+ * @summary Datasets in the catalog
+ */
+export const catalogDatasetList = async (params?: CatalogDatasetListParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogDatasetListResponse> => {
+
+  return httpClient<catalogDatasetListResponse>(getCatalogDatasetListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogDatasetListQueryKey = (params?: CatalogDatasetListParams,) => {
+    return [
+    `/api/catalog/datasets`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCatalogDatasetListQueryOptions = <TData = Awaited<ReturnType<typeof catalogDatasetList>>, TError = void>(params?: CatalogDatasetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDatasetList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogDatasetListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogDatasetList>>> = ({ signal }) => catalogDatasetList(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogDatasetList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CatalogDatasetListQueryResult = NonNullable<Awaited<ReturnType<typeof catalogDatasetList>>>
+export type CatalogDatasetListQueryError = void
+
+
+export function useCatalogDatasetList<TData = Awaited<ReturnType<typeof catalogDatasetList>>, TError = void>(
+ params: undefined |  CatalogDatasetListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDatasetList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDatasetList>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDatasetList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDatasetList<TData = Awaited<ReturnType<typeof catalogDatasetList>>, TError = void>(
+ params?: CatalogDatasetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDatasetList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDatasetList>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDatasetList>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDatasetList<TData = Awaited<ReturnType<typeof catalogDatasetList>>, TError = void>(
+ params?: CatalogDatasetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDatasetList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Datasets in the catalog
+ */
+
+export function useCatalogDatasetList<TData = Awaited<ReturnType<typeof catalogDatasetList>>, TError = void>(
+ params?: CatalogDatasetListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDatasetList>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCatalogDatasetListQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

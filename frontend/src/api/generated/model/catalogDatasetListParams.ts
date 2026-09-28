@@ -5,9 +5,8 @@
  * Internal API for the Geo Portal SPA. Read-only over the knowledge base.
  * OpenAPI spec version: 0.1.0
  */
-import type { CatalogAssetListSort } from './catalogAssetListSort';
 
-export type CatalogAssetListParams = {
+export type CatalogDatasetListParams = {
 /**
  * Restrict to assets whose coverage overlaps this drawn polygon: WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing itself.
  * @minLength 1
@@ -18,17 +17,6 @@ area?: string;
  * @minLength 1
  */
 bbox?: string;
-/**
- * Repeatable. Omitted means every data type.
- * @items.minLength 1
- * @items.maxLength 100
- */
-data_type?: string[];
-/**
- * Only assets in this dataset, matched exactly. Omitted means every dataset.
- * @maxLength 200
- */
-dataset?: string;
 /**
  * Ingested at or after this moment.
  */
@@ -44,34 +32,14 @@ ingested_before?: string;
  */
 lat?: number;
 /**
- * @minimum 1
- * @maximum 200
- */
-limit?: number;
-/**
  * Restrict to assets covering this point: longitude, WGS 84. Sent with `lat`.
  * @minimum -180
  * @maximum 180
  */
 lon?: number;
 /**
- * @minimum 0
- */
-offset?: number;
-/**
- * Case-insensitive, literal substring of the asset's catalog text: its file name, dataset and dataset label, topic, format, data type, summary, layer names, vector column names and raster tag values.
+ * Case-insensitive, literal substring of the dataset's name or its readable label. Its files' metadata is not searched.
  * @maxLength 200
  */
 q?: string;
-/**
- * A leading minus reverses the order.
- *
- * * `-ingested_at` - -ingested_at
- * * `-name` - -name
- * * `data_type` - data_type
- * * `ingested_at` - ingested_at
- * * `name` - name
- * @minLength 1
- */
-sort?: CatalogAssetListSort;
 };

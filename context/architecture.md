@@ -173,13 +173,19 @@ geo-portal/
 1. **Ask:** user message → `POST /api/chat/sessions/{id}/messages/` → agent
    loop calls tools (pgvector / DuckDB / STAC) → tokens stream back via SSE
    → completed message + tool trace + citations persist in `portal`.
-2. **Map:** a click, or a coordinate or place typed into the search box →
-   `GET /api/map/assets?lon=&lat=` (from `kb`) → the assets covering that
-   point, and `GET /api/map/assets/{id}` for one asset's metadata and
-   footprint. A question scoped to a drawn area runs flow 1 with the
-   geometry attached; any vector layer in the answer returns as GeoJSON.
-3. **Assets:** filters → `GET /api/catalog/assets` (from `kb`) → one page
-   of rows, the total behind it, and a count per data type. Names are
+2. **Map:** a click, a coordinate or place typed into the search box, or a
+   drawn area → `GET /api/catalog/datasets?lon=&lat=` (or `?area=`) → the
+   datasets there; opening one → `GET /api/catalog/assets?lon=&lat=&dataset=`
+   → its assets there; selecting one → `GET /api/map/assets/{id}` for its
+   metadata and footprint. The map asks the catalog the same question the
+   Assets page does, with a point or a polygon for a place (docs/adr/016).
+   A question scoped to a drawn area runs flow 1 with the geometry
+   attached; any vector layer in the answer returns as GeoJSON.
+3. **Assets:** filters → `GET /api/catalog/datasets` (from `kb`) → the
+   datasets, each with its counts; opening one, or browsing every asset →
+   `GET /api/catalog/assets` → one page of rows, the total behind it, and a
+   count per data type. `q` matches each asset's catalog text — names,
+   dataset, topic, column names, tag values (docs/adr/016). Names are
    derived from each asset's source path; every ordering breaks ties on
    `asset_id`, because a whole ingestion run shares one timestamp
    (docs/adr/010). Following an asset goes to `/map?asset=<id>`, and the

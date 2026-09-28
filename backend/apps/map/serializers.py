@@ -2,7 +2,7 @@ from django.conf import settings
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from apps.catalog.serializers import BboxField
+from apps.catalog.serializers import AreaField, BboxField
 
 # A GeoJSON Feature as the contract describes it (RFC 7946). `geometry` stays a
 # free-form object because GeoJSON allows seven geometry types and a null, and
@@ -39,38 +39,17 @@ class FeatureListField(serializers.ListField):
     """
 
 
-class AssetSummarySerializer(serializers.Serializer):
-    """One asset as it appears in a point-click list."""
-
-    asset_id = serializers.UUIDField(read_only=True)
-    source_uri = serializers.CharField(read_only=True)
-    format = serializers.CharField(read_only=True, allow_null=True)
-    summary = serializers.CharField(read_only=True, allow_null=True)
-    time_start = serializers.DateTimeField(read_only=True, allow_null=True)
-    time_end = serializers.DateTimeField(read_only=True, allow_null=True)
-
-
-class AssetGroupSerializer(serializers.Serializer):
-    """Assets sharing a data type.
-
-    The data type is whatever the knowledge base classifies the asset as; the
-    portal neither defines nor translates the list (specs/map.md).
-    """
-
-    data_type = serializers.CharField(read_only=True)
-    assets = AssetSummarySerializer(many=True, read_only=True)
-
-
-class AssetsAtPointSerializer(serializers.Serializer):
-    """The whole answer to a point click. No coverage means no groups."""
-
-    groups = AssetGroupSerializer(many=True, read_only=True)
-
-
 class AssetDetailSerializer(serializers.Serializer):
     """One asset's dynamic metadata and its footprint."""
 
     asset_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Derived from the asset's source path, extension removed — the same "
+            "name the catalog list shows (docs/adr/010)."
+        ),
+    )
     data_type = serializers.CharField(read_only=True)
     metadata = serializers.DictField(
         read_only=True,
@@ -88,11 +67,12 @@ class AssetDetailSerializer(serializers.Serializer):
 class AssetDataQuerySerializer(serializers.Serializer):
     """What a caller may ask for when reading an asset's features.
 
-    `bbox` is the area to read, not the viewport as such: the server does not
-    care whether the client got it from the map's camera or from an area the
-    user drew. `BboxField` is the catalog's, so one `bbox` means one thing
-    across the API and a link the browser accepted is not one the server
-    rejects (docs/adr/011).
+    `bbox` is a rectangle to read, and the map sends its padded viewport as
+    one. `area` is a drawn polygon, read exactly, and replaces `bbox` rather
+    than joining it — the two are two answers to "where", and sending both is
+    refused rather than guessed at. `BboxField` and `AreaField` are the
+    catalog's, so each means one thing across the API (docs/adr/011,
+    docs/adr/014).
     """
 
     bbox = BboxField(
@@ -102,6 +82,14 @@ class AssetDataQuerySerializer(serializers.Serializer):
             "min_lon,min_lat,max_lon,max_lat, SRID 4326. Matching is on "
             "bounding boxes, so a feature just outside the area may be "
             "included. Without it the whole file is in scope."
+        ),
+    )
+    area = AreaField(
+        required=False,
+        help_text=(
+            "Read only the features that intersect this drawn polygon: WKT, "
+            "POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not "
+            "crossing itself. Matching is exact. Sent instead of bbox."
         ),
     )
     cursor = serializers.IntegerField(
@@ -119,6 +107,11 @@ class AssetDataQuerySerializer(serializers.Serializer):
         # Bounded against the setting rather than a literal so the ceiling is
         # configured in one place.
         return min(value, settings.LAKE_PAGE_SIZE)
+
+    def validate(self, attrs):
+        if "bbox" in attrs and "area" in attrs:
+            raise serializers.ValidationError("Send a bbox or an area, not both.")
+        return attrs
 
 
 class AssetDataSerializer(serializers.Serializer):

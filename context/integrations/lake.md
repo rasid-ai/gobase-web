@@ -26,7 +26,7 @@ Seven settings, all from the environment, all defaulted:
 | `LAKE_S3_URL_STYLE` | `path` | `vhost` |
 | `LAKE_S3_USE_SSL` | `false` locally | `true` |
 | `LAKE_S3_ACCESS_KEY` / `LAKE_S3_SECRET_KEY` | set | set, or **blank** |
-| `LAKE_PAGE_SIZE` | 5000 | 5000 |
+| `LAKE_PAGE_SIZE` | 10000 | 10000 |
 
 No provider is named anywhere in the code. Moving between RustFS and AWS is an
 `.env` edit and a restart.
@@ -63,7 +63,7 @@ mistake (context/integrations/kb.md).
 
 ## Reading
 
-`read_vector_features(uri, limit=, bbox=, cursor=)` runs one query. Both
+`read_vector_features(uri, limit=, bbox=, area=, cursor=)` runs one query. Both
 filters are optional; with neither, the whole file is in scope:
 
 ```sql
@@ -71,7 +71,10 @@ SELECT ST_AsGeoJSON(<geometry>) AS __geometry__,
        file_row_number          AS __cursor__,
        * EXCLUDE (<geometry>, file_row_number)
 FROM   read_parquet(?, file_row_number = true)
-WHERE  ST_Intersects_Extent(<geometry>, ST_MakeEnvelope(?, ?, ?, ?))  -- with bbox
+WHERE  bbox.xmin <= ? AND bbox.xmax >= ?                        -- with bbox, if
+   AND  bbox.ymin <= ? AND bbox.ymax >= ?                        -- the file has one
+   AND  ST_Intersects_Extent(<geometry>, ST_MakeEnvelope(?, ?, ?, ?))  -- with bbox, or
+   AND  ST_Intersects(<geometry>, ST_GeomFromText(?))                   -- with an area
   AND  file_row_number > ?                                      -- with cursor
 ORDER BY file_row_number
 LIMIT  <limit + 1>
@@ -95,24 +98,66 @@ never under-inclusive: a feature whose box overlaps the area but whose geometry
 does not comes back as well. Free for drawing — it lands off screen — but
 anything that counts or answers from this endpoint has to know.
 
-**There is no row-group pruning on the area filter.** These files carry no
-GeoParquet 1.1 bbox covering column, so every row is looked at whatever the
-window is. The filter saves serialisation and transfer, not I/O, and there is a
-floor under every area query no matter how small the area.
+## A drawn area
 
-Measured against `lebanon_buildings_full.parquet` — **1,012,407 features**, the
-largest in the catalog, over local RustFS:
+A drawn polygon reaches the reader as two things: its envelope, passed as
+`bbox`, and the polygon itself as WKT, passed as `area`. The envelope does
+the pruning through the covering column, exactly as a window's does; the
+polygon then replaces `ST_Intersects_Extent` as the final test, and is
+**exact**. `area` without its envelope is refused with a `ValueError`,
+because nothing would prune and every read would be a whole-file scan.
 
-| window | `ST_Intersects` | `ST_Intersects_Extent` |
+Exact because the outline is on screen. Over a Beirut-sized polygon the
+loose box test returns 30,586 buildings where 25,858 lie inside — 15% of
+them outside the line the user drew, which reads as a bug. The cost is
+nothing that matters: with the envelope pruning it the exact test takes
+56 ms; without the prune the same query is 371 ms. Through the shipped
+reader, the first page of a drawn area was 249 ms against 318 ms for its
+envelope as a plain `bbox`.
+
+The WKT is validated by `AreaField` (backend/apps/catalog/serializers.py)
+before it reaches DuckDB, and that validation is load-bearing: DuckDB, like
+PostGIS, answers a self-intersecting polygon silently with a wrong count
+rather than raising.
+
+## The covering bbox column
+
+Silver writes a `bbox STRUCT(xmin, ymin, xmax, ymax)` column beside the
+geometry — one box per feature, the GeoParquet 1.1 "covering" column — with
+rows in Hilbert order and row groups of 25,000. `bbox` is not the file's data.
+It is derived from the geometry, it exists for readers to prune with, and it is
+excluded from the properties so it never reaches the map.
+
+**The query has to name it.** DuckDB 1.5.5 does not derive a range test from
+`ST_Intersects` or `ST_Intersects_Extent`, so without the explicit
+`bbox.xmin <= ? AND …` condition the covering column buys nothing and every row
+of the file is read off the object store to answer any area query. With it,
+DuckDB checks each row group's min/max statistics and skips the groups that
+miss, before reading any geometry.
+
+`gobase/cli/export.py` — `is_covering_bbox()` and `bbox_filter()` — is the
+other half of this agreement. Both repos hardcode the name `bbox` and the
+`STRUCT(XMIN…` type test; they must not drift.
+
+**A file without the column still reads**, it just reads all of itself to
+answer an area query. That is a defect in what wrote the file, not a failure to
+raise, so the reader logs a warning once per URI and carries on. Breaking the
+map over it would be worse than the thing being reported. As of the 2026-09-24
+silver rewrite all 12 active vector assets carry the column, so the warning
+firing at all means something upstream has regressed.
+
+Measured through `read_vector_features` over a million features, same rows
+either way:
+
+| window | no covering column | with it |
 | --- | --- | --- |
-| whole country | 1730 ms | 1413 ms |
-| a city | 589 ms | 428 ms |
-| a street | 566 ms | 338 ms |
+| a city | 392 ms | 71 ms |
+| a street | 300 ms | 22 ms |
 
-Same rows from both, and the exact predicate costs 18-40% more, which is why
-the extent test is the one in the query. The ~340ms floor at street zoom is the
-scan itself. Reading the whole file is 27 s, which is what the area filter is
-for. This is the ceiling on the approach (docs/adr/012).
+The exact `ST_Intersects` predicate was also measured, at 18-40% slower than
+`ST_Intersects_Extent` for identical rows on the real layers, which is why the
+extent test is the one in the query. Reading `lebanon_buildings_full.parquet`
+whole is 27 s, which is what the area filter is for (docs/adr/013).
 
 **The geometry column reads back as `GEOMETRY`, not `BLOB`.** DuckDB's spatial
 extension types it from the file's `geo` metadata, which is why `ST_Intersects`
@@ -121,9 +166,33 @@ metadata comes back as `BLOB`, and there is no `BLOB -> GEOMETRY` cast — it
 would need `ST_GeomFromWKB`. `parquet_schema` reports `BYTE_ARRAY` for both, so
 it cannot tell them apart; `typeof()` on a read can.
 
-Every non-geometry column becomes a GeoJSON `properties` key. Types are not
-known ahead of time — the columns differ per file — so values JSON cannot hold
-(timestamps, decimals, UUIDs) are coerced to strings.
+## The page is written by DuckDB
+
+`read_vector_features` returns `features_json` — the page's GeoJSON array as
+text, built inside the query with `ST_AsGeoJSON`, `to_json` and `string_agg`
+— and the view writes it into the response unparsed (docs/adr/015). No feature
+becomes a Python object. The old path parsed every geometry DuckDB had already
+written as JSON back into Python, built a dict per feature, and serialised it
+all again: 731–946 ms for 10,000 buildings, against 188 ms now.
+
+Every column but the geometry, `file_row_number` and the covering `bbox`
+becomes a `properties` key. `to_json` decides how a value is written:
+timestamps and dates as text (`2020-09-04 11:58:40+00` for a zoned one),
+decimals as numbers, UUIDs as text. Two cases are handled by hand, because the
+output has to be JSON a browser accepts:
+
+- **NaN and infinity become `null`.** `to_json` writes them bare, and one bare
+  `NaN` makes the browser reject the whole page.
+- **A file with no attribute columns gets `{}`.** DuckDB refuses to pack an
+  empty struct.
+
+**This also fixed two assets that could not be read at all.**
+`boundaries/lebanon.parquet` and `healt_sites/lebanon_hxl.parquet` carry a
+`TIMESTAMP WITH TIME ZONE` column. Turning one into a Python `datetime` needs
+`pytz`, which the backend does not install, so the old reader crashed with
+"Required module 'pytz' failed to import". A value that stays inside DuckDB
+never needs it. Note that `DESCRIBE` on those files always worked — it reads no
+values — so a check that only describes a file will not catch this.
 
 ## Failures
 
