@@ -39,7 +39,7 @@ export function SignInPage() {
       const response = await authLoginCreate(values)
       if (response.status !== 200) return failed()
       await signIn(response.data.access)
-      navigate('/', { replace: true })
+      navigate('/map', { replace: true })
     } catch {
       failed()
     }

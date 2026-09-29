@@ -11,18 +11,29 @@ Pre-auth, outside the shell:
 - **Sign in** (`/signin`) — credentials form; success lands on the Map
   workspace.
 
-Two routes inside the shell (persistent sidebar layout):
+Three routes inside the shell (persistent sidebar layout). Each path means
+one thing to everyone; `/` belongs to the landing page and sends a
+signed-in visitor to the map (docs/adr/009):
 
-- **Map** (`/`) — the main workspace. The map fills the page; the chat is
-  a docked, collapsible side panel on the same screen. The panel holds the
-  session list and the active conversation. Vector layers from answers
-  render on this map (toggleable per layer); clicking a point opens the
-  covering-assets list grouped by data type; the rectangle tool scopes the
-  next question to the drawn area.
-- **Runs** (`/runs`) — run list (TanStack Table, newest first) with a
-  manual refresh control; selecting a run opens its per-step detail. The
-  trigger action renders only for Admin and always behind a Radix confirm
-  dialog.
+- **Atlas** (`/map`) — the main workspace. The map fills the page; the
+  chat is a docked, collapsible side panel on the same screen. The panel
+  holds the session list and the active conversation. Vector layers from
+  answers render on this map (toggleable per layer); clicking a point or
+  drawing a polygon opens a panel of the datasets there, then the files of
+  one, then a file's detail, which expands to show structured metadata as
+  tables. A drawn polygon also scopes drawn layers to it. Asking a question
+  of a drawn area is not built yet (specs/map.md).
+- **Assets** (`/assets`) — the catalog, browsable, by dataset or as every
+  asset at once. A filter rail on the left, a card per dataset or per asset
+  on the right. Data types come from the API with their counts; the page
+  holds no list of its own and gives no type a colour the others do not
+  get. Each asset card links to `/map?asset=<id>`.
+- **Data Governance** (`/runs`) — run list, newest first, with a manual
+  refresh control; selecting a run expands it in place to its per-step
+  detail.
+  Not a data grid: the pipeline runs weekly, so the list is one or two
+  rows and a table's machinery would earn nothing. The trigger action
+  renders only for Admin and always behind a Radix confirm dialog.
 
 ## Conventions
 

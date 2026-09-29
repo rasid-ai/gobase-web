@@ -3,7 +3,7 @@
  *
  * Never localStorage, never sessionStorage, never a readable cookie. A page
  * reload is meant to lose it; the httpOnly refresh cookie is what restores
- * the session (HLR-002).
+ * the session.
  */
 
 let accessToken: string | null = null
@@ -19,7 +19,7 @@ export function setAccessToken(token: string | null): void {
   accessToken = token
 }
 
-/** Called when the session can no longer be renewed (HLR-004). */
+/** Called when the session can no longer be renewed. */
 export function onSessionEnded(listener: Listener): () => void {
   sessionEndedListeners.add(listener)
   return () => sessionEndedListeners.delete(listener)

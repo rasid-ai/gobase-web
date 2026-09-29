@@ -13,7 +13,7 @@ class UserProfile(models.Model):
 
     One-to-one onto the stock Django user so roles are managed from stock
     Django admin. A user with no profile row reads as Viewer — see
-    `resolve_role`; that fallback is HLR-008 and belongs there, not here.
+    `resolve_role`; that fallback belongs there, not here.
     """
 
     user = models.OneToOneField(

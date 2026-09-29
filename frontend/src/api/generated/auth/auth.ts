@@ -81,7 +81,7 @@ export const getAuthChangePasswordCreateUrl = () => {
 }
 
 /**
- * Change the signed-in user's password (HLR-007).
+ * Change the signed-in user's password.
  * @summary Change password
  */
 export const authChangePasswordCreate = async (changePasswordRequest: ChangePasswordRequest, options?: Parameters<typeof httpClient>[1]): Promise<authChangePasswordCreateResponse> => {
@@ -180,7 +180,7 @@ export const getAuthLoginCreateUrl = () => {
 }
 
 /**
- * Exchange credentials for a session (HLR-002).
+ * Exchange credentials for a session.
  * @summary Sign in
  */
 export const authLoginCreate = async (loginRequest: LoginRequest, options?: Parameters<typeof httpClient>[1]): Promise<authLoginCreateResponse> => {
@@ -358,7 +358,7 @@ export const getAuthMeRetrieveUrl = () => {
 }
 
 /**
- * Identity and role for the signed-in user (HLR-005, HLR-008).
+ * Identity and role for the signed-in user.
  * @summary Current user
  */
 export const authMeRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<authMeRetrieveResponse> => {
@@ -478,7 +478,7 @@ export const getAuthRefreshCreateUrl = () => {
 }
 
 /**
- * Renew the session from the refresh cookie (HLR-003).
+ * Renew the session from the refresh cookie.
  *
  * The token comes from the cookie, never the request body — the SPA has no
  * way to read it, which is the point.

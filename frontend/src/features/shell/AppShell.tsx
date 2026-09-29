@@ -1,82 +1,78 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Moon, Sun } from 'lucide-react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import { useAuth } from '@/app/auth/useAuth'
+import { PageBoundary } from '@/components/PageBoundary'
 import { PortalWordmark } from '@/components/PortalWordmark'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+import { useThemeToggle } from './useThemeToggle'
+
 /**
- * Placeholder shell for the authenticated routes.
- *
- * The real persistent sidebar, theme toggle, and the Map/Runs screens belong
- * to their own slices (context/ui-rules.md); this exists so sign-in has
- * somewhere to land and so the route guard is exercised end to end.
+ * Frame for the authenticated routes: wordmark, the three pages, identity, and
+ * the theme toggle that context/ui-rules.md puts inside the shell.
  */
 export function AppShell() {
   const { user, signOut } = useAuth()
+  const { theme, toggle } = useThemeToggle()
+  const { pathname } = useLocation()
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="flex h-screen flex-col bg-background text-foreground">
       <header className="flex items-center gap-6 border-b border-border px-10 py-[18px]">
         <PortalWordmark />
         <nav className="flex items-center gap-1">
-          <ShellLink to="/">Map</ShellLink>
-          <ShellLink to="/runs">Runs</ShellLink>
+          <ShellLink to="/map">Atlas</ShellLink>
+          <ShellLink to="/assets">Assets</ShellLink>
+          <ShellLink to="/runs">Data Governance</ShellLink>
         </nav>
         <span className="flex-1" />
         <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
           {user?.username} · {user?.role}
         </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggle}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </Button>
         <Button variant="outline" size="sm" onClick={signOut}>
           Sign out
         </Button>
       </header>
-      <main className="flex-1 p-10">
-        <Outlet />
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        {/*
+          Keyed by path: a page that failed is replaced by a fresh boundary
+          the moment you go elsewhere, so no reload is needed to recover.
+        */}
+        <PageBoundary key={pathname}>
+          <Outlet />
+        </PageBoundary>
       </main>
     </div>
   )
 }
 
 function ShellLink({ to, children }: { to: string; children: string }) {
+  const { pathname } = useLocation()
+  // Every page owns its whole subtree, so a nested route keeps its section
+  // highlighted. No path is a prefix of another (docs/adr/009), which is what
+  // lets this be one rule rather than a special case for the root.
+  const isActive = pathname.startsWith(to)
+
   return (
     <NavLink
       to={to}
-      end
-      className={({ isActive }) =>
-        cn(
-          'rounded-md px-3 py-1.5 text-sm',
-          isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-        )
-      }
+      className={cn(
+        'rounded-md px-3 py-1.5 text-sm',
+        isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+      )}
     >
       {children}
     </NavLink>
-  )
-}
-
-/** Stand-ins until the Map and Runs slices land. */
-export function MapPlaceholder() {
-  return <PlaceholderScreen name="Map workspace" />
-}
-
-export function RunsPlaceholder() {
-  return <PlaceholderScreen name="Runs" />
-}
-
-function PlaceholderScreen({ name }: { name: string }) {
-  return (
-    <div className="rounded-lg border border-border p-10">
-      <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
-        Placeholder
-      </p>
-      <h1 className="text-2xl font-semibold">{name}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        This screen arrives with its own slice. You are signed in.
-      </p>
-      <Link to="/" className="mt-4 inline-block text-sm text-primary hover:underline">
-        Back to the workspace
-      </Link>
-    </div>
   )
 }

@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from '@/app/auth/AuthProvider'
 import { AppRoutes } from '@/app/routes'
 import { startSystemTheme } from '@/app/theme'
+import { ToastProvider } from '@/components/ui/toast'
 
 export function App() {
   const [queryClient] = useState(
@@ -23,7 +24,10 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <AppRoutes />
+          {/* Above the routes so any page can raise a transient failure. */}
+          <ToastProvider>
+            <AppRoutes />
+          </ToastProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

@@ -1,0 +1,25 @@
+# Repo-level ignores. backend/ and frontend/ keep their own for the noise
+# their toolchains make; this file covers the root and anything that would
+# leak a secret from either half.
+
+# Real environment files. `.env.example` is committed on purpose — it names
+# every key without valuing any of them (CLAUDE.md).
+.env
+.env.*
+!.env.example
+
+# Tool caches that land wherever the command was run from.
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+__pycache__/
+
+# Editors and OS.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local scratch: logs, coverage, anything a run drops at the root.
+*.log

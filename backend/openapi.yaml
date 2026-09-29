@@ -7,7 +7,7 @@ paths:
   /api/auth/change-password:
     post:
       operationId: auth_change_password_create
-      description: Change the signed-in user's password (HLR-007).
+      description: Change the signed-in user's password.
       summary: Change password
       tags:
       - auth
@@ -33,7 +33,7 @@ paths:
   /api/auth/login:
     post:
       operationId: auth_login_create
-      description: Exchange credentials for a session (HLR-002).
+      description: Exchange credentials for a session.
       summary: Sign in
       tags:
       - auth
@@ -75,7 +75,7 @@ paths:
   /api/auth/me:
     get:
       operationId: auth_me_retrieve
-      description: Identity and role for the signed-in user (HLR-005, HLR-008).
+      description: Identity and role for the signed-in user.
       summary: Current user
       tags:
       - auth
@@ -92,7 +92,7 @@ paths:
     post:
       operationId: auth_refresh_create
       description: |-
-        Renew the session from the refresh cookie (HLR-003).
+        Renew the session from the refresh cookie.
 
         The token comes from the cookie, never the request body — the SPA has no
         way to read it, which is the point.
@@ -110,6 +110,503 @@ paths:
           description: ''
         '401':
           description: Missing, expired, or revoked refresh credential.
+  /api/catalog/assets:
+    get:
+      operationId: catalog_asset_list
+      description: |-
+        One page of the catalog, filtered and sorted.
+
+        Both pages browse through here. The Assets page narrows it to a searched
+        place, and the map's panel to a clicked point or a drawn area — one
+        question with three geometries, and one answer to it, so the search, the
+        datasets and the counts cannot differ between the two (docs/adr/016).
+      summary: Browse the asset catalog
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this drawn polygon:
+          WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself.'
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
+          SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: data_type
+        schema:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+        description: Repeatable. Omitted means every data type.
+      - in: query
+        name: dataset
+        schema:
+          type: string
+          maxLength: 200
+        description: Only assets in this dataset, matched exactly. Omitted means every
+          dataset.
+      - in: query
+        name: ingested_after
+        schema:
+          type: string
+          format: date-time
+        description: Ingested at or after this moment.
+      - in: query
+        name: ingested_before
+        schema:
+          type: string
+          format: date-time
+        description: Ingested strictly before this moment.
+      - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        description: Latitude of the point, WGS 84. Sent with `lon`.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        description: 'Restrict to assets covering this point: longitude, WGS 84. Sent
+          with `lat`.'
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 200
+        description: 'Case-insensitive, literal substring of the asset''s catalog
+          text: its file name, dataset and dataset label, topic, format, data type,
+          summary, layer names, vector column names and raster tag values.'
+      - in: query
+        name: sort
+        schema:
+          enum:
+          - -ingested_at
+          - -name
+          - data_type
+          - ingested_at
+          - name
+          type: string
+          default: -ingested_at
+          minLength: 1
+        description: |-
+          A leading minus reverses the order.
+
+          * `-ingested_at` - -ingested_at
+          * `-name` - -name
+          * `data_type` - data_type
+          * `ingested_at` - ingested_at
+          * `name` - name
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetList'
+          description: ''
+        '400':
+          description: A filter that cannot be read, half a point, or more than one
+            place.
+  /api/catalog/datasets:
+    get:
+      operationId: catalog_dataset_list
+      description: |-
+        The datasets holding matching assets, and how many of each type.
+
+        The first step of browsing by dataset, on both pages: pick one here, then
+        list its assets with `dataset=` on the asset list, sending the same place
+        and window so the count shown here is the count found there.
+      summary: Datasets in the catalog
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this drawn polygon:
+          WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself.'
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
+          SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: ingested_after
+        schema:
+          type: string
+          format: date-time
+        description: Ingested at or after this moment.
+      - in: query
+        name: ingested_before
+        schema:
+          type: string
+          format: date-time
+        description: Ingested strictly before this moment.
+      - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        description: Latitude of the point, WGS 84. Sent with `lon`.
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        description: 'Restrict to assets covering this point: longitude, WGS 84. Sent
+          with `lat`.'
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 200
+        description: Case-insensitive, literal substring of the dataset's name or
+          its readable label. Its files' metadata is not searched.
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetList'
+          description: ''
+        '400':
+          description: A filter that cannot be read, half a point, or more than one
+            place.
+  /api/health/:
+    get:
+      operationId: health_retrieve
+      description: Report whether this container can serve requests against `portal`.
+      summary: Health check
+      tags:
+      - health
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+        '503':
+          description: The portal database is unreachable.
+  /api/map/assets/{asset_id}:
+    get:
+      operationId: map_asset_detail
+      description: One asset's metadata and footprint.
+      summary: Asset metadata and footprint
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetDetail'
+          description: ''
+        '404':
+          description: No active asset with that id.
+  /api/map/assets/{asset_id}/data:
+    get:
+      operationId: map_asset_data
+      description: |-
+        One vector asset's features, read from the lake.
+
+        Vector only, and the endpoint says so rather than inferring it: `assets`
+        holds every modality and the lake read only makes sense for GeoParquet
+        (docs/adr/008). Other modalities get their own endpoints.
+
+        The one endpoint that writes its own body instead of going through DRF's
+        renderer, and the one that is compressed and cached (docs/adr/015). A page
+        is megabytes of GeoJSON that DuckDB has already written, so rendering it
+        again would only parse and re-serialise it. `AssetDataSerializer` still
+        declares its shape to the contract.
+
+        Compressed here, not site-wide: Django's middleware also compresses
+        streaming responses, which would hold back the server-sent events the Ask
+        slice will use, and compressing only this keeps it away from any response
+        that carries a secret (BREACH). See `_compressed` for why not Django's own
+        `gzip_page` either.
+      summary: Vector asset features
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Read only the features that intersect this drawn polygon: WKT,
+          POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself. Matching is exact. Sent instead of bbox.'
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Read only the features whose bounding box overlaps this area:
+          min_lon,min_lat,max_lon,max_lat, SRID 4326. Matching is on bounding boxes,
+          so a feature just outside the area may be included. Without it the whole
+          file is in scope.'
+      - in: query
+        name: cursor
+        schema:
+          type: integer
+          minimum: 0
+        description: The `next_cursor` of the previous page.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+        description: Features per page. Defaults to, and is capped at, the server's
+          page size.
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetData'
+          description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held. A browser handles this itself and hands the client its cached
+            200.
+        '400':
+          description: An unreadable bbox, area, cursor or limit, or both bbox and
+            area.
+        '404':
+          description: No active vector asset with that id.
+        '502':
+          description: The file could not be read.
+        '503':
+          description: The lake could not be reached.
+  /api/places/search:
+    get:
+      operationId: places_search
+      description: Find places by name or address.
+      summary: Search for a place by name or address
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description: A place name or address, as one line.
+        required: true
+      tags:
+      - places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceSearch'
+          description: ''
+        '400':
+          description: Missing or empty search text.
+        '502':
+          description: The geocoder returned an error.
+        '503':
+          description: The geocoder is unreachable, or no API key is set.
+  /api/runs/:
+    get:
+      operationId: runs_list
+      description: List pipeline runs, newest first.
+      summary: Pipeline runs
+      parameters:
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: The previous page's next_cursor.
+      - in: query
+        name: job
+        schema:
+          type: string
+        description: Filter to one job name.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Page size, 1-100. Defaults to 25.
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Comma-separated run statuses, e.g. SUCCESS,FAILURE.
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunList'
+          description: ''
+        '400':
+          description: Unknown run status, or a bad limit.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
+  /api/runs/{run_id}:
+    get:
+      operationId: runs_detail
+      description: One run, with its per-step breakdown.
+      summary: Run detail and steps
+      parameters:
+      - in: path
+        name: run_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDetail'
+          description: ''
+        '404':
+          description: No run with that id.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
+  /api/runs/{run_id}/logs:
+    get:
+      operationId: runs_logs
+      description: A page of one run's event log.
+      summary: Run event log
+      parameters:
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: The previous page's next_cursor.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Page size, 1-1000. Defaults to 200.
+      - in: path
+        name: run_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunLogs'
+          description: ''
+        '400':
+          description: Bad limit.
+        '404':
+          description: No run with that id.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
+  /api/runs/trigger:
+    post:
+      operationId: runs_trigger
+      description: Start one run of the configured job. Admin only.
+      summary: Launch a pipeline run
+      tags:
+      - runs
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LaunchedRun'
+          description: ''
+        '403':
+          description: Viewers may not launch runs.
+        '409':
+          description: A run is already in progress.
+        '502':
+          description: Dagster returned an error.
+        '503':
+          description: Dagster is unreachable.
 components:
   schemas:
     AccessToken:
@@ -125,6 +622,204 @@ components:
           readOnly: true
       required:
       - access
+    AssetData:
+      type: object
+      description: |-
+        A vector asset's features, read from the lake.
+
+        There is no serializer for a feature: its properties are whatever columns
+        the GeoParquet file holds, and they differ per file. The shape is declared
+        to the contract instead, by `FeatureListField`, so the generated client
+        still gets a typed array rather than `unknown[]`.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        count:
+          type: integer
+          readOnly: true
+          description: How many features are in this response.
+        next_cursor:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: Pass back as `cursor` for the next page of this area. Null
+            when this page is the last.
+        features:
+          type: array
+          items:
+            type: object
+            title: Feature
+            properties:
+              type:
+                type: string
+                enum:
+                - Feature
+              geometry:
+                type: object
+                nullable: true
+                additionalProperties: true
+                description: A GeoJSON geometry, SRID 4326.
+              properties:
+                type: object
+                additionalProperties: true
+                description: The file's non-geometry columns.
+            required:
+            - type
+            - geometry
+            - properties
+          readOnly: true
+          description: GeoJSON Features, SRID 4326.
+      required:
+      - asset_id
+      - count
+      - features
+      - next_cursor
+    AssetDetail:
+      type: object
+      description: One asset's dynamic metadata and its footprint.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed — the
+            same name the catalog list shows (docs/adr/010).
+        data_type:
+          type: string
+          readOnly: true
+        metadata:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+          description: Whatever the catalog holds for this asset. The key set is not
+            fixed and differs by data type.
+        footprint:
+          readOnly: true
+          description: The asset's coverage as a GeoJSON geometry, SRID 4326.
+      required:
+      - asset_id
+      - data_type
+      - footprint
+      - metadata
+      - name
+    AssetList:
+      type: object
+      description: One page of the catalog.
+      properties:
+        count:
+          type: integer
+          readOnly: true
+          description: How many assets match, ignoring limit and offset.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetListItem'
+          readOnly: true
+        data_type_counts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataTypeCount'
+          readOnly: true
+          description: Counts per data type for the current filters, ignoring the
+            data_type selection itself.
+      required:
+      - count
+      - data_type_counts
+      - results
+    AssetListItem:
+      type: object
+      description: |-
+        One asset as the catalog browse list shows it.
+
+        Every field is declared, unlike the map's asset detail: a list shows the
+        same columns for every row, so a value the catalog does not hold is null
+        rather than a missing key.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed. The
+            catalog has no name column (docs/adr/010).
+        data_type:
+          type: string
+          readOnly: true
+        format:
+          type: string
+          readOnly: true
+          nullable: true
+        dataset:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name as the catalog holds it: a folder of the
+            raw bucket.'
+        dataset_label:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name made readable: spaced and in sentence
+            case.'
+        topic_path:
+          type: string
+          readOnly: true
+          nullable: true
+        bytes:
+          type: integer
+          readOnly: true
+          nullable: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The asset's coverage as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326. Null when the asset has no coverage.
+          maxItems: 4
+          minItems: 4
+        summary:
+          type: string
+          readOnly: true
+          nullable: true
+        time_start:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        time_end:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ingested_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - asset_id
+      - bbox
+      - bytes
+      - data_type
+      - dataset
+      - dataset_label
+      - format
+      - ingested_at
+      - name
+      - summary
+      - time_end
+      - time_start
+      - topic_path
     ChangePasswordRequest:
       type: object
       properties:
@@ -139,6 +834,137 @@ components:
       required:
       - current_password
       - new_password
+    DataTypeCount:
+      type: object
+      description: |-
+        How many assets carry one data type.
+
+        The data types come from the knowledge base; the portal neither defines nor
+        translates the list (specs/map.md).
+      properties:
+        data_type:
+          type: string
+          readOnly: true
+        count:
+          type: integer
+          readOnly: true
+      required:
+      - count
+      - data_type
+    Dataset:
+      type: object
+      description: One dataset and what is in it, within the caller's place and window.
+      properties:
+        dataset:
+          type: string
+          readOnly: true
+          description: The name as the catalog holds it. Send it back as the asset
+            list's `dataset`.
+        label:
+          type: string
+          readOnly: true
+          description: 'The name made readable: spaced and in sentence case.'
+        count:
+          type: integer
+          readOnly: true
+          description: How many assets match in it.
+        data_type_counts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataTypeCount'
+          readOnly: true
+      required:
+      - count
+      - data_type_counts
+      - dataset
+      - label
+    DatasetList:
+      type: object
+      description: Every dataset holding at least one matching asset, ordered by label.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dataset'
+          readOnly: true
+      required:
+      - results
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          readOnly: true
+      required:
+      - status
+    KindEnum:
+      enum:
+      - schedule
+      - sensor
+      - manual
+      type: string
+      description: |-
+        * `schedule` - schedule
+        * `sensor` - sensor
+        * `manual` - manual
+    LaunchedRun:
+      type: object
+      description: The run a trigger started.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - status
+    LogError:
+      type: object
+      properties:
+        message:
+          type: string
+          readOnly: true
+        stack:
+          type: array
+          items:
+            type: string
+          readOnly: true
+      required:
+      - message
+      - stack
+    LogEvent:
+      type: object
+      description: One line of a run's event log.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        level:
+          type: string
+          readOnly: true
+          nullable: true
+        step_key:
+          type: string
+          readOnly: true
+          nullable: true
+        message:
+          type: string
+          readOnly: true
+        error:
+          allOf:
+          - $ref: '#/components/schemas/LogError'
+          readOnly: true
+          nullable: true
+      required:
+      - error
+      - level
+      - message
+      - step_key
+      - timestamp
     LoginRequest:
       type: object
       properties:
@@ -166,6 +992,51 @@ components:
       required:
       - role
       - username
+    Place:
+      type: object
+      description: One candidate place. Nothing here names a vendor.
+      properties:
+        name:
+          type: string
+          readOnly: true
+          description: The place as a single line, for example 'Beirut, Lebanon'.
+        lat:
+          type: number
+          format: double
+          readOnly: true
+        lon:
+          type: number
+          format: double
+          readOnly: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The place's extent as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326 — the same shape as an asset's bbox, so the two can be compared
+            without reordering. Null when the geocoder returned no extent, or one
+            that crosses the antimeridian.
+          maxItems: 4
+          minItems: 4
+      required:
+      - bbox
+      - lat
+      - lon
+      - name
+    PlaceSearch:
+      type: object
+      description: Every candidate for one search, best first.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Place'
+          readOnly: true
+      required:
+      - results
     RoleEnum:
       enum:
       - admin
@@ -174,6 +1045,284 @@ components:
       description: |-
         * `admin` - Admin
         * `viewer` - Viewer
+    Run:
+      type: object
+      description: One pipeline run, as the Runs list shows it.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        short_id:
+          type: string
+          readOnly: true
+          description: First 8 characters of the id.
+        job_name:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+          description: 'Dagster''s run status, passed through unchanged: QUEUED, NOT_STARTED,
+            MANAGED, STARTING, STARTED, SUCCESS, FAILURE, CANCELING or CANCELED.'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        duration_seconds:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        trigger:
+          allOf:
+          - $ref: '#/components/schemas/Trigger'
+          readOnly: true
+        partition:
+          type: string
+          readOnly: true
+          nullable: true
+        steps_succeeded:
+          type: integer
+          readOnly: true
+          nullable: true
+        steps_failed:
+          type: integer
+          readOnly: true
+          nullable: true
+        materializations:
+          type: integer
+          readOnly: true
+          nullable: true
+        assets:
+          type: array
+          items:
+            type: string
+          readOnly: true
+      required:
+      - assets
+      - created_at
+      - duration_seconds
+      - ended_at
+      - id
+      - job_name
+      - materializations
+      - partition
+      - short_id
+      - started_at
+      - status
+      - steps_failed
+      - steps_succeeded
+      - trigger
+    RunDetail:
+      type: object
+      description: One run with its per-step breakdown (specs/runs.md).
+      properties:
+        id:
+          type: string
+          readOnly: true
+        short_id:
+          type: string
+          readOnly: true
+          description: First 8 characters of the id.
+        job_name:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+          description: 'Dagster''s run status, passed through unchanged: QUEUED, NOT_STARTED,
+            MANAGED, STARTING, STARTED, SUCCESS, FAILURE, CANCELING or CANCELED.'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        duration_seconds:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        trigger:
+          allOf:
+          - $ref: '#/components/schemas/Trigger'
+          readOnly: true
+        partition:
+          type: string
+          readOnly: true
+          nullable: true
+        steps_succeeded:
+          type: integer
+          readOnly: true
+          nullable: true
+        steps_failed:
+          type: integer
+          readOnly: true
+          nullable: true
+        materializations:
+          type: integer
+          readOnly: true
+          nullable: true
+        assets:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunTag'
+          readOnly: true
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStep'
+          readOnly: true
+        failure_summary:
+          type: string
+          readOnly: true
+          nullable: true
+          description: The first error in a failed run's log, or null. Null on a run
+            that did not fail, and on one whose failure lies beyond the log scan.
+      required:
+      - assets
+      - created_at
+      - duration_seconds
+      - ended_at
+      - failure_summary
+      - id
+      - job_name
+      - materializations
+      - partition
+      - short_id
+      - started_at
+      - status
+      - steps
+      - steps_failed
+      - steps_succeeded
+      - tags
+      - trigger
+    RunList:
+      type: object
+      description: |-
+        A page of runs, newest first.
+
+        `next_cursor` is the last run id of this page; pass it back as `cursor` to
+        get the next one. It is null on the last page.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+          readOnly: true
+        next_cursor:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - next_cursor
+      - results
+    RunLogs:
+      type: object
+      description: A page of a run's event log, oldest first.
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEvent'
+          readOnly: true
+        next_cursor:
+          type: string
+          readOnly: true
+          nullable: true
+        has_more:
+          type: boolean
+          readOnly: true
+      required:
+      - events
+      - has_more
+      - next_cursor
+    RunStep:
+      type: object
+      description: |-
+        One step of a run. Its status is a smaller enum than the run's: a step
+        is only ever SKIPPED, SUCCESS, FAILURE or IN_PROGRESS.
+      properties:
+        step_key:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        duration_seconds:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+      required:
+      - duration_seconds
+      - ended_at
+      - started_at
+      - status
+      - step_key
+    RunTag:
+      type: object
+      properties:
+        key:
+          type: string
+          readOnly: true
+        value:
+          type: string
+          readOnly: true
+      required:
+      - key
+      - value
+    Trigger:
+      type: object
+      description: |-
+        What started a run. Dagster does not record this directly; it is read
+        from the run's tags (context/integrations/dagster.md).
+      properties:
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/KindEnum'
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - kind
+      - name
   securitySchemes:
     jwtAuth:
       type: http

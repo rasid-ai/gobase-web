@@ -34,11 +34,11 @@ belong to the platform repo and are never run from here. See docs/adr/001.
 **Q&A engine:** what is settled regardless of engine choice: answers are
 composed **server-side** across sources (documents, tabular, imagery
 metadata); every data access is read-only and SQL is SELECT-only; a
-drawn-area geometry scopes retrieval via H3/bbox; answers **stream** to
+drawn-area geometry scopes retrieval by PostGIS geometry; answers **stream** to
 the SPA via SSE; citations reference asset UUIDs and persist with the
 message in `portal`, along with the tool/query trace. **The engine itself
-— LLM provider and agent/orchestration design — is an open Gate B
-decision**, to be recorded as its own ADR before the chat app is built.
+— LLM provider and agent/orchestration design — is still undecided**, and
+gets its own ADR before the chat app is built.
 
 **Auth:** JWT via `djangorestframework-simplejwt` (access token in memory,
 refresh token in an httpOnly Secure cookie, fetch interceptor refreshes on
@@ -57,6 +57,12 @@ Endpoint surface, all under `/api/auth/`:
 | `GET me` | required | `{username, role}`. |
 | `POST change-password` | required | Current + new password. |
 
+One endpoint sits outside `/api/auth/`: `GET /api/health/`, public and
+unauthenticated, checking `portal` connectivity only. `infra/deploy.sh` blocks
+on it through nginx, so a green deploy means TLS, routing and the app all
+work. `kb` is never probed — a knowledge base outage must not fail a portal
+deploy.
+
 Refresh rotation is on with blacklist-after-rotation, so a replayed cookie
 is rejected — that is what makes a revoked session real rather than
 advisory. The cookie is `HttpOnly`, `SameSite=Lax`, scoped to
@@ -70,16 +76,23 @@ client and TanStack Query hooks from that same file via **Orval**, so
 backend and frontend cannot drift.
 
 **Frontend:** a single-page app — **Vite + React + TypeScript**. Shell +
-nested routes (persistent sidebar layout) wrapping the two screens:
+nested routes (persistent sidebar layout) wrapping the three screens. One
+path means one thing to everyone: `/` is the landing page and redirects a
+signed-in visitor to `/map` (docs/adr/009).
 
-- **Map** — the main workspace: chat panel + map together. Chat is SSE
-  streamed with citations linked to assets. The map is **MapLibre GL**
+- **Atlas** (`/map`) — the main workspace: chat panel + map together. Chat
+  is SSE streamed with citations linked to assets. The map is **MapLibre GL**
   (via react-map-gl) with **terra-draw** for rectangular area selection;
   it renders result GeoJSON layers, asset footprints on click, and
   "ask about this area". Raster tile display is a later phase.
-- **Runs** — Dagster run list/detail via **TanStack Table**, manual
-  refresh only. Admin additionally sees a "trigger pipeline run" action
-  (Viewer does not). Theme: light and dark, user-toggled, tokens-driven.
+- **Assets** (`/assets`) — the catalog, browsable: filter by name, data
+  type and ingestion date, sort, page by offset. Each card links to
+  `/map?asset=<id>`, which frames the map on that asset's coverage and
+  draws its footprint.
+- **Data Governance** (`/runs`) — Dagster run list/detail via **TanStack
+  Table**, manual refresh only. Admin additionally sees a "trigger
+  pipeline run" action (Viewer does not). Theme: light and dark,
+  user-toggled, tokens-driven.
 
 Styling: **Tailwind CSS + shadcn/ui (Radix primitives)**, design tokens
 only. Forms (where they exist): React Hook Form + Zod. Server state:
@@ -88,13 +101,23 @@ TanStack Query throughout.
 **Deploy:** one **GitHub Actions** pipeline builds both images, pushes to
 **GHCR** (`latest` + commit SHA), SSHes into the target VPS and runs
 `deploy.sh` (`docker compose pull && up -d` against
-`infra/docker-compose.prod.yml`). Two environments, selected by branch:
-**`main` → the firm's VPS (production)** and **`dev` → the developer VPS
-(development)**, same pipeline and script, different host secrets.
-**PostgreSQL runs natively on each VPS host**, not containerized. **nginx
-on the host** terminates TLS and routes `/` → frontend container,
-`/api` → backend container — same-origin in both environments, CORS is
-local-dev only.
+`infra/docker-compose.prod.yml`). **One environment: `main` → the
+developer VPS** (docs/adr/017). There is no production host on our side; at
+delivery the client takes the repo and runs deployment themselves.
+**PostgreSQL runs natively on the VPS host**, not containerized. **nginx
+on the host** terminates TLS and routes four prefixes: `/` → frontend
+container, and `/api`, `/admin/`, `/django-static/` → backend container —
+same-origin when deployed, CORS is local-dev only. Django admin is
+served in production because role assignment has no other UI, with its static
+files carried inside the backend image by WhiteNoise (docs/adr/007).
+
+The backend image runs gunicorn with uvicorn workers — ASGI from the start, so
+SSE needs no change to the image — and applies `portal` migrations from its own
+entrypoint, so an image and the schema it expects always ship together. CI
+copies `infra/` onto the host each deploy; the host's `.env` is never touched.
+A second workflow, `ci.yml`, gates pull requests on lint, tests, and drift in
+both `openapi.yaml` and the generated client. `deploy.yml` calls it before
+building, so a direct push is checked too.
 
 **Testing:** pytest + pytest-django (backend), Vitest + React Testing
 Library (frontend). **Tooling:** pnpm, Node 22 LTS, Python 3.12; pin
@@ -108,6 +131,7 @@ geo-portal/
     config/                # settings, urls, asgi (SSE requires ASGI serving)
     apps/
       accounts/            # JWT auth, UserProfile (admin|viewer)
+      catalog/             # kb.py (the kb schema reader) + browse endpoint
       chat/                # sessions, messages, agent loop, SSE streaming
       map/                 # footprint/coverage + asset metadata endpoints
       runs/                # Dagster GraphQL client, run list/detail
@@ -117,14 +141,17 @@ geo-portal/
     src/
       api/                 # Orval-generated client + TanStack Query hooks
       app/                 # shell, routing, providers
-      features/            # workspace/ (map+chat)  runs/
+      features/            # workspace/ (map+chat)  catalog/ (assets)  runs/
       components/ui/       # shadcn/ui primitives
       lib/
     Dockerfile
   infra/
     docker-compose.prod.yml
     deploy.sh
-  .github/workflows/       # one pipeline: build both images -> GHCR -> SSH deploy
+    .env.example           # host environment, by name only
+    README.md              # one-time VPS setup: nginx, Postgres, secrets
+  docker-compose.dev.yml   # local dev, built from the same Dockerfiles
+  .github/workflows/       # ci.yml (PR gate) + deploy.yml (build -> GHCR -> SSH)
 ```
 
 ## System boundaries
@@ -146,12 +173,39 @@ geo-portal/
 1. **Ask:** user message → `POST /api/chat/sessions/{id}/messages/` → agent
    loop calls tools (pgvector / DuckDB / STAC) → tokens stream back via SSE
    → completed message + tool trace + citations persist in `portal`.
-2. **Map:** viewport or click → `GET /api/map/footprints?bbox=` (from `kb`)
-   → GeoJSON. A question scoped to a drawn area runs flow 1 with the
-   geometry attached; any vector layer in the answer returns as GeoJSON.
-3. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
-   normalized JSON → TanStack Table. `POST /api/runs/trigger/` (Admin
-   only) → Dagster GraphQL `launchRun` mutation → returns the new run id.
+2. **Map:** a click, a coordinate or place typed into the search box, or a
+   drawn area → `GET /api/catalog/datasets?lon=&lat=` (or `?area=`) → the
+   datasets there; opening one → `GET /api/catalog/assets?lon=&lat=&dataset=`
+   → its assets there; selecting one → `GET /api/map/assets/{id}` for its
+   metadata and footprint. The map asks the catalog the same question the
+   Assets page does, with a point or a polygon for a place (docs/adr/016).
+   A question scoped to a drawn area runs flow 1 with the geometry
+   attached; any vector layer in the answer returns as GeoJSON.
+3. **Assets:** filters → `GET /api/catalog/datasets` (from `kb`) → the
+   datasets, each with its counts; opening one, or browsing every asset →
+   `GET /api/catalog/assets` → one page of rows, the total behind it, and a
+   count per data type. `q` matches each asset's catalog text — names,
+   dataset, topic, column names, tag values (docs/adr/016). Names are
+   derived from each asset's source path; every ordering breaks ties on
+   `asset_id`, because a whole ingestion run shares one timestamp
+   (docs/adr/010). Following an asset goes to `/map?asset=<id>`, and the
+   map then reads `GET /api/map/assets/{id}` for the footprint.
+   `bbox=minLon,minLat,maxLon,maxLat` narrows the page, the total and the
+   type counts together to assets whose coverage overlaps that area — the
+   one place a bbox is an input rather than an output (docs/adr/011).
+4. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
+   normalized JSON → TanStack Table. `GET /api/runs/{id}` adds the
+   per-step breakdown from Dagster's `stepStats`, and `GET
+   /api/runs/{id}/logs` pages the event log. `POST /api/runs/trigger`
+   (Admin only) → Dagster GraphQL `launchRun` mutation → returns the new
+   run id, or 409 when a run is already in progress. Dagster unreachable
+   is 503 and a Dagster error is 502 — never a 500, because the portal
+   itself is fine.
+5. **Places:** typed text → `GET /api/places/search?q=` → the backend asks
+   Esri's geocoder and returns up to five candidates, each a name, a point
+   and a bbox. The only third-party call the backend makes, and the only
+   one the frontend is not allowed to make itself. Nothing is stored or
+   cached (docs/adr/011, context/integrations/esri.md).
 
 ## Invariants (the AI must never violate)
 

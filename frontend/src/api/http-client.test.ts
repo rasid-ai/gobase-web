@@ -1,5 +1,5 @@
 /**
- * The 401 interceptor: the mechanism behind HLR-003 and HLR-004.
+ * The 401 interceptor: the mechanism behind session renewal and expiry.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -34,7 +34,7 @@ afterEach(() => {
   setAccessToken(null)
 })
 
-describe('HLR-003 — the session renews transparently', () => {
+describe('the session renews transparently', () => {
   it('renews on a 401 and retries the original request', async () => {
     setAccessToken('stale')
     const { calls } = stubFetch({
@@ -87,7 +87,7 @@ describe('HLR-003 — the session renews transparently', () => {
   })
 })
 
-describe('HLR-004 — an unrenewable session ends', () => {
+describe('an unrenewable session ends', () => {
   it('signals session end when renewal fails, and does not retry', async () => {
     setAccessToken('stale')
     const ended = vi.fn()

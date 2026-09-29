@@ -1,61 +1,244 @@
-# Spec: Map
+# Atlas — the map workspace
 
-Layout (where the chat panel sits, page composition) lives in
-context/ui-rules.md. Retrieval behavior for area-scoped questions is
-HLR-019; answer vector layers are produced per HLR-020.
+The map half of the Atlas page, at `/map`. Layout — where the chat panel
+sits, page composition — is in context/ui-rules.md. MapLibre GL, per
+docs/adr/003.
 
----
+Point inspection, drawing an area, and drawing an asset's vector data are
+built. Area questions and answer layers are not.
 
-**HLR-022** — WHEN a user clicks a point on the map, the system SHALL
-list every catalog asset whose coverage includes that point, grouped by
-data type.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a document and an imagery asset covering the point, and a third
-asset elsewhere
-WHEN the point is clicked
-THEN the two covering assets appear under their data-type groups
-AND the third does not appear
+## Opening view — built
 
----
+The map opens on Lebanon, the area the portal is operated for, zoomed to
+fit the whole country. It is a starting point and not a boundary: panning
+and zooming anywhere is unrestricted, and the view is not remembered
+between visits.
 
-**HLR-023** — WHEN an asset in that list is selected, the system SHALL
-show its metadata and draw its footprint on the map.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a clicked point's asset list
-WHEN one asset is selected
-THEN its catalog metadata is shown
-AND its footprint renders on the map
+## Interaction modes
 
----
+Three mutually exclusive modes: **navigate**, **point** and **draw area**.
 
-**HLR-024** — The system SHALL let the user draw a rectangular area and
-ask a question scoped to it.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a drawn rectangle
-WHEN a question is submitted
-THEN the question is sent with that geometry attached
-AND the answer honors HLR-019
+Navigate leaves clicks to the map. Point inspects what a click lands on.
+Draw area traces a polygon. Switching mode changes what the next click does
+and nothing else — it does not clear a point or an area already chosen.
 
----
+## Point inspection — built
 
-**HLR-025** — WHEN an answer includes a vector layer, the map SHALL
-render it, and the user SHALL be able to hide and re-show it.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN an answer carrying a GeoJSON layer
-WHEN the answer completes
-THEN the layer renders on the map
-AND toggling it hides and re-shows it without re-asking
+Clicking a point in point mode opens the panel on the right, which browses
+the catalog assets whose coverage includes it, in three levels
+(docs/adr/016):
 
----
+1. **Datasets.** Every dataset with an asset here, by its readable label,
+   with how many assets and of which data types. A search box above filters
+   them by name.
+2. **Files.** Opening a dataset lists its assets here, by name, each with
+   its data type, format, and a control to draw it. A search box searches
+   their metadata — the same catalog text, and the same exact match, as on
+   the Assets page (specs/assets.md) — and a data type choice (All, or one
+   type) sits beneath it. The choice appears only here: among datasets a
+   type means nothing. Its options and counts are what the catalog reported
+   for this dataset here, never a list held in the portal, and it is shown
+   even when there is one type, because then it says what the dataset holds.
+   **Datasets** goes back, to the dataset search as it was left.
+3. **Detail**, below.
 
-**HLR-026** — WHEN an answer references a raster asset, the system SHALL
-display it on the map as tiles.
-Priority: Could · Phase: Phase 2
-**Done means:**
-GIVEN an answer citing a raster (COG) asset
-WHEN the user requests its display
-THEN the raster renders as tiles over the basemap
+Opening a dataset starts its search empty. Up to 200 files are listed; past
+that the panel says how many there are and to search to narrow.
+
+A point nothing covers shows nothing at all — no panel, no error. A dataset
+search that matches nothing says so, and the panel stays. A new point or a
+new area starts the panel again at its datasets with nothing typed.
+
+Data types come from the knowledge base and are never enumerated in portal
+code (context/integrations/kb.md).
+
+## The detail — built
+
+Selecting an asset shows its name and metadata and draws its footprint, with
+its own control to draw its data — the same control the list row carries, so
+the two panels offer the same actions. The panel opens either because a click
+found assets here, or because an asset arrived in the URL; nothing else opens
+it. Metadata is whatever the catalog holds for that asset: there is no fixed
+field set and it differs by data type. Clearing the selection removes that
+asset's metadata and its footprint and returns to the files it was chosen
+from, with their search and data type as they were. Drawn data layers are
+**not** cleared with the selection — see below.
+
+**Plain values first, tables when expanded.** Collapsed, the detail shows
+the plain values and says how many more there are. Expanded, the panel
+widens and shows every structured value as a table: a vector file's
+`columns` as one row per column, a raster's `bands` and `stats` the same
+way, and its `tags` as key and value rows, nested as deep as they go. What
+counts as structured is decided by the value's shape — an object, or a list
+holding objects — never by its key. A list of plain values, such as
+overview factors, reads fine on one line and stays one. No value is ever
+shown as raw JSON, and text that happens to hold JSON stays text.
+
+**The footprint gives way to the data.** It is a stand-in for content you
+cannot see, so once that asset's own features are drawn the outline goes: it
+would otherwise box in the very thing it was describing. Hiding the layer
+brings it back, because then there is nothing to see again.
+
+## Go to a place or a coordinate — built
+
+One box on the map takes either: a coordinate pair, or the name of a place.
+Whichever it is, going there moves the map, lands the marker, and runs the
+same assets-at-point lookup. The result is the same as having clicked that
+spot by hand, including clearing whatever asset was selected, and it switches
+the mode to point so the mode control keeps describing what a click will do.
+
+**What is typed decides which it is.** Two numbers are a coordinate; anything
+else is a place to search for. Nothing has to be chosen in advance, and a
+coordinate never reaches the geocoder.
+
+### As a coordinate
+
+Input is **latitude first** — the order every mapping site writes and the
+order a pasted pair arrives in. The API takes longitude first, so the swap
+happens in the interface and nowhere below it. One box rather than two, so a
+pasted pair needs no editing; a comma or a space separates the values.
+
+A coordinate that falls outside the valid range is a form error shown next to
+the box, and nothing moves. A coordinate that is valid but has no data under
+it still moves the map and places the marker — the panel simply does not
+open, exactly as for a click on empty space.
+
+### As a place
+
+Once typing pauses, up to five candidate places are offered under the box,
+each with its name and its coordinate. Nothing happens until one is picked:
+the box never guesses, not even when there is only one candidate, because
+going somewhere nobody chose is worse than waiting.
+
+Picking one goes there. A place that came back with an extent is framed by
+it, rather than zoomed to a fixed distance — a country and a street corner
+are not the same trip — and framing stops short of the closest zoom the
+basemap can draw, as it does for an asset's coverage.
+
+Searching starts at three characters, and a search is one request per pause
+in typing rather than one per letter. Both limits exist because every search
+is billed (docs/adr/011).
+
+Text that matches no place says so. If the geocoder cannot be reached, or the
+portal has no key for it, the box says address search is unavailable and does
+not ask again — a coordinate still works the whole time.
+
+### Its address
+
+Picking a place puts it in the URL as `?place=<name>&bbox=<area>`, so the
+view can be reloaded and sent to someone (docs/adr/011). What comes back is
+the framing and the name — not the marker or the panel, which are the result
+of an action rather than of the area. The same link filters the Assets page
+to that area.
+
+An area in the URL that cannot be read is removed, reported once, and the map
+opens where it always does.
+
+## Arriving from the Assets page — built
+
+`/map?asset=<id>` opens the map on that asset: the view frames its coverage,
+its footprint is drawn, and its metadata panel is open — the same end state
+as clicking it in the list after clicking the map, but without either click.
+There is no point marker, because no point was chosen.
+
+Framing stops short of the closest zoom the basemap can draw. An asset's
+coverage may be a single point, which has no area to frame; zooming all the
+way in on one would land past the last tile there is and show an empty
+screen instead of a place.
+
+The parameter is the selection rather than a copy of it, so the link survives
+a reload and can be shared (docs/adr/009). Clearing the selection removes the
+parameter; without that the map would re-select the asset immediately and the
+panel could not be closed.
+
+Only the coverage is drawn. Drawing the asset's features stays the separate
+action below — offered on the metadata panel itself, because an asset
+reached this way never passes through the list of assets at a point and
+would otherwise have to be found again by clicking the map.
+
+## Drawing an area — built
+
+In draw-area mode the user clicks out a polygon, one corner per click, and
+closes it by clicking the first corner again or pressing Enter; Escape
+abandons it. The finished polygon is outlined on the map and becomes the
+area: the panel browses every catalog asset whose coverage overlaps it —
+datasets, then files — exactly as for a point. An area nothing overlaps
+shows nothing at all.
+
+A point and an area are one selection, not two. Clicking a point, or going
+to a searched place, clears the area; finishing an area clears the point.
+Drawing again replaces the area. Clear area removes it, and changing mode
+leaves it where it is, so you can switch to navigate and pan around what you
+drew.
+
+An area has at most 100 corners and its edges cannot cross. The draw tool
+refuses the click that would break either rule, and says why; the server
+checks both again, because neither PostGIS nor DuckDB refuses a polygon that
+crosses itself — each silently returns a wrong answer (docs/adr/014).
+
+The area is not in the URL. It never leaves the map, so by the rule in
+docs/adr/011 it has no parameter, and `?bbox=` keeps meaning the searched
+place. A drawn area is not a link that can be sent to someone.
+
+## Drawn vector data — built
+
+Each asset has its own control to draw it — in the list, and on the metadata
+panel once one is selected. That reads the asset's features from the lake and
+renders them: polygons, lines and points
+together, since one file may hold all three.
+
+A layer shows the area the map is showing, and follows it: pan or zoom, and
+what is drawn is read again for where you are now (docs/adr/012). There is
+no cap on an asset any more. What there is instead is a budget per area —
+a view of a whole city can hold more features than are worth reading, and
+when it does the panel says how many are shown and that zooming in gets the
+rest. Zoom in and the layer comes back whole, because a smaller area is
+read in full.
+
+While an area is drawn, it replaces the view: a layer shows the features
+inside the polygon, and panning or zooming changes nothing about what is
+drawn (docs/adr/014). A feature crossing the outline is drawn whole — the
+map shows what the file holds and never cuts a geometry at the edge. The
+same budget applies, and when it is reached the panel says to draw a
+smaller area, because zooming in does nothing to an area.
+
+Drawn layers outlive the selection that loaded them (docs/adr/008). Picking
+another asset, clearing a selection or clicking a new point all leave them
+on the map, because the point of drawing them is to see several at once. A
+panel lists what is drawn, and is the only way to hide, remove, or clear
+them. Hiding a layer never refetches it, and a hidden layer does not follow
+the map.
+
+A layer that cannot be read says so in the layers panel, and stays. It is
+read again on the next move, so a failure is a state of the layer rather
+than a passing notice.
+
+Only vector assets can be drawn today. The endpoint that serves them names
+that modality rather than inferring it (docs/adr/008); other modalities get
+their own endpoints. That is the one exception to the rule above that data
+types are never enumerated in portal code — it applies everywhere else,
+and in particular nothing groups, labels or displays a fixed list of
+types.
+
+The control itself is offered for every asset, whatever its type. Which
+types have features to draw is the knowledge base's to say, not the
+interface's, so an asset with none says so when asked rather than being
+quietly refused a button.
+
+## Area questions — not built
+
+The area exists — drawing one is built, above. What is not built is asking
+a question of it: the user draws an area and asks, the polygon travels with
+the question, and retrieval is restricted to it. This waits on the ask path
+(GP-6, GP-7).
+
+Worth knowing when it is built: the features endpoint matches a drawn area
+exactly, but a window only by bounding box (docs/adr/012), so anything that
+counts or answers from a window rather than an area inherits that
+looseness.
+
+## Answer layers — not built
+
+An answer carrying a vector layer renders it on the map, and the user can
+hide and re-show it without re-asking. An answer referencing a raster
+asset displays it as tiles over the basemap when the answer completes.
