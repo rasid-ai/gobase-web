@@ -4,9 +4,8 @@ One-time, manual, per VPS. Nothing here is automated: CI assumes a host that
 already looks like this, and only copies `docker-compose.prod.yml` and
 `deploy.sh` in before running the script.
 
-Two hosts follow this document identically — the firm's VPS (deployed from
-`main`) and the developer VPS (deployed from `dev`). They differ only in
-domain, credentials, and the GitHub Environment that holds their secrets.
+One host follows this document: the developer VPS, deployed from `main`
+(docs/adr/017). Any host the client sets up after delivery can follow it too.
 
 ## 1. Deploy user and directory
 
@@ -167,10 +166,8 @@ Port 80 redirects to 443. Certificates via certbot.
 
 ## 6. GitHub Environment secrets
 
-Each host has a GitHub Environment — `production` for the firm's VPS,
-`development` for the developer VPS — holding five secrets. `deploy.yml`
-picks the environment from the branch, so the same workflow reaches a
-different host with no conditional beyond that.
+The GitHub Environment `development` holds five secrets. Its deployment
+branch rule must allow `main`, the branch `deploy.yml` runs on.
 
 | Secret | Value |
 |---|---|
@@ -191,7 +188,7 @@ push to GHCR uses the workflow's built-in `GITHUB_TOKEN`.
 
 ## 7. First deploy
 
-Push to the branch for this host and watch the Actions run. The workflow
+Push to `main` and watch the Actions run. The workflow
 copies `docker-compose.prod.yml` and `deploy.sh` into the deploy path, then
 runs the script with `IMAGE_TAG` set to the commit SHA. The backend container
 applies `portal` migrations from its own entrypoint on start.

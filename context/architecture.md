@@ -101,13 +101,13 @@ TanStack Query throughout.
 **Deploy:** one **GitHub Actions** pipeline builds both images, pushes to
 **GHCR** (`latest` + commit SHA), SSHes into the target VPS and runs
 `deploy.sh` (`docker compose pull && up -d` against
-`infra/docker-compose.prod.yml`). Two environments, selected by branch:
-**`main` → the firm's VPS (production)** and **`dev` → the developer VPS
-(development)**, same pipeline and script, different host secrets.
-**PostgreSQL runs natively on each VPS host**, not containerized. **nginx
+`infra/docker-compose.prod.yml`). **One environment: `main` → the
+developer VPS** (docs/adr/017). There is no production host on our side; at
+delivery the client takes the repo and runs deployment themselves.
+**PostgreSQL runs natively on the VPS host**, not containerized. **nginx
 on the host** terminates TLS and routes four prefixes: `/` → frontend
 container, and `/api`, `/admin/`, `/django-static/` → backend container —
-same-origin in both environments, CORS is local-dev only. Django admin is
+same-origin when deployed, CORS is local-dev only. Django admin is
 served in production because role assignment has no other UI, with its static
 files carried inside the backend image by WhiteNoise (docs/adr/007).
 

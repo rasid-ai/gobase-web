@@ -5,10 +5,9 @@
 - **Conventional Commits** (`feat:`, `fix:`, `docs:`, `test:`, `chore:`,
   `refactor:`); reference the Jira ticket in the body when the change
   implements one.
-- **Branches:** `main` deploys to the firm's VPS (production); `dev`
-  deploys to the developer VPS (development). Feature branches come off
-  `dev` and PR into it; `dev` promotes to `main` by PR. Nothing merges
-  without a human.
+- **Branches:** `main` is the only long-lived branch and deploys to the
+  developer VPS (docs/adr/017). Feature branches come off `main` and PR
+  into it. Nothing merges without a human.
 - **Update `specs/` when behaviour ships.** The specs describe what the
   system does, so a change that alters behaviour updates them in the
   same PR.
