@@ -81,8 +81,8 @@ cd ../frontend && pnpm orval
 
 ### Deployment
 
-`dev` deploys to the developer VPS, `main` to the firm's VPS, through one
-pipeline: checks, then both images to GHCR, then `infra/deploy.sh` over SSH.
+`main` deploys to the developer VPS — the only deployed environment
+(docs/adr/017) — through one pipeline: checks, then both images to GHCR, then `infra/deploy.sh` over SSH.
 Per-host setup — nginx vhost, Postgres roles, the GHCR login and the five
 GitHub Environment secrets — is in [infra/README.md](infra/README.md).
 

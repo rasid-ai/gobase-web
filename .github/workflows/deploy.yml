@@ -2,18 +2,17 @@
 #
 #   checks -> build both images -> push to GHCR -> copy infra/ -> run deploy.sh
 #
-# Two environments, one pipeline (context/architecture.md): `main` deploys to
-# the firm's VPS (production), `dev` to the developer VPS (development). The
-# images are identical for both — the frontend calls /api relatively and bakes
-# no API URL — so promoting dev to main is the same commit against a different
-# host .env.
+# One environment (docs/adr/017): `main` deploys to the developer VPS. There
+# is no production host on our side — at delivery the client takes the repo
+# and runs deployment themselves. The frontend calls /api relatively and bakes
+# no API URL, so the same images run on any host with its own .env.
 name: Deploy
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
 
-# One deploy per branch at a time. Never cancel one in flight: it may already
+# One deploy at a time. Never cancel one in flight: it may already
 # be past `docker compose up` on the host, and killing the workflow would not
 # undo that — it would only hide how it ended.
 concurrency:
@@ -58,18 +57,15 @@ jobs:
         id: image
         run: echo "name=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/geo-portal-${{ matrix.component }}" >> "$GITHUB_OUTPUT"
 
-      # The SHA tag is what deploy.sh pulls and what a rollback names. The
-      # moving tags are per branch on purpose: a `latest` that dev could
-      # overwrite would mean a manual `docker compose up` on the production
-      # host quietly starting a development build.
+      # The SHA tag is what deploy.sh pulls and what a rollback names;
+      # `latest` follows main.
       - uses: docker/metadata-action@v5
         id: meta
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
             type=sha,format=long,prefix=
-            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
-            type=raw,value=dev,enable=${{ github.ref_name == 'dev' }}
+            type=raw,value=latest
 
       - uses: docker/build-push-action@v6
         with:
@@ -85,20 +81,21 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
   deploy:
-    name: Deploy to ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    name: Deploy to development
     needs: build
     runs-on: ubuntu-latest
 
     # Selects the secret set: VPS_HOST, VPS_USER, VPS_SSH_KEY,
-    # VPS_SSH_KNOWN_HOSTS, DEPLOY_PATH. Protection rules on `production` (a
-    # required reviewer, say) apply here without touching this file.
-    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    # VPS_SSH_KNOWN_HOSTS, DEPLOY_PATH. The environment's branch rule must
+    # allow `main`; protection rules on it apply here without touching this
+    # file.
+    environment: development
 
     steps:
       - uses: actions/checkout@v4
 
       # Plain openssh rather than a third-party action: this step holds the key
-      # to the production host, and it is a dependency worth not having.
+      # to the deploy host, and it is a dependency worth not having.
       - name: Configure SSH
         run: |
           install -d -m 700 ~/.ssh

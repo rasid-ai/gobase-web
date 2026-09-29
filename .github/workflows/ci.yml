@@ -2,7 +2,7 @@
 # nothing merges red either).
 #
 # deploy.yml calls this same file via workflow_call before it builds, so a
-# direct push to `dev` or a merge nobody tested as a combination is checked
+# direct push to `main` or a merge nobody tested as a combination is checked
 # too — the PR gate is not the only thing standing between a commit and a VPS.
 name: CI
 
