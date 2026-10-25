@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { mockFetch, renderApp, resetSession } from '@/test/harness'
+import { fakeTab, forgetTab, mockFetch, renderApp, resetSession } from '@/test/harness'
 
 const FIRST_PAGE = 'GET /api/catalog/assets?sort=-ingested_at&limit=12&offset=0'
 const DATASETS = 'GET /api/catalog/datasets'
@@ -54,6 +54,7 @@ function item(overrides: Record<string, unknown> = {}) {
     time_start: null,
     time_end: null,
     ingested_at: '2026-09-09T11:02:41Z',
+    document: null,
     ...overrides,
   }
 }
@@ -233,6 +234,97 @@ it('offers no map link for an asset with no coverage', async () => {
 
   await screen.findByText('gis_osm_boundaries_07_1')
   expect(screen.queryByRole('link', { name: 'Locate on map' })).not.toBeInTheDocument()
+})
+
+describe('documents', () => {
+  const ID = 'b9bb3097-9feb-4805-b4b3-aed8d25fbada'
+  const PDF = `GET /api/catalog/assets/${ID}/pdf`
+
+  function document(overrides: Record<string, unknown> = {}) {
+    return item({
+      asset_id: ID,
+      name: 'Beirut airport - Case Study - TiSO.pdf',
+      data_type: 'document',
+      format: 'pdf',
+      dataset: 'airports',
+      dataset_label: 'Airports',
+      topic_path: 'airports',
+      bytes: 0,
+      bbox: null,
+      document: { title: 'TISO solutions for airport security', pages: 8, pdf: true },
+      ...overrides,
+    })
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    forgetTab()
+  })
+
+  it('shows a document as its PDF, with its title and its page count', async () => {
+    mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [document()] }) },
+    })
+    await openAssets()
+
+    expect(await screen.findByText('Beirut airport - Case Study - TiSO.pdf')).toBeInTheDocument()
+    expect(screen.getByText('TISO solutions for airport security')).toBeInTheDocument()
+    // The catalog holds no size for a document; the page count stands in.
+    expect(screen.getByText('8 pages')).toBeInTheDocument()
+    expect(screen.queryByText('0 B')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open PDF' })).toBeInTheDocument()
+  })
+
+  it('offers no PDF when the catalog records none', async () => {
+    const unrecorded = document({ document: { title: null, pages: 2, pdf: false } })
+    mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [unrecorded] }) },
+    })
+    await openAssets()
+
+    await screen.findByText('Beirut airport - Case Study - TiSO.pdf')
+    expect(screen.queryByRole('button', { name: 'Open PDF' })).not.toBeInTheDocument()
+  })
+
+  it('opens the PDF in a new tab, fetched with the session', async () => {
+    const tab = fakeTab()
+    const { fetchMock } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [document()] }) },
+      [PDF]: { status: 200, blob: new Blob(['%PDF-'], { type: 'application/pdf' }) },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('button', { name: 'Open PDF' }))
+
+    // Opened inside the click — before the fetch — which is what a popup
+    // blocker allows; then pointed at the bytes.
+    expect(window.open).toHaveBeenCalledWith('', '_blank')
+    await waitFor(() => expect(tab.location.href).toBe('blob:pdf'))
+    const request = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/pdf'))!
+    expect(new Headers((request[1] as RequestInit).headers).get('Authorization')).toBe(
+      'Bearer access-token',
+    )
+    expect(tab.close).not.toHaveBeenCalled()
+  })
+
+  it('closes the tab and says so when the PDF cannot be read', async () => {
+    const tab = fakeTab()
+    mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [document()] }) },
+      [PDF]: { status: 502 },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('button', { name: 'Open PDF' }))
+
+    expect(await screen.findByText('Could not open the PDF')).toBeInTheDocument()
+    expect(tab.close).toHaveBeenCalledOnce()
+    expect(tab.location.href).toBe('')
+  })
 })
 
 describe('filtering by area', () => {

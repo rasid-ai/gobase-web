@@ -9,7 +9,8 @@ import { AppRoutes } from '@/app/routes'
 import { setAccessToken } from '@/api/token-store'
 import { ToastProvider } from '@/components/ui/toast'
 
-export type Route = { status: number; body?: unknown }
+/** `body` answers `response.json()`; `blob` answers `response.blob()`, for a file. */
+export type Route = { status: number; body?: unknown; blob?: Blob }
 
 /**
  * A tiny fetch double keyed by "METHOD /path". Every test states exactly the
@@ -29,6 +30,7 @@ export function mockFetch(routes: Record<string, Route>) {
       status: route.status,
       headers: new Headers(),
       json: async () => route.body,
+      blob: async () => route.blob ?? new Blob([]),
     } as unknown as Response
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -37,6 +39,27 @@ export function mockFetch(routes: Record<string, Route>) {
 
 export function resetSession() {
   setAccessToken(null)
+}
+
+/**
+ * A new tab the page can point somewhere, and an object URL to point it at —
+ * what opening a PDF needs (features/catalog/openDocument.ts). Undo with
+ * `forgetTab()` and `vi.restoreAllMocks()`.
+ */
+export function fakeTab() {
+  const tab = { location: { href: '' }, close: vi.fn() }
+  vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+  // jsdom has no object URLs at all.
+  Object.defineProperty(URL, 'createObjectURL', {
+    value: vi.fn(() => 'blob:pdf'),
+    configurable: true,
+    writable: true,
+  })
+  return tab
+}
+
+export function forgetTab() {
+  delete (URL as { createObjectURL?: unknown }).createObjectURL
 }
 
 export function renderApp(initialPath = '/') {
