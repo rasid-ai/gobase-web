@@ -325,6 +325,24 @@ class AssetListQuerySerializer(CatalogScopeSerializer):
     offset = serializers.IntegerField(default=0, min_value=0)
 
 
+class DocumentSerializer(serializers.Serializer):
+    """What a document carries beyond the columns every asset shares."""
+
+    title = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The title the parser read from the PDF. Often missing, or a heading.",
+    )
+    pages = serializers.IntegerField(read_only=True, allow_null=True)
+    pdf = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether the catalog records the PDF the document was parsed from, "
+            "and so whether /api/catalog/assets/{id}/pdf can serve it."
+        ),
+    )
+
+
 class AssetListItemSerializer(serializers.Serializer):
     """One asset as the catalog browse list shows it.
 
@@ -337,8 +355,9 @@ class AssetListItemSerializer(serializers.Serializer):
     name = serializers.CharField(
         read_only=True,
         help_text=(
-            "Derived from the asset's source path, extension removed. The "
-            "catalog has no name column (docs/adr/010)."
+            "Derived from the asset's source path, extension removed — the "
+            "catalog has no name column (docs/adr/010). A document is named "
+            "after its PDF instead, extension kept (docs/adr/017)."
         ),
     )
     data_type = serializers.CharField(read_only=True)
@@ -370,6 +389,11 @@ class AssetListItemSerializer(serializers.Serializer):
     time_start = serializers.DateTimeField(read_only=True, allow_null=True)
     time_end = serializers.DateTimeField(read_only=True, allow_null=True)
     ingested_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    document = DocumentSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Set for a document; null for every other data type.",
+    )
 
 
 class DataTypeCountSerializer(serializers.Serializer):

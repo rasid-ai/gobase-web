@@ -111,6 +111,65 @@ def test_the_search_text_itself_never_leaves_the_server():
     assert "search" not in kb._list_item(_row(search="anything"))
 
 
+class TestDocuments:
+    """A document is the one asset not named after its source path (docs/adr/017)."""
+
+    def test_every_catalog_read_joins_the_document_row(self):
+        # LEFT, so every other modality is untouched by the join.
+        assert "LEFT JOIN doc_documents doc" in kb._CATALOG_HEAD
+        assert "LEFT JOIN doc_documents doc" in kb._ASSET
+
+    def test_a_document_is_named_after_its_pdf_with_the_extension_kept(self):
+        """Its source path is the parsed bundle; the PDF is what a person recognises."""
+        assert kb._NAME.startswith("COALESCE(split_part(doc.pdf_uri, '/', -1)")
+
+    def test_a_document_with_no_recorded_pdf_falls_back_to_the_bundle_stem(self):
+        # `<stem>.bundle.zip` loses `.zip` to the derived name and `.bundle` here.
+        assert r"'\.bundle$'" in kb._NAME
+
+    def test_the_pdf_name_and_the_title_are_searchable(self):
+        assert "split_part(doc.pdf_uri, '/', -1)" in kb._SEARCH_TEXT
+        assert "doc.title" in kb._SEARCH_TEXT
+
+    def test_any_other_asset_carries_no_document(self):
+        assert kb._list_item(_row())["document"] is None
+
+    def test_a_document_row_carries_its_title_pages_and_whether_its_pdf_is_known(self):
+        row = _row(
+            modality="document",
+            document_title="Activity in 2024",
+            document_pages=8,
+            document_pdf=True,
+        )
+        assert kb._list_item(row)["document"] == {
+            "title": "Activity in 2024",
+            "pages": 8,
+            "pdf": True,
+        }
+
+    def test_the_pdf_read_names_the_modality_and_the_status(self):
+        assert "modality = 'document'" in kb._DOCUMENT_PDF
+        assert "status = 'active'" in kb._DOCUMENT_PDF
+
+    def test_a_document_whose_pdf_was_never_recorded_has_nothing_to_serve(self, monkeypatch):
+        """A bundle loaded without its source stamp: a 404, not a read of a null path."""
+        monkeypatch.setattr(
+            kb,
+            "_rows",
+            lambda sql, params: [{"pdf_uri": None, "content_hash": "abc", "filename": None}],
+        )
+        assert kb.document_pdf("cd8173bb-65ef-4bab-8bec-2be34d7157b9") is None
+
+    def test_the_pdf_read_hands_back_the_path_the_hash_and_the_filename(self, monkeypatch):
+        found = {
+            "pdf_uri": "s3://geobase-bronze/raw/airports/plan.pdf",
+            "content_hash": "abc",
+            "filename": "plan.pdf",
+        }
+        monkeypatch.setattr(kb, "_rows", lambda sql, params: [found])
+        assert kb.document_pdf("cd8173bb-65ef-4bab-8bec-2be34d7157b9") == found
+
+
 def _row(**overrides):
     return {
         "asset_id": "cd8173bb-65ef-4bab-8bec-2be34d7157b9",

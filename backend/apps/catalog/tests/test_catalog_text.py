@@ -47,6 +47,64 @@ def test_no_dataset_has_no_label():
     assert _label(None) is None
 
 
+def _name(source_uri, pdf_uri):
+    # One row of `assets` beside one row of `doc`, the way the real join lays
+    # them out; a NULL `pdf_uri` is an asset with no document row.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {kb._NAME} FROM (VALUES (%s)) AS assets(source_uri), "
+            f"(VALUES (%s)) AS doc(pdf_uri)",
+            [source_uri, pdf_uri],
+        )
+        return cursor.fetchone()[0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("source_uri", "pdf_uri", "name"),
+    [
+        ("s3://silver/vector/b/roads.parquet", None, "roads"),
+        ("s3://silver/raster/l/lulc_2019.tif", None, "lulc_2019"),
+        # A document is named after its PDF, extension kept (docs/adr/017).
+        (
+            "s3://silver/documents/airports/plan.bundle.zip",
+            "s3://bronze/raw/airports/Airport Plan.pdf",
+            "Airport Plan.pdf",
+        ),
+        # No PDF recorded: the bundle's stem, with `.bundle` taken off too.
+        ("s3://silver/documents/airports/plan.bundle.zip", None, "plan"),
+    ],
+)
+def test_an_asset_is_named_after_its_path_and_a_document_after_its_pdf(source_uri, pdf_uri, name):
+    assert _name(source_uri, pdf_uri) == name
+
+
+def _format(format, pdf_uri):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {kb._FORMAT} FROM (VALUES (%s)) AS assets(format), "
+            f"(VALUES (%s)) AS doc(pdf_uri)",
+            [format, pdf_uri],
+        )
+        return cursor.fetchone()[0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("format", "pdf_uri", "shown"),
+    [
+        ("geoparquet", None, "geoparquet"),
+        # A document's format is its file's, not the parser's (docs/adr/017).
+        ("mineru", "s3://bronze/raw/airports/Airport Plan.PDF", "pdf"),
+        # No PDF recorded, or a name with no extension: the column as it is.
+        ("mineru", None, "mineru"),
+        ("mineru", "s3://bronze/raw/airports/README", "mineru"),
+    ],
+)
+def test_a_documents_format_is_its_files_not_its_parsers(format, pdf_uri, shown):
+    assert _format(format, pdf_uri) == shown
+
+
 @pytest.fixture
 def catalog(db):
     """Temporary tables with the columns the search text reads, and one row each."""
@@ -62,11 +120,21 @@ def catalog(db):
             "CREATE TEMP TABLE geo_raster_layers (asset_id uuid, layer_name text, tags jsonb)"
         )
         cursor.execute(
+            "CREATE TEMP TABLE doc_documents (asset_id uuid, title text, pages int, pdf_uri text)"
+        )
+        cursor.execute(
             "INSERT INTO assets VALUES "
             "('00000000-0000-0000-0000-000000000001', 's3://silver/vector/b/roads.parquet', "
             "'road_network', 'road_network', 'geoparquet', 'vector', NULL), "
             "('00000000-0000-0000-0000-000000000002', 's3://silver/raster/l/lulc_2019.tif', "
-            "'esri_landcover_landuse', 'esri_landcover_landuse', 'cog', 'raster', NULL)"
+            "'esri_landcover_landuse', 'esri_landcover_landuse', 'cog', 'raster', NULL), "
+            "('00000000-0000-0000-0000-000000000003', "
+            "'s3://silver/documents/airports/plan.bundle.zip', "
+            "'airports', 'airports', 'mineru', 'document', 'The card text.')"
+        )
+        cursor.execute(
+            "INSERT INTO doc_documents VALUES ('00000000-0000-0000-0000-000000000003', "
+            "'Reopening the airport', 4, 's3://bronze/raw/airports/Airport Plan.pdf')"
         )
         cursor.execute(
             "INSERT INTO geo_layers VALUES ('00000000-0000-0000-0000-000000000001', 'roads', %s)",
@@ -95,8 +163,27 @@ def catalog(db):
 
 def _search_texts():
     with connection.cursor() as cursor:
-        cursor.execute(f"SELECT modality, {kb._SEARCH_TEXT} FROM assets ORDER BY modality")
+        cursor.execute(
+            f"SELECT modality, {kb._SEARCH_TEXT} FROM assets {kb._DOCUMENTS} ORDER BY modality"
+        )
         return {modality: text.split(SEPARATOR) for modality, text in cursor.fetchall()}
+
+
+def test_a_document_is_searchable_by_its_pdf_name_and_its_title(catalog):
+    """Neither is in `assets`; both are what a person would type."""
+    fields = _search_texts()["document"]
+
+    assert fields[:8] == [
+        "plan.bundle.zip",
+        "airports",
+        "Airports",
+        "airports",
+        "mineru",
+        "document",
+        "The card text.",
+        "Airport Plan.pdf",
+    ]
+    assert "Reopening the airport" in fields
 
 
 def test_a_vector_asset_is_searchable_by_its_columns_but_not_by_their_json_keys(catalog):
@@ -132,13 +219,13 @@ def test_a_search_cannot_match_across_two_fields(catalog):
     """`vector` ends one field and a layer name starts the next: typed together, no match."""
     with connection.cursor() as cursor:
         cursor.execute(
-            f"SELECT count(*) FROM assets WHERE {kb._SEARCH_TEXT} ILIKE %s",
+            f"SELECT count(*) FROM assets {kb._DOCUMENTS} WHERE {kb._SEARCH_TEXT} ILIKE %s",
             [kb._contains("vector roads")],
         )
         assert cursor.fetchone()[0] == 0
 
         cursor.execute(
-            f"SELECT count(*) FROM assets WHERE {kb._SEARCH_TEXT} ILIKE %s",
+            f"SELECT count(*) FROM assets {kb._DOCUMENTS} WHERE {kb._SEARCH_TEXT} ILIKE %s",
             [kb._contains("HIGHWAY")],
         )
         assert cursor.fetchone()[0] == 1

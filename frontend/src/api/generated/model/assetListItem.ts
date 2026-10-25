@@ -5,6 +5,7 @@
  * Internal API for the Geo Portal SPA. Read-only over the knowledge base.
  * OpenAPI spec version: 0.1.0
  */
+import type { Document } from './document';
 
 /**
  * One asset as the catalog browse list shows it.
@@ -15,7 +16,7 @@
  */
 export interface AssetListItem {
   readonly asset_id: string;
-  /** Derived from the asset's source path, extension removed. The catalog has no name column (docs/adr/010). */
+  /** Derived from the asset's source path, extension removed — the catalog has no name column (docs/adr/010). A document is named after its PDF instead, extension kept (docs/adr/017). */
   readonly name: string;
   readonly data_type: string;
   /** @nullable */
@@ -49,4 +50,6 @@ export interface AssetListItem {
   readonly time_end: string | null;
   /** @nullable */
   readonly ingested_at: string | null;
+  /** Set for a document; null for every other data type. */
+  readonly document: Document | null;
 }

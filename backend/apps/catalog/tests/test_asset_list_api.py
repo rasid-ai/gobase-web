@@ -112,6 +112,7 @@ def test_the_answer_carries_the_page_the_total_and_the_counts(as_viewer, monkeyp
                     "time_start": None,
                     "time_end": None,
                     "ingested_at": "2026-09-09T11:02:41Z",
+                    "document": None,
                 }
             ],
             "data_type_counts": [{"data_type": "vector", "count": 22}],
@@ -132,8 +133,47 @@ def test_the_answer_carries_the_page_the_total_and_the_counts(as_viewer, monkeyp
     # interface can render one row shape for every asset.
     assert asset["summary"] is None
     assert asset["time_start"] is None
+    # Only a document has one; null rather than absent, like the rest.
+    assert asset["document"] is None
     # The bucket path never leaves the server on this endpoint.
     assert "source_uri" not in asset
+
+
+def test_a_document_carries_its_title_pages_and_whether_its_pdf_can_be_served(
+    as_viewer, monkeypatch
+):
+    from apps.catalog import kb
+
+    monkeypatch.setattr(
+        kb,
+        "asset_list",
+        lambda **_: {
+            "count": 1,
+            "results": [
+                {
+                    "asset_id": "b9bb3097-9feb-4805-b4b3-aed8d25fbada",
+                    "name": "Beirut airport - Case Study - TiSO.pdf",
+                    "data_type": "document",
+                    "format": "mineru",
+                    "dataset": "airports",
+                    "dataset_label": "Airports",
+                    "topic_path": "airports",
+                    "bytes": 0,
+                    "bbox": None,
+                    "summary": "A case study.",
+                    "time_start": None,
+                    "time_end": None,
+                    "ingested_at": "2026-10-19T11:02:41Z",
+                    "document": {"title": "TISO solutions", "pages": 8, "pdf": True},
+                }
+            ],
+            "data_type_counts": [{"data_type": "document", "count": 1}],
+        },
+    )
+
+    (asset,) = as_viewer.get(URL).data["results"]
+    assert asset["name"] == "Beirut airport - Case Study - TiSO.pdf"
+    assert asset["document"] == {"title": "TISO solutions", "pages": 8, "pdf": True}
 
 
 def test_an_empty_catalog_is_an_answer_not_an_error(as_viewer, captured):

@@ -29,6 +29,26 @@ KB = "kb"
 # not visible to WHERE, which is why the browse query is a CTE.
 _DERIVED_NAME = r"regexp_replace(split_part(source_uri, '/', -1), '\.[^.]*$', '')"
 
+# A document is the exception. Its `source_uri` is the parsed bundle in silver
+# (`<stem>.bundle.zip`), and the thing a person recognises is the PDF it was
+# parsed from, which `doc_documents.pdf_uri` names in bronze. So a document is
+# called after its PDF, extension kept (docs/adr/017). One whose PDF the
+# catalog does not record — a bundle loaded without its source stamp — falls
+# back to the bundle's stem, with the `.bundle` the derived name leaves behind
+# taken off too.
+_PDF_NAME = "split_part(doc.pdf_uri, '/', -1)"
+_NAME = rf"COALESCE({_PDF_NAME}, regexp_replace({_DERIVED_NAME}, '\.bundle$', ''))"
+
+# And a document's format is its file's — `pdf` — not the parser that read it,
+# which is what `assets.format` records (`mineru`). The parser is still worth
+# knowing, so the detail carries it as `parser`; the list shows the file.
+_FORMAT = rf"COALESCE(lower(substring({_PDF_NAME} from '\.([^.]+)$')), format)"
+
+# Every catalog read joins the document row. It is a LEFT JOIN, so the other
+# modalities are untouched; it does mean a knowledge base without
+# `doc_documents` fails every read (context/integrations/kb.md).
+_DOCUMENTS = "LEFT JOIN doc_documents doc ON doc.asset_id = assets.asset_id"
+
 # `dataset` is a folder name — `points_of_interest_hotsom` — and people read
 # a label: "Points of interest hotsom" (docs/adr/016). camelCase is split,
 # underscores, hyphens and runs of space become one space, and the result is
@@ -43,9 +63,10 @@ _DATASET_LABEL = f"upper(left({_SPACED_DATASET}, 1)) || substr({_SPACED_DATASET}
 
 # Every piece of catalog text about one asset, for the search box (docs/adr/016):
 # the file's name, its dataset and label, topic, format, data type and summary,
-# then each layer's name — with the column names of a vector layer and the tag
-# values of a raster one. Tag keys are left out: every raster has a `year`, so
-# matching keys would make "year" find all of them.
+# a document's PDF name and title, then each layer's name — with the column
+# names of a vector layer and the tag values of a raster one. Tag keys are left
+# out: every raster has a `year`, so matching keys would make "year" find all
+# of them.
 #
 # The pieces are joined by the unit separator, a character nobody types, so a
 # search cannot match across the seam between two fields — "vector boundaries"
@@ -58,6 +79,7 @@ _DATASET_LABEL = f"upper(left({_SPACED_DATASET}, 1)) || substr({_SPACED_DATASET}
 _SEARCH_TEXT = rf"""concat_ws(E'\x1f',
             split_part(source_uri, '/', -1), dataset, {_DATASET_LABEL},
             topic_path::text, format, modality, summary,
+            {_PDF_NAME}, doc.title,
             (SELECT string_agg(concat_ws(E'\x1f', layer.layer_name,
                     (SELECT string_agg(col ->> 'name', E'\x1f')
                      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(layer.columns) = 'array'
@@ -72,21 +94,32 @@ _SEARCH_TEXT = rf"""concat_ws(E'\x1f',
              FROM geo_raster_layers raster WHERE raster.asset_id = assets.asset_id))"""
 
 _ASSET = f"""
-    SELECT asset_id, {_DERIVED_NAME} AS name, modality, source_uri, format, dataset,
+    SELECT assets.asset_id, {_NAME} AS name, modality, source_uri, {_FORMAT} AS format, dataset,
            summary, topic_path::text, bytes, time_start, time_end, ingested_at,
+           doc.title, doc.pages,
+           CASE WHEN doc.asset_id IS NOT NULL THEN format END AS parser,
            ST_AsGeoJSON(extent) AS footprint
-    FROM assets
-    WHERE asset_id = %s AND status = 'active'
+    FROM assets {_DOCUMENTS}
+    WHERE assets.asset_id = %s AND status = 'active'
 """
 
-# The lake path for one vector asset. `assets` holds every modality, so this
-# is the one place the portal names a modality: the endpoint it serves is
-# vector-only by definition (specs/map.md, docs/adr/008). `source_uri` is the
-# full s3:// URI of the GeoParquet, bucket included.
+# The lake path for one vector asset. `assets` holds every modality, so the
+# two reads below are the only places the portal names one: each serves an
+# endpoint that is one modality by definition (specs/map.md, docs/adr/008).
+# `source_uri` is the full s3:// URI of the GeoParquet, bucket included.
 _VECTOR_SOURCE_URI = """
     SELECT source_uri
     FROM assets
     WHERE asset_id = %s AND status = 'active' AND modality = 'vector'
+"""
+
+# The PDF behind one document, in bronze: `pdf_uri` is a full s3:// URI too.
+# `content_hash` is the PDF's own sha256, which is what makes it a strong ETag
+# (docs/adr/017).
+_DOCUMENT_PDF = """
+    SELECT doc.pdf_uri, content_hash, split_part(doc.pdf_uri, '/', -1) AS filename
+    FROM assets JOIN doc_documents doc ON doc.asset_id = assets.asset_id
+    WHERE assets.asset_id = %s AND status = 'active' AND modality = 'document'
 """
 
 _VECTOR_LAYERS = """
@@ -109,14 +142,16 @@ _RASTER_LAYERS = """
 # The (modality, status) index exists for exactly this pairing.
 _CATALOG_HEAD = f"""
     WITH catalog AS (
-        SELECT asset_id, modality, format, topic_path::text AS topic_path,
+        SELECT assets.asset_id, modality, {_FORMAT} AS format, topic_path::text AS topic_path,
                bytes, summary, time_start, time_end, ingested_at,
                ST_XMin(extent) AS min_lon, ST_YMin(extent) AS min_lat,
                ST_XMax(extent) AS max_lon, ST_YMax(extent) AS max_lat,
-               {_DERIVED_NAME} AS name,
+               {_NAME} AS name,
                dataset, {_DATASET_LABEL} AS dataset_label,
+               doc.title AS document_title, doc.pages AS document_pages,
+               doc.pdf_uri IS NOT NULL AS document_pdf,
                {_SEARCH_TEXT} AS search
-        FROM assets
+        FROM assets {_DOCUMENTS}
         WHERE status = 'active'
 """
 
@@ -337,6 +372,23 @@ def _list_item(row: dict) -> dict:
         "time_start": row["time_start"],
         "time_end": row["time_end"],
         "ingested_at": row["ingested_at"],
+        "document": _document(row),
+    }
+
+
+def _document(row: dict) -> dict | None:
+    """What a document carries beyond the shared columns, or None for any other type.
+
+    Null rather than absent, like every other value a list row may lack. `pdf`
+    says whether the catalog records the PDF, and so whether the PDF endpoint
+    can serve it; the client offers to open it only when it can.
+    """
+    if row["modality"] != "document":
+        return None
+    return {
+        "title": row.get("document_title"),
+        "pages": row.get("document_pages"),
+        "pdf": bool(row.get("document_pdf")),
     }
 
 
@@ -441,6 +493,24 @@ def vector_source_uri(asset_id) -> str | None:
     """
     found = _rows(_VECTOR_SOURCE_URI, [str(asset_id)])
     return found[0]["source_uri"] if found else None
+
+
+def document_pdf(asset_id) -> dict | None:
+    """Where an active document's PDF is, or None if there is nothing to serve.
+
+    `pdf_uri`, `filename` and `content_hash`. None covers every miss alike —
+    no such id, a superseded row, another modality, and a document whose PDF
+    the catalog never recorded — because each is the same 404 to the caller.
+
+    The path can be stale: after a PDF is moved in bronze the data platform
+    re-stamps the bundle but leaves `pdf_uri` until the next reindex, on
+    purpose (gobase `orchestration/tests/test_assets.py`). The lake then
+    answers 404 and the endpoint 502.
+    """
+    found = _rows(_DOCUMENT_PDF, [str(asset_id)])
+    if not found or found[0]["pdf_uri"] is None:
+        return None
+    return found[0]
 
 
 def _layers_for(asset_id, modality: str) -> list[dict]:

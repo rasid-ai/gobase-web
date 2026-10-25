@@ -23,6 +23,7 @@ export * from './changePasswordRequest';
 export * from './dataset';
 export * from './datasetList';
 export * from './dataTypeCount';
+export * from './document';
 export * from './health';
 export * from './kindEnum';
 export * from './launchedRun';

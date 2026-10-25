@@ -747,8 +747,9 @@ components:
         name:
           type: string
           readOnly: true
-          description: Derived from the asset's source path, extension removed. The
-            catalog has no name column (docs/adr/010).
+          description: Derived from the asset's source path, extension removed — the
+            catalog has no name column (docs/adr/010). A document is named after its
+            PDF instead, extension kept (docs/adr/017).
         data_type:
           type: string
           readOnly: true
@@ -806,6 +807,12 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+        document:
+          allOf:
+          - $ref: '#/components/schemas/Document'
+          readOnly: true
+          nullable: true
+          description: Set for a document; null for every other data type.
       required:
       - asset_id
       - bbox
@@ -813,6 +820,7 @@ components:
       - data_type
       - dataset
       - dataset_label
+      - document
       - format
       - ingested_at
       - name
@@ -889,6 +897,29 @@ components:
           readOnly: true
       required:
       - results
+    Document:
+      type: object
+      description: What a document carries beyond the columns every asset shares.
+      properties:
+        title:
+          type: string
+          readOnly: true
+          nullable: true
+          description: The title the parser read from the PDF. Often missing, or a
+            heading.
+        pages:
+          type: integer
+          readOnly: true
+          nullable: true
+        pdf:
+          type: boolean
+          readOnly: true
+          description: Whether the catalog records the PDF the document was parsed
+            from, and so whether /api/catalog/assets/{id}/pdf can serve it.
+      required:
+      - pages
+      - pdf
+      - title
     Health:
       type: object
       properties:
