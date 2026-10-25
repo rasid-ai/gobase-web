@@ -206,6 +206,15 @@ geo-portal/
    and a bbox. The only third-party call the backend makes, and the only
    one the frontend is not allowed to make itself. Nothing is stored or
    cached (docs/adr/011, context/integrations/esri.md).
+6. **Semantic search:** a typed question → `GET
+   /api/catalog/assets/similar?q=` → the backend has GoDoc's RAG server
+   (the data platform's document service, `POST /rag/embed`) embed it with
+   the model that embedded the catalog's cards → a cosine search over
+   `doc_cards` in `kb`, filtered to that model → the closest assets as
+   list rows with a score and their dataset's extent. Cards only, never the
+   chunk index; meaning only, no place. Unreachable is 503, refused is 502,
+   and a blank `GODOC_URL` is 503 before any call (docs/adr/018,
+   context/integrations/godoc.md).
 
 ## Invariants (the AI must never violate)
 

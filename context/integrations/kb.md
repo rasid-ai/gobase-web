@@ -143,8 +143,8 @@ the `vector` (pgvector) extension in `kb`.
 | `pdf_uri` | **the PDF itself, in bronze**: `s3://geobase-bronze/raw/<tree>/<name>.pdf`. Null for a bundle loaded without its source stamp |
 | `chunks_uri`, `chunker_id`, `embedder_id`, `dim`, `n_chunks` | the chunk table (one LanceDB table per embedder, on silver) and how it was built |
 
-`doc_cards` holds one pgvector per document. Chunks are not in Postgres at
-all; `v_queryable_documents` is the active-only view over the join.
+Chunks are not in Postgres at all; `v_queryable_documents` is the
+active-only view over the join.
 
 **`doc_documents` must exist in production before this portal build ships.**
 Every catalog read LEFT JOINs it (`_DOCUMENTS` in `apps/catalog/kb.py`), so
@@ -161,6 +161,33 @@ What the portal makes of it (docs/adr/017): a document is named after
 `/api/catalog/assets/{id}/pdf`; `assets.bytes` is always 0 for a document,
 so the page shows `pages` instead; and `assets.content_hash` is the PDF's own
 sha256, which is the endpoint's ETag.
+
+### `public.doc_cards` — one embedding per document
+
+| column | notes |
+|---|---|
+| `card_id`, `asset_id` | the card, and the `assets` row it describes |
+| `embedder_id` | the model that made it — `BAAI/bge-small-en-v1.5` for every live card |
+| `vector` | `vector` with **no fixed dimension**, because it varies by model (384 for bge-small). Unit length, so cosine (`<=>`) is the operator |
+
+What was embedded is the card text — title, headings and the first words —
+which is also what `assets.summary` holds for a document. One card per
+(asset, model); in practice one per document. Indexes: only the primary key
+and a btree on `asset_id`. **No ANN index**: a cosine search is a
+sequential scan, which is fine at this size, and the data platform adds a
+per-embedder partial index when the table earns it.
+
+The portal's semantic search (`similar_assets` in `apps/catalog/kb.py`,
+docs/adr/018) joins the browse CTE to the cards of one model — the one the
+embedding service names for the question — and binds the query vector as
+pgvector's text form, `'[0.1,0.2,…]'::vector`, so no pgvector adapter is
+needed on the driver. It never names a modality: any asset with a card
+comes back.
+
+Beside each match it returns the dataset's extent, `ST_Extent` over the
+dataset's active assets. **`airports` has no asset with an extent**, and
+every live card is in `airports`, so that box is null for all of them
+today.
 
 ## Views
 
