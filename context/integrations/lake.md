@@ -10,7 +10,8 @@ Read on 2026-09-11 against MinIO and DuckDB 1.5.5.
 ## What talks to it
 
 `backend/apps/map/lake.py`, and nothing else. It is the only module that
-imports `duckdb`. Everything above it speaks GeoJSON.
+imports `duckdb`. Everything above it speaks GeoJSON — or, for a document's
+PDF, bytes (see "Reading one object whole").
 
 DuckDB reads the lake only. It never touches Postgres — `kb` stays on Django's
 connection and its read-only role (docs/adr/002).
@@ -35,9 +36,14 @@ Blank credentials are meaningful, not missing: the secret is then created with
 `PROVIDER credential_chain`, so DuckDB picks up an instance role. That is how
 AWS is reached without static keys on the host.
 
-Locally the bucket is the `minio` container on port 9000. It must be running
-for anything that reads the lake; the catalog will happily hand out URIs to
-objects nothing is serving.
+Locally the buckets are on the `minio` container on port 9000. It must be
+running for anything that reads the lake; the catalog will happily hand out
+URIs to objects nothing is serving.
+
+There are two buckets, `geobase-silver` (GeoParquet, parsed bundles, the
+chunk index) and `geobase-bronze` (the raw files as synced in), and the one
+set of credentials covers both. Until 2026-10-19 the portal read silver only;
+a document's PDF is the first thing it reads from bronze (docs/adr/017).
 
 ## Two things that cost time to find
 
@@ -193,6 +199,22 @@ output has to be JSON a browser accepts:
 "Required module 'pytz' failed to import". A value that stays inside DuckDB
 never needs it. Note that `DESCRIBE` on those files always worked — it reads no
 values — so a check that only describes a file will not catch this.
+
+## Reading one object whole
+
+`read_blob(uri)` returns an object's bytes in one piece — `SELECT content
+FROM read_blob(?)` through the same connection and the same secret. It
+exists for a document's PDF, which the data platform leaves in bronze and
+names in `doc_documents.pdf_uri` (docs/adr/017). Whole, not streamed:
+DuckDB's `read_blob` has no streaming form, and a PDF is hundreds of
+kilobytes. A multi-gigabyte object would need another reader, and that is
+the point at which a streaming S3 client earns its place in requirements.
+
+Failures classify the same way as a features read. A missing key comes back
+as an `HTTPException` whose message carries `HTTP 404`, which is a
+`LakeReadError` (502); a dead endpoint is `LakeUnavailable` (503). Verified
+against the local MinIO on 2026-10-19: a 359 KB PDF read in one call, and a
+made-up key raised the 404.
 
 ## Failures
 

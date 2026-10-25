@@ -41,8 +41,8 @@ features resolve against.
 | `content_hash` | `text` | unique; the deduplication key |
 | `source_uri` | `text` | where it came from |
 | `topic_path` | `ltree` | hierarchical topic, e.g. `imagery` |
-| `modality` | `text` | **the "data type" of specs/map.md** — e.g. `raster` |
-| `format` | `text` | e.g. `cog` |
+| `modality` | `text` | **the "data type" of specs/map.md** — `vector`, `raster`, `unparsed`, `document` |
+| `format` | `text` | e.g. `cog`; for a document, the parser that read it (`mineru`). The portal shows a document's file format instead, `pdf` from `pdf_uri`, and keeps the parser in the detail as `parser` (docs/adr/017) |
 | `sidecars` | `text[]` | |
 | `bytes` | `bigint` | |
 | `extent` | `geometry(GEOMETRY, 4326)` | **coverage / footprint** |
@@ -71,7 +71,9 @@ portal reads it with no fallback, so the two repos deploy together
 - **"name"** → nothing. There is no name or title column. The portal derives
   one for the Assets page: the basename of `source_uri` with its extension
   removed, computed in SQL so display, search and sorting agree
-  (docs/adr/010).
+  (docs/adr/010). A document is the exception: its `source_uri` is the
+  parsed bundle, so it is named after `doc_documents.pdf_uri` instead,
+  extension kept (docs/adr/017).
 - **"coverage" / "footprint"** → `extent`. One column, SRID 4326, generic
   `GEOMETRY` so it may hold more than polygons.
 - **asset UUID** (citations) → `asset_id`, a native `uuid`.
@@ -125,12 +127,48 @@ JSON column by its type id (114, 3802), not by name.
 The field set genuinely differs by modality, which is why the spec refuses to
 pin one.
 
+## `public.doc_documents` — the documents
+
+One row per PDF the data platform parsed, beside its `assets` row
+(`modality = 'document'`; `format` is the parser, `mineru` today). Added by
+gobase on its `feature/godoc_document_integration` branch (2026-10-17); needs
+the `vector` (pgvector) extension in `kb`.
+
+| column | notes |
+|---|---|
+| `document_id`, `asset_id` | the row, and its `assets` row |
+| `title` | what the parser read as the title — often missing, or a heading ("1. Introduction") |
+| `headings` (`text[]`), `lang`, `pages` | |
+| `bundle_uri` | the parsed bundle in silver, `…/documents/<tree>/<stem>.bundle.zip` — the same value as `assets.source_uri` |
+| `pdf_uri` | **the PDF itself, in bronze**: `s3://geobase-bronze/raw/<tree>/<name>.pdf`. Null for a bundle loaded without its source stamp |
+| `chunks_uri`, `chunker_id`, `embedder_id`, `dim`, `n_chunks` | the chunk table (one LanceDB table per embedder, on silver) and how it was built |
+
+`doc_cards` holds one pgvector per document. Chunks are not in Postgres at
+all; `v_queryable_documents` is the active-only view over the join.
+
+**`doc_documents` must exist in production before this portal build ships.**
+Every catalog read LEFT JOINs it (`_DOCUMENTS` in `apps/catalog/kb.py`), so
+a `kb` without the table fails the Assets page outright — the same
+deploy-together rule as `dataset`.
+
+**`pdf_uri` can be stale.** When a PDF is moved in bronze the data platform
+re-stamps the silver bundle but leaves `pdf_uri` until the next reindex, on
+purpose. The PDF endpoint then answers 502. The bundle object's
+`x-amz-meta-source-uri` is always current, if that ever matters.
+
+What the portal makes of it (docs/adr/017): a document is named after
+`pdf_uri`'s basename, extension kept; its bytes are served through
+`/api/catalog/assets/{id}/pdf`; `assets.bytes` is always 0 for a document,
+so the page shows `pages` instead; and `assets.content_hash` is the PDF's own
+sha256, which is the endpoint's ETag.
+
 ## Views
 
 - `v_queryable_layers` — `geo_layers` joined to active assets, `parquet_uri NOT NULL`.
 - `v_queryable_rasters` — `geo_raster_layers` joined to active assets.
+- `v_queryable_documents` — `doc_documents` joined to active assets.
 
-Both end with the asset's `dataset` column.
+All end with the asset's `dataset` column.
 - `v_inventory` — counts and bytes grouped by `topic_path, modality, format, status`.
 - `v_gaps` — failed assets and layers carrying notes.
 
@@ -149,7 +187,24 @@ Dagster's GraphQL API instead (docs/adr/004), not this table.
 This section is a snapshot and goes stale; check it against the database
 before trusting it. Earlier text is corrected rather than kept.
 
-### Now — read 2026-09-27
+### Now — read 2026-10-19
+
+The document chain has run locally (gobase on
+`feature/godoc_document_integration`, unmerged; pgvector installed in
+`geo_kb`). **4 `document` assets**, all in `airports`, `format = mineru`,
+each with a `doc_documents` row whose `pdf_uri` points into
+`geobase-bronze/raw/airports/`, and the PDF is there (1, 2, 8 and 4 pages;
+the largest is 359 KB). Their old `unparsed`/`pdf` rows are `status =
+'missing'` — the raw copies were trashed from silver once parsed — so the
+browse list shows each PDF once.
+
+Rows by modality: `vector` 47, `raster` 11, `document` 4, `unparsed` 31
+(4 of those are the missing PDF copies). The titles are what the parser
+found — "1. Introduction" for one, "TISO SOLUTIONS FOR SECURITY OF
+AIRPORT:" for another — which is why the page names a document after its
+file and shows the title second.
+
+### Then — read 2026-09-27
 
 **54 active assets** (89 rows: 12 superseded, 22 missing, 1 failed), across
 three modalities:

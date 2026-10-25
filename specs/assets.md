@@ -60,6 +60,28 @@ the page shows one derived from the asset's source path with the extension
 removed — `gis_osm_boundaries_07_1` (docs/adr/010). This is the name that
 sorting by name uses.
 
+**A document is the exception.** Its source path is the parsed bundle the
+data platform wrote, and nobody recognises `plan.bundle`; the page names it
+after the PDF it was parsed from, extension kept — `Beirut airport - Case
+Study - TiSO.pdf` (docs/adr/017). The title the parser read is shown under
+the name when there is one and it is not the name again. The catalog holds
+no size for a document, so the card shows its page count instead. Its
+format is its file's — `pdf` — not the parser that read it; the parser is
+in the detail on the map, as `parser`. Searching finds a document by its
+PDF's name and its title as well as the rest.
+
+## Opening a document's PDF
+
+A document card offers **Open PDF**. It opens the PDF in a new browser tab,
+in the browser's own viewer, fetched through the portal's API from the
+bronze bucket (docs/adr/017) — the browser never touches the bucket. While
+the file is fetched the button waits; if the file cannot be fetched the card
+says so in place, and the button is there to try again.
+
+The button is offered only when the catalog records the PDF. A document
+without one — a bundle loaded without its source stamp — shows no button,
+rather than one that fails.
+
 Data types are whatever the knowledge base says they are. Nothing on this
 page holds a list of them, groups by a known set, or gives one a colour the
 others do not get; every type is shown the same way, in the type's own
@@ -168,6 +190,12 @@ nowhere to go.
   a place. Drawing a rectangle and filtering to it arrives with the area
   question path (specs/map.md).
 - **Opening an asset in place.** Selecting an asset shows it on the map;
-  there is no detail view on this page.
+  there is no detail view on this page. A document's PDF opens in a new
+  tab, not in the page.
+- **Opening a PDF at a page or a passage.** The chunk index knows which
+  pages a passage is on; the tab opens at page one regardless. Nothing
+  records lines, so "open at a line" is not possible with this data.
+- **Searching documents by meaning**, or **by where their dataset is**.
+  Documents have no coverage of their own.
 - **Word-by-word or forgiving search**, and showing **why** an asset matched
   (which field held the text).
