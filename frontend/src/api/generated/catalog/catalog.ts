@@ -24,7 +24,9 @@ import type {
   AssetList,
   CatalogAssetListParams,
   CatalogDatasetListParams,
-  DatasetList
+  CatalogSimilarAssetsParams,
+  DatasetList,
+  SimilarAssets
 } from '../model';
 
 import { httpClient } from '../../http-client';
@@ -324,6 +326,149 @@ export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogD
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getCatalogDocumentPdfQueryOptions(assetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type catalogSimilarAssetsResponse200 = {
+  data: SimilarAssets
+  status: 200
+}
+
+export type catalogSimilarAssetsResponse400 = {
+  data: void
+  status: 400
+}
+
+export type catalogSimilarAssetsResponse502 = {
+  data: void
+  status: 502
+}
+
+export type catalogSimilarAssetsResponse503 = {
+  data: void
+  status: 503
+}
+
+export type catalogSimilarAssetsResponseSuccess = (catalogSimilarAssetsResponse200) & {
+  headers: Headers;
+};
+export type catalogSimilarAssetsResponseError = (catalogSimilarAssetsResponse400 | catalogSimilarAssetsResponse502 | catalogSimilarAssetsResponse503) & {
+  headers: Headers;
+};
+
+export type catalogSimilarAssetsResponse = (catalogSimilarAssetsResponseSuccess | catalogSimilarAssetsResponseError)
+
+export const getCatalogSimilarAssetsUrl = (params: CatalogSimilarAssetsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/catalog/assets/similar?${stringifiedParams}` : `/api/catalog/assets/similar`
+}
+
+/**
+ * The assets whose card is closest in meaning to a question.
+ *
+ * The map's Semantic mode (docs/adr/018). The question is embedded by the
+ * data platform's document service — the model that embedded the cards —
+ * and the catalog ranks its cards by cosine similarity. Cards only, in
+ * Postgres: the shallow search, never the chunk index. Meaning only: no
+ * place narrows it yet.
+ * @summary Assets matching a question
+ */
+export const catalogSimilarAssets = async (params: CatalogSimilarAssetsParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogSimilarAssetsResponse> => {
+
+  return httpClient<catalogSimilarAssetsResponse>(getCatalogSimilarAssetsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogSimilarAssetsQueryKey = (params?: CatalogSimilarAssetsParams,) => {
+    return [
+    `/api/catalog/assets/similar`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCatalogSimilarAssetsQueryOptions = <TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogSimilarAssetsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogSimilarAssets>>> = ({ signal }) => catalogSimilarAssets(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CatalogSimilarAssetsQueryResult = NonNullable<Awaited<ReturnType<typeof catalogSimilarAssets>>>
+export type CatalogSimilarAssetsQueryError = void
+
+
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogSimilarAssets>>,
+          TError,
+          Awaited<ReturnType<typeof catalogSimilarAssets>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogSimilarAssets>>,
+          TError,
+          Awaited<ReturnType<typeof catalogSimilarAssets>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Assets matching a question
+ */
+
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCatalogSimilarAssetsQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

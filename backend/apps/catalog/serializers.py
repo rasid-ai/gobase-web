@@ -456,3 +456,54 @@ class DatasetListSerializer(serializers.Serializer):
     """Every dataset holding at least one matching asset, ordered by label."""
 
     results = DatasetSerializer(many=True, read_only=True)
+
+
+class SimilarAssetsQuerySerializer(serializers.Serializer):
+    """A question or a sentence, and how many matches to return."""
+
+    q = serializers.CharField(
+        min_length=1,
+        max_length=500,
+        trim_whitespace=True,
+        help_text=(
+            "What you are looking for, in words. Embedded as typed and matched "
+            "against the catalog's cards by meaning, not by text."
+        ),
+    )
+    limit = serializers.IntegerField(default=10, min_value=1, max_value=50)
+
+
+class SimilarAssetSerializer(AssetListItemSerializer):
+    """A list row, plus how well it matched and where its dataset is."""
+
+    score = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Cosine similarity between the question and the asset's card: 1 is "
+            "identical. Bigger is better, and rows already come in that order."
+        ),
+    )
+    dataset_bbox = serializers.ListField(
+        read_only=True,
+        child=serializers.FloatField(),
+        allow_null=True,
+        min_length=4,
+        max_length=4,
+        help_text=(
+            "The envelope of every active asset in this asset's dataset, as "
+            "[min_lon, min_lat, max_lon, max_lat]. Null when none of them has coverage."
+        ),
+    )
+
+
+class SimilarAssetsSerializer(serializers.Serializer):
+    """The closest matches to a question, best first."""
+
+    embedder = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The model that embedded the question. Only the cards made by the "
+            "same model are searched."
+        ),
+    )
+    results = SimilarAssetSerializer(many=True, read_only=True)

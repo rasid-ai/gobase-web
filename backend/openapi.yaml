@@ -283,6 +283,53 @@ paths:
           description: The PDF could not be read.
         '503':
           description: The lake could not be reached.
+  /api/catalog/assets/similar:
+    get:
+      operationId: catalog_similar_assets
+      description: |-
+        The assets whose card is closest in meaning to a question.
+
+        The map's Semantic mode (docs/adr/018). The question is embedded by the
+        data platform's document service — the model that embedded the cards —
+        and the catalog ranks its cards by cosine similarity. Cards only, in
+        Postgres: the shallow search, never the chunk index. Meaning only: no
+        place narrows it yet.
+      summary: Assets matching a question
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 10
+      - in: query
+        name: q
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description: What you are looking for, in words. Embedded as typed and matched
+          against the catalog's cards by meaning, not by text.
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarAssets'
+          description: ''
+        '400':
+          description: Missing or empty text, or a limit out of range.
+        '502':
+          description: The embedding service refused the question.
+        '503':
+          description: The embedding service is unreachable, or no URL is set for
+            it.
   /api/catalog/datasets:
     get:
       operationId: catalog_dataset_list
@@ -1383,6 +1430,134 @@ components:
       required:
       - key
       - value
+    SimilarAsset:
+      type: object
+      description: A list row, plus how well it matched and where its dataset is.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed — the
+            catalog has no name column (docs/adr/010). A document is named after its
+            PDF instead, extension kept (docs/adr/017).
+        data_type:
+          type: string
+          readOnly: true
+        format:
+          type: string
+          readOnly: true
+          nullable: true
+        dataset:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name as the catalog holds it: a folder of the
+            raw bucket.'
+        dataset_label:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name made readable: spaced and in sentence
+            case.'
+        topic_path:
+          type: string
+          readOnly: true
+          nullable: true
+        bytes:
+          type: integer
+          readOnly: true
+          nullable: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The asset's coverage as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326. Null when the asset has no coverage.
+          maxItems: 4
+          minItems: 4
+        summary:
+          type: string
+          readOnly: true
+          nullable: true
+        time_start:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        time_end:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ingested_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        document:
+          allOf:
+          - $ref: '#/components/schemas/Document'
+          readOnly: true
+          nullable: true
+          description: Set for a document; null for every other data type.
+        score:
+          type: number
+          format: double
+          readOnly: true
+          description: 'Cosine similarity between the question and the asset''s card:
+            1 is identical. Bigger is better, and rows already come in that order.'
+        dataset_bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The envelope of every active asset in this asset's dataset,
+            as [min_lon, min_lat, max_lon, max_lat]. Null when none of them has coverage.
+          maxItems: 4
+          minItems: 4
+      required:
+      - asset_id
+      - bbox
+      - bytes
+      - data_type
+      - dataset
+      - dataset_bbox
+      - dataset_label
+      - document
+      - format
+      - ingested_at
+      - name
+      - score
+      - summary
+      - time_end
+      - time_start
+      - topic_path
+    SimilarAssets:
+      type: object
+      description: The closest matches to a question, best first.
+      properties:
+        embedder:
+          type: string
+          readOnly: true
+          description: The model that embedded the question. Only the cards made by
+            the same model are searched.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SimilarAsset'
+          readOnly: true
+      required:
+      - embedder
+      - results
     Trigger:
       type: object
       description: |-

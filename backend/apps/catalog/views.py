@@ -1,23 +1,31 @@
 """The Catalog API: browsing everything the knowledge base holds."""
 
+import logging
+
+from django.conf import settings
 from django.http import HttpResponse, HttpResponseNotModified
 from django.utils.http import content_disposition_header, parse_etags
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.map import lake
 from apps.map.http import LakeFailed, LakeUnreachable, cacheable
 
-from . import kb
+from . import godoc, kb
 from .serializers import (
     AssetListQuerySerializer,
     AssetListSerializer,
     DatasetListQuerySerializer,
     DatasetListSerializer,
+    SimilarAssetsQuerySerializer,
+    SimilarAssetsSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AssetListView(APIView):
@@ -155,3 +163,73 @@ class DocumentPdfView(APIView):
         response["Content-Disposition"] = content_disposition_header(False, document["filename"])
         response["Content-Length"] = str(len(data))
         return cacheable(response, etag)
+
+
+class SemanticSearchUnreachable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Semantic search is unavailable"
+
+
+class SemanticSearchFailed(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Semantic search returned an error"
+
+
+class SimilarAssetsView(APIView):
+    """The assets whose card is closest in meaning to a question.
+
+    The map's Semantic mode (docs/adr/018). The question is embedded by the
+    data platform's document service — the model that embedded the cards —
+    and the catalog ranks its cards by cosine similarity. Cards only, in
+    Postgres: the shallow search, never the chunk index. Meaning only: no
+    place narrows it yet.
+    """
+
+    @extend_schema(
+        parameters=[SimilarAssetsQuerySerializer],
+        responses={
+            200: SimilarAssetsSerializer,
+            400: OpenApiResponse(description="Missing or empty text, or a limit out of range."),
+            502: OpenApiResponse(description="The embedding service refused the question."),
+            503: OpenApiResponse(
+                description="The embedding service is unreachable, or no URL is set for it."
+            ),
+        },
+        operation_id="catalog_similar_assets",
+        summary="Assets matching a question",
+        tags=["catalog"],
+    )
+    def get(self, request):
+        query = SimilarAssetsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        asked = query.validated_data
+
+        # Checked before the call, not after it: with no URL every request
+        # would spend a round trip to be told the same thing. The detail
+        # differs from the unreachable one so an operator can tell the two
+        # apart in the log, while the caller sees one message.
+        if not settings.GODOC_URL:
+            logger.warning("Semantic search asked for, but no GoDoc URL is configured")
+            raise SemanticSearchUnreachable("Semantic search is not configured")
+
+        model, vector = _embed(asked["q"])
+        results = kb.similar_assets(vector, model, asked["limit"])
+        return Response(SimilarAssetsSerializer({"embedder": model, "results": results}).data)
+
+
+def _embed(text: str) -> tuple[str, list[float]]:
+    """Embed the question, turning the service's two failure modes into HTTP ones.
+
+    Unreachable is 503 (try again later); a refused request is 502 (it is up
+    and saying no). Neither is a 500: the portal itself is fine. The upstream
+    message stays in the log, as with the geocoder (apps/places/views.py) —
+    and the question itself never reaches the log at all.
+    """
+    try:
+        return godoc.embed(text)
+    except godoc.GoDocUnavailable as exc:
+        logger.warning("GoDoc unreachable: %s", exc)
+        raise SemanticSearchUnreachable() from exc
+    except godoc.GoDocError as exc:
+        logger.warning("GoDoc error: %s", exc)
+        raise SemanticSearchFailed() from exc
