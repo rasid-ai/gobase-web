@@ -8,9 +8,19 @@ import { openDocumentPdf } from './openDocument'
  * button waits; if they cannot be fetched it says so beside itself, in place,
  * and the button is there to try again.
  *
- * The caller passes the classes, so the button looks like whatever surrounds it.
+ * Used by the Assets page's cards and by the map's semantic results, so the
+ * button's look is the caller's.
  */
-export function OpenPdf({ assetId, className }: { assetId: string; className: string }) {
+export function OpenPdf({
+  assetId,
+  className,
+  label = 'Open PDF',
+}: {
+  assetId: string
+  className: string
+  /** The button's text: "Open PDF" on a card, plain "Open" beside Draw in a row. */
+  label?: string
+}) {
   const [state, setState] = useState<'idle' | 'opening' | 'failed'>('idle')
 
   async function open() {
@@ -27,7 +37,7 @@ export function OpenPdf({ assetId, className }: { assetId: string; className: st
         </span>
       )}
       <button type="button" onClick={open} disabled={state === 'opening'} className={className}>
-        Open PDF
+        {label}
       </button>
     </>
   )

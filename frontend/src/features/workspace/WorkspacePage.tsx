@@ -21,6 +21,7 @@ import { AssetPane, type PanePlace } from './AssetPanel'
 import { DrawArea } from './DrawArea'
 import { LayersPanel } from './LayersPanel'
 import { PlaceSearch } from './PlaceSearch'
+import { SemanticPane } from './SemanticPane'
 import type { Coordinates } from './coordinates'
 import { type Ring, areaFeature, serializeArea } from './drawnArea'
 import {
@@ -54,14 +55,18 @@ import 'maplibre-gl/dist/maplibre-gl.css'
  * Draw-area was taken out while it could only switch and then do nothing. It
  * is back because it now filters the catalog and scopes drawn layers to the
  * polygon (docs/adr/014); the question it will one day carry is still GP-7's.
+ *
+ * Semantic is the one mode a click does nothing in: the question is typed in
+ * the pane, and the map only shows what the matches point at (docs/adr/018).
  */
-const MODES = ['navigate', 'point', 'area'] as const
+const MODES = ['navigate', 'point', 'area', 'semantic'] as const
 type Mode = (typeof MODES)[number]
 
 const MODE_LABEL: Record<Mode, string> = {
   navigate: 'Navigate',
   point: 'Point',
   area: 'Draw area',
+  semantic: 'Semantic',
 }
 
 const OSM: StyleSpecification = {
@@ -126,6 +131,9 @@ function MapWorkspace() {
   const [mode, setMode] = useState<Mode>('point')
   const [point, setPoint] = useState<Point | null>(null)
   const [clickedId, setClickedId] = useState<string | null>(null)
+  // The semantic question, kept here so switching modes and back finds the
+  // matches where they were.
+  const [question, setQuestion] = useState('')
   // Set once the map reports its first load. The draw tool waits on it; see
   // DrawArea for why MapLibre's own readiness check cannot be used.
   const [mapReady, setMapReady] = useState(false)
@@ -374,7 +382,7 @@ function MapWorkspace() {
         onClick={onMapClick}
         onLoad={onLoad}
         onMoveEnd={onMoveEnd}
-        cursor={mode === 'navigate' ? 'grab' : 'crosshair'}
+        cursor={mode === 'navigate' || mode === 'semantic' ? 'grab' : 'crosshair'}
         style={{ position: 'absolute', inset: 0 }}
       >
         {point ? (
@@ -456,16 +464,31 @@ function MapWorkspace() {
         Clearing a selection keeps the list open — deselecting returns you to
         it. Drawn layers are untouched: they outlive the selection
         (docs/adr/008).
+
+        In Semantic mode the pane is the question and its matches instead.
+        The point and the area are not cleared by the switch; their pane
+        comes back, keyed as before, when the mode does.
       */}
-      <AssetPane
-        key={placeKey}
-        place={place}
-        label={drawnArea ? 'Assets in this area' : 'Assets at this point'}
-        selected={selected}
-        selectedId={selectedId}
-        onSelect={select}
-        onDraw={draw}
-      />
+      {mode === 'semantic' ? (
+        <SemanticPane
+          question={question}
+          onAsk={setQuestion}
+          selected={selected}
+          selectedId={selectedId}
+          onSelect={select}
+          onDraw={draw}
+        />
+      ) : (
+        <AssetPane
+          key={placeKey}
+          place={place}
+          label={drawnArea ? 'Assets in this area' : 'Assets at this point'}
+          selected={selected}
+          selectedId={selectedId}
+          onSelect={select}
+          onDraw={draw}
+        />
+      )}
     </div>
   )
 }

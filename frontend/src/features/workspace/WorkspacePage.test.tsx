@@ -4,13 +4,18 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getCatalogAssetListUrl, getCatalogDatasetListUrl } from '@/api/generated/catalog/catalog'
-import { getMapAssetDataUrl } from '@/api/generated/map/map'
+import {
+  getCatalogAssetListUrl,
+  getCatalogDatasetListUrl,
+  getCatalogSimilarAssetsUrl,
+} from '@/api/generated/catalog/catalog'
+import { getMapAssetDataUrl, getMapAssetDetailUrl } from '@/api/generated/map/map'
 import type { Bbox } from '@/features/places/bbox'
 import { serializeBbox } from '@/features/places/bbox'
-import { mockFetch, renderApp, resetSession } from '@/test/harness'
+import { fakeTab, forgetTab, mockFetch, renderApp, resetSession } from '@/test/harness'
 
 import { PANE_LIMIT, type PanePlace } from './AssetPanel'
+import { MATCHES } from './SemanticPane'
 import { type Ring, serializeArea } from './drawnArea'
 import { PAGE_BUDGET, PAGE_SIZE } from './useAssetFeatures'
 import { windowFor } from './view'
@@ -785,7 +790,7 @@ describe('drawing an area', () => {
       within(modes)
         .getAllByRole('radio')
         .map((mode) => mode.textContent),
-    ).toEqual(['Navigate', 'Point', 'Draw area'])
+    ).toEqual(['Navigate', 'Point', 'Draw area', 'Semantic'])
   })
 
   it('lists the assets overlapping the drawn area', async () => {
@@ -1134,5 +1139,202 @@ describe('the detail pane', () => {
     await user.click(within(panel).getByRole('button', { name: 'Collapse details' }))
     expect(within(panel).queryByRole('table')).toBeNull()
     expect(panel.className).toBe(narrow)
+  })
+})
+
+/** The fourth mode: a question, and the assets closest to it (docs/adr/018). */
+describe('semantic search', () => {
+  const DOC_ID = 'cccccccc-dddd-eeee-ffff-000000000000'
+  const DOC_NAME = 'Beirut airport - Case Study - TiSO.pdf'
+  const QUESTION = 'airport security'
+  const MATCHES_URL = `GET ${getCatalogSimilarAssetsUrl({ q: QUESTION, limit: MATCHES })}`
+  const PDF_URL = `GET /api/catalog/assets/${DOC_ID}/pdf`
+  const ROADS_DETAIL_URL = `GET ${getMapAssetDetailUrl(ASSET_ID)}`
+
+  /** A matched document: no coverage of its own, and none in its dataset either. */
+  function documentMatch(overrides: Record<string, unknown> = {}) {
+    return {
+      ...asset(DOC_ID, DOC_NAME),
+      data_type: 'document',
+      format: 'pdf',
+      dataset: 'airports',
+      dataset_label: 'Airports',
+      topic_path: 'airports',
+      bytes: 0,
+      bbox: null,
+      document: { title: 'TISO solutions', pages: 8, pdf: true },
+      score: 0.71,
+      dataset_bbox: null,
+      ...overrides,
+    }
+  }
+
+  /** A matched vector file. Its dataset's coverage rides along, unused by the pane for now. */
+  function roadsMatch() {
+    return {
+      ...asset(ASSET_ID, 'roads'),
+      document: null,
+      score: 0.5,
+      dataset_bbox: [35.1, 33.0, 36.6, 34.7],
+    }
+  }
+
+  function answered(results: unknown[]) {
+    return { [MATCHES_URL]: { status: 200, body: { embedder: 'bge', results } } }
+  }
+
+  function roadsDetail() {
+    return {
+      asset_id: ASSET_ID,
+      name: 'roads',
+      data_type: 'vector',
+      metadata: { format: 'geoparquet' },
+      footprint: null,
+    }
+  }
+
+  /** Switch to Semantic, type the question, send it, and hand back the pane. */
+  async function ask(user: ReturnType<typeof userEvent.setup>, text = QUESTION) {
+    await user.click(await screen.findByRole('radio', { name: 'Semantic' }))
+    const panel = await screen.findByRole('complementary', { name: 'Semantic search' })
+    await user.type(within(panel).getByLabelText('Describe what you are looking for'), text)
+    await user.click(within(panel).getByRole('button', { name: 'Search' }))
+    return panel
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    forgetTab()
+  })
+
+  it('asks nothing until the question is sent, and nothing for a click', async () => {
+    const { calls } = mockFetch(session())
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    await user.click(await screen.findByRole('radio', { name: 'Semantic' }))
+    const panel = await screen.findByRole('complementary', { name: 'Semantic search' })
+    await user.type(within(panel).getByLabelText('Describe what you are looking for'), 'airport')
+    // One request per question, on submit — never one per keystroke.
+    expect(calls.some((call) => call.includes('/assets/similar'))).toBe(false)
+
+    // A click in this mode belongs to the map, like Navigate.
+    await user.click(screen.getByRole('button', { name: 'map surface' }))
+    expect(calls).not.toContain(POINT_URL)
+  })
+
+  it('lists the matches for a question, best first', async () => {
+    const { calls } = mockFetch({ ...session(), ...answered([documentMatch(), roadsMatch()]) })
+    const user = userEvent.setup()
+    renderApp('/map')
+
+    const panel = await ask(user)
+
+    expect(await within(panel).findByText('Matches · 2')).toBeInTheDocument()
+    expect(calls.filter((call) => call === MATCHES_URL)).toHaveLength(1)
+    const rows = within(panel)
+      .getAllByRole('button', { name: /^Details for / })
+      .map((row) => row.getAttribute('aria-label'))
+    expect(rows).toEqual([`Details for ${DOC_NAME}`, 'Details for roads'])
+    // A match is not inside a dataset the way a point's files are, so the
+    // row says which one it is in; and a document's format is its file's.
+    expect(within(panel).getByText('Airports · document · pdf')).toBeInTheDocument()
+    expect(within(panel).getByText('Road network · vector · geoparquet')).toBeInTheDocument()
+    // Every row can be drawn, as in every other list; the one with nothing
+    // to draw says so when asked (specs/map.md). A document adds Open, and
+    // nothing else does.
+    expect(within(panel).getByRole('button', { name: `Draw ${DOC_NAME}` })).toBeInTheDocument()
+    expect(within(panel).getAllByRole('button', { name: 'Open' })).toHaveLength(1)
+  })
+
+  it("opens a matched document's PDF in a new tab", async () => {
+    const tab = fakeTab()
+    mockFetch({
+      ...session(),
+      ...answered([documentMatch()]),
+      [PDF_URL]: { status: 200, blob: new Blob(['%PDF-'], { type: 'application/pdf' }) },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await ask(user)
+
+    await user.click(await within(panel).findByRole('button', { name: 'Open' }))
+
+    expect(window.open).toHaveBeenCalledWith('', '_blank')
+    await waitFor(() => expect(tab.location.href).toBe('blob:pdf'))
+  })
+
+  it('offers no PDF for a match whose PDF the catalog does not record', async () => {
+    const unrecorded = documentMatch({ document: { title: null, pages: 2, pdf: false } })
+    mockFetch({ ...session(), ...answered([unrecorded]) })
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await ask(user)
+
+    await within(panel).findByText('Matches · 1')
+    expect(within(panel).queryByRole('button', { name: 'Open' })).toBeNull()
+  })
+
+  it('keeps the question and its matches across a switch of mode', async () => {
+    mockFetch({ ...session(), ...answered([roadsMatch()]) })
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await ask(user)
+    await within(panel).findByText('Matches · 1')
+
+    await user.click(screen.getByRole('radio', { name: 'Point' }))
+    expect(screen.queryByRole('complementary', { name: 'Semantic search' })).toBeNull()
+
+    await user.click(screen.getByRole('radio', { name: 'Semantic' }))
+    const again = await screen.findByRole('complementary', { name: 'Semantic search' })
+    expect(await within(again).findByText('Matches · 1')).toBeInTheDocument()
+    expect(within(again).getByLabelText('Describe what you are looking for')).toHaveValue(QUESTION)
+  })
+
+  it("opens a match's detail, and clearing it returns to the matches", async () => {
+    mockFetch({
+      ...session(),
+      ...answered([roadsMatch()]),
+      [ROADS_DETAIL_URL]: { status: 200, body: roadsDetail() },
+    })
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await ask(user)
+
+    await user.click(await within(panel).findByRole('button', { name: 'Details for roads' }))
+    const detailPane = await screen.findByRole('complementary', { name: 'Selected asset' })
+    expect(within(detailPane).getByRole('heading', { name: 'roads' })).toBeInTheDocument()
+
+    await user.click(within(detailPane).getByRole('button', { name: 'Clear' }))
+    const back = await screen.findByRole('complementary', { name: 'Semantic search' })
+    expect(within(back).getByText('Matches · 1')).toBeInTheDocument()
+  })
+
+  it('says so when the service is unavailable', async () => {
+    mockFetch({ ...session(), [MATCHES_URL]: { status: 503, body: { detail: 'no' } } })
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await ask(user)
+
+    expect(await within(panel).findByText('Semantic search is unavailable.')).toBeInTheDocument()
+  })
+
+  it('offers to try again when the search fails', async () => {
+    mockFetch({ ...session(), [MATCHES_URL]: { status: 500, body: {} } })
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await ask(user)
+
+    expect(await within(panel).findByText('Matches could not be loaded.')).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+
+  it('says when nothing matches', async () => {
+    mockFetch({ ...session(), ...answered([]) })
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await ask(user)
+
+    expect(await within(panel).findByText('Nothing matches that.')).toBeInTheDocument()
   })
 })
