@@ -513,6 +513,71 @@ def document_pdf(asset_id) -> dict | None:
     return found[0]
 
 
+# Similarity, for the map's Semantic mode (docs/adr/018). The browse CTE again,
+# so a match is exactly a list row, joined to the card embedded by the same
+# model as the question. Cards exist for documents today, and the join names
+# no modality on purpose: a video's or an image's card would come back the
+# same way. `<=>` is cosine distance and the cards are unit vectors, so this
+# is the ranking the data platform's own search gives
+# (gobase/modalities/document/store.py). A sequential scan, which is fine
+# until there is an ANN index — the data platform adds one per embedder when
+# the table earns it.
+#
+# The dataset's extent rides beside each match: a document has no coverage of
+# its own, and "where is this about" is answered by the dataset it sits in.
+_SIMILAR = """
+    SELECT catalog.*, 1 - (card.vector <=> %s::vector) AS score,
+           ST_XMin(span.box) AS dataset_min_lon, ST_YMin(span.box) AS dataset_min_lat,
+           ST_XMax(span.box) AS dataset_max_lon, ST_YMax(span.box) AS dataset_max_lat
+    FROM catalog
+    JOIN doc_cards card ON card.asset_id = catalog.asset_id AND card.embedder_id = %s
+    LEFT JOIN LATERAL (
+        SELECT ST_Extent(extent) AS box FROM assets span
+        WHERE span.dataset = catalog.dataset AND span.status = 'active'
+    ) span ON true
+    ORDER BY score DESC, catalog.asset_id
+    LIMIT %s
+"""
+
+
+def _vector_literal(vector) -> str:
+    """A vector in pgvector's text form, `[0.1,0.2,...]`, bound as text and cast in SQL.
+
+    The way the data platform binds one (gobase `core/results.py`): the driver
+    sees a string, and no pgvector adapter is needed.
+    """
+    return "[" + ",".join(repr(float(value)) for value in vector) + "]"
+
+
+def similar_assets(vector, embedder_id: str, limit: int) -> list[dict]:
+    """The assets whose card is closest to `vector`, best first.
+
+    `embedder_id` must name the model that produced `vector`: the cards of any
+    other model are left out rather than ranked against a vector they cannot
+    be compared with. No place — this is meaning only (docs/adr/018).
+    """
+    catalog, place = _catalog()
+    rows = _rows(f"{catalog}{_SIMILAR}", [*place, _vector_literal(vector), embedder_id, limit])
+    return [_similar_item(row) for row in rows]
+
+
+def _similar_item(row: dict) -> dict:
+    """A list row, plus how well it matched and where its dataset is."""
+    corners = [
+        row["dataset_min_lon"],
+        row["dataset_min_lat"],
+        row["dataset_max_lon"],
+        row["dataset_max_lat"],
+    ]
+    return {
+        **_list_item(row),
+        "score": float(row["score"]),
+        # The same rule as a row's own bbox: no coverage anywhere in the
+        # dataset is null, not a box.
+        "dataset_bbox": corners if None not in corners else None,
+    }
+
+
 def _layers_for(asset_id, modality: str) -> list[dict]:
     """Layer rows for an asset, keyed for a flat metadata view.
 

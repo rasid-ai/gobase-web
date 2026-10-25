@@ -170,6 +170,62 @@ class TestDocuments:
         assert kb.document_pdf("cd8173bb-65ef-4bab-8bec-2be34d7157b9") == found
 
 
+class TestSimilar:
+    """The card search behind the map's Semantic mode (docs/adr/018)."""
+
+    def test_a_vector_binds_in_pgvectors_text_form(self):
+        # Bound as text and cast in SQL, the way the data platform does it, so
+        # no pgvector adapter is needed on the driver.
+        assert kb._vector_literal([0.5, -1.0, 2]) == "[0.5,-1.0,2.0]"
+
+    def test_the_search_binds_the_vector_then_the_model_then_the_limit(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            kb, "_rows", lambda sql, params: calls.append((sql, list(params))) or []
+        )
+
+        kb.similar_assets([0.5, 0.25], "BAAI/bge-small-en-v1.5", 7)
+
+        ((sql, params),) = calls
+        assert params == ["[0.5,0.25]", "BAAI/bge-small-en-v1.5", 7]
+        # Only the cards of the model that embedded the question are ranked.
+        assert "card.embedder_id = %s" in sql
+        assert "card.vector <=> %s::vector" in sql
+        # Off the browse CTE, so superseded rows are already out.
+        assert "WHERE status = 'active'" in sql
+        assert "ORDER BY score DESC, catalog.asset_id" in sql
+        # Meaning only: no place narrows it.
+        assert "ST_MakeEnvelope" not in sql
+        assert "ST_MakePoint" not in sql
+
+    def test_a_match_is_a_list_row_plus_its_score_and_its_datasets_box(self):
+        row = _row(
+            score=0.7071,
+            dataset_min_lon=35.1,
+            dataset_min_lat=33.0,
+            dataset_max_lon=36.6,
+            dataset_max_lat=34.7,
+        )
+
+        item = kb._similar_item(row)
+
+        assert item["score"] == 0.7071
+        assert item["dataset_bbox"] == [35.1, 33.0, 36.6, 34.7]
+        assert item["name"] == "gis_osm_boundaries_07_1"
+        assert item["document"] is None
+        assert "source_uri" not in item
+
+    def test_a_dataset_with_no_coverage_has_no_box(self):
+        row = _row(
+            score=0.5,
+            dataset_min_lon=None,
+            dataset_min_lat=None,
+            dataset_max_lon=None,
+            dataset_max_lat=None,
+        )
+        assert kb._similar_item(row)["dataset_bbox"] is None
+
+
 def _row(**overrides):
     return {
         "asset_id": "cd8173bb-65ef-4bab-8bec-2be34d7157b9",
