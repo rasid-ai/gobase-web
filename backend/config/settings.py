@@ -222,6 +222,15 @@ ESRI_TIMEOUT_SECONDS = float(env("ESRI_TIMEOUT_SECONDS", "5"))
 # How many candidates one search may offer. The dropdown shows all of them.
 ESRI_MAX_CANDIDATES = int(env("ESRI_MAX_CANDIDATES", "5"))
 
+# GoDoc's RAG server — the data platform's document service, which embeds the
+# map's Semantic question with the same model that embedded the catalog's
+# cards (docs/adr/018). Only apps/catalog/godoc.py speaks to it;
+# context/integrations/godoc.md has the request shape. A blank URL is
+# meaningful rather than missing: the endpoint answers 503 and the map says
+# semantic search is unavailable, so the portal runs without the service.
+GODOC_URL = env("GODOC_URL", "")
+GODOC_TIMEOUT_SECONDS = float(env("GODOC_TIMEOUT_SECONDS", "10"))
+
 # --- the lake (S3-compatible object storage) --------------------------------
 # The silver bucket holds the GeoParquet the Map reads through DuckDB (GP-4).
 # Nothing here names a provider: RustFS, MinIO and AWS S3 differ only in these

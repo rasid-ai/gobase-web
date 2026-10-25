@@ -40,6 +40,9 @@ services:
       # reached through its published port on the host rather than by joining
       # its network — one less thing for this compose file to own.
       LAKE_S3_ENDPOINT: host.docker.internal:9000
+      # And for GoDoc's RAG server, which runs on the host too
+      # (context/integrations/godoc.md).
+      GODOC_URL: http://host.docker.internal:8003
       DJANGO_DEBUG: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
