@@ -189,6 +189,152 @@ export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAss
 
 
 
+export type catalogDocumentPdfResponse200 = {
+  data: Blob
+  status: 200
+}
+
+export type catalogDocumentPdfResponse304 = {
+  data: void
+  status: 304
+}
+
+export type catalogDocumentPdfResponse404 = {
+  data: void
+  status: 404
+}
+
+export type catalogDocumentPdfResponse502 = {
+  data: void
+  status: 502
+}
+
+export type catalogDocumentPdfResponse503 = {
+  data: void
+  status: 503
+}
+
+export type catalogDocumentPdfResponseSuccess = (catalogDocumentPdfResponse200) & {
+  headers: Headers;
+};
+export type catalogDocumentPdfResponseError = (catalogDocumentPdfResponse304 | catalogDocumentPdfResponse404 | catalogDocumentPdfResponse502 | catalogDocumentPdfResponse503) & {
+  headers: Headers;
+};
+
+export type catalogDocumentPdfResponse = (catalogDocumentPdfResponseSuccess | catalogDocumentPdfResponseError)
+
+export const getCatalogDocumentPdfUrl = (assetId: string,) => {
+
+
+
+
+  return `/api/catalog/assets/${assetId}/pdf`
+}
+
+/**
+ * The PDF behind one document, read from bronze.
+ *
+ * A document's `source_uri` is the parsed bundle in silver; the file a person
+ * wants to open is the PDF it was parsed from, which the data platform leaves
+ * in bronze and records in `doc_documents.pdf_uri`. The bytes come through
+ * here rather than through a link into the bucket because the browser never
+ * talks to the lake (docs/adr/011, docs/adr/017).
+ *
+ * Served whole and uncompressed — a PDF is already compressed — with a strong
+ * ETag: `content_hash` is the PDF's own sha256, so a revalidation is a
+ * catalog lookup and never a lake read. The client opens it in a new tab, so
+ * the body is `inline` and carries the file's name.
+ * @summary A document's PDF
+ */
+export const catalogDocumentPdf = async (assetId: string, options?: Parameters<typeof httpClient>[1]): Promise<catalogDocumentPdfResponse> => {
+
+  return httpClient<catalogDocumentPdfResponse>(getCatalogDocumentPdfUrl(assetId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogDocumentPdfQueryKey = (assetId: string,) => {
+    return [
+    `/api/catalog/assets/${assetId}/pdf`
+    ] as const;
+    }
+
+
+export const getCatalogDocumentPdfQueryOptions = <TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogDocumentPdfQueryKey(assetId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogDocumentPdf>>> = ({ signal }) => catalogDocumentPdf(assetId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CatalogDocumentPdfQueryResult = NonNullable<Awaited<ReturnType<typeof catalogDocumentPdf>>>
+export type CatalogDocumentPdfQueryError = void
+
+
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDocumentPdf>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDocumentPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDocumentPdf>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDocumentPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary A document's PDF
+ */
+
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCatalogDocumentPdfQueryOptions(assetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 export type catalogDatasetListResponse200 = {
   data: DatasetList
   status: 200

@@ -237,6 +237,52 @@ paths:
         '400':
           description: A filter that cannot be read, half a point, or more than one
             place.
+  /api/catalog/assets/{asset_id}/pdf:
+    get:
+      operationId: catalog_document_pdf
+      description: |-
+        The PDF behind one document, read from bronze.
+
+        A document's `source_uri` is the parsed bundle in silver; the file a person
+        wants to open is the PDF it was parsed from, which the data platform leaves
+        in bronze and records in `doc_documents.pdf_uri`. The bytes come through
+        here rather than through a link into the bucket because the browser never
+        talks to the lake (docs/adr/011, docs/adr/017).
+
+        Served whole and uncompressed — a PDF is already compressed — with a strong
+        ETag: `content_hash` is the PDF's own sha256, so a revalidation is a
+        catalog lookup and never a lake read. The client opens it in a new tab, so
+        the body is `inline` and carries the file's name.
+      summary: A document's PDF
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held.
+        '404':
+          description: No active document with that id, or one whose PDF the catalog
+            does not record.
+        '502':
+          description: The PDF could not be read.
+        '503':
+          description: The lake could not be reached.
   /api/catalog/datasets:
     get:
       operationId: catalog_dataset_list

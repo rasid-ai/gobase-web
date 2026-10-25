@@ -1,8 +1,15 @@
 """The Catalog API: browsing everything the knowledge base holds."""
 
+from django.http import HttpResponse, HttpResponseNotModified
+from django.utils.http import content_disposition_header, parse_etags
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from apps.map import lake
+from apps.map.http import LakeFailed, LakeUnreachable, cacheable
 
 from . import kb
 from .serializers import (
@@ -87,3 +94,64 @@ class DatasetListView(APIView):
             ingested_before=filters.get("ingested_before"),
         )
         return Response(DatasetListSerializer({"results": datasets}).data)
+
+
+class DocumentPdfView(APIView):
+    """The PDF behind one document, read from bronze.
+
+    A document's `source_uri` is the parsed bundle in silver; the file a person
+    wants to open is the PDF it was parsed from, which the data platform leaves
+    in bronze and records in `doc_documents.pdf_uri`. The bytes come through
+    here rather than through a link into the bucket because the browser never
+    talks to the lake (docs/adr/011, docs/adr/017).
+
+    Served whole and uncompressed — a PDF is already compressed — with a strong
+    ETag: `content_hash` is the PDF's own sha256, so a revalidation is a
+    catalog lookup and never a lake read. The client opens it in a new tab, so
+    the body is `inline` and carries the file's name.
+    """
+
+    @extend_schema(
+        responses={
+            (200, "application/pdf"): OpenApiTypes.BINARY,
+            304: OpenApiResponse(
+                description=(
+                    "The ETag sent in If-None-Match still matches; use the copy already held."
+                )
+            ),
+            404: OpenApiResponse(
+                description=(
+                    "No active document with that id, or one whose PDF the catalog does not record."
+                )
+            ),
+            502: OpenApiResponse(description="The PDF could not be read."),
+            503: OpenApiResponse(description="The lake could not be reached."),
+        },
+        operation_id="catalog_document_pdf",
+        summary="A document's PDF",
+        tags=["catalog"],
+    )
+    def get(self, request, asset_id):
+        # The bronze URI is resolved here and never leaves the server.
+        document = kb.document_pdf(asset_id)
+        if document is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        # Checked after the catalog, not before: a superseded document must
+        # answer 404, not tell the browser its old copy is still good.
+        etag = f'"{document["content_hash"]}"'
+        held = parse_etags(request.headers.get("If-None-Match", ""))
+        if etag in held or "*" in held:
+            return cacheable(HttpResponseNotModified(), etag)
+
+        try:
+            data = lake.read_blob(document["pdf_uri"])
+        except lake.LakeUnavailable as exc:
+            raise LakeUnreachable() from exc
+        except lake.LakeReadError as exc:
+            raise LakeFailed() from exc
+
+        response = HttpResponse(data, content_type="application/pdf")
+        response["Content-Disposition"] = content_disposition_header(False, document["filename"])
+        response["Content-Length"] = str(len(data))
+        return cacheable(response, etag)
