@@ -324,6 +324,36 @@ class TestPlace:
         page_params = run[0][1]
         assert page_params == [35.4, 33.8, 35.6, 34.0, r"%osm%", 12, 24]
 
+    def test_by_dataset_the_place_is_compared_with_the_dataset_coverage(self):
+        sql, params = kb._catalog([35.4, 33.8, 35.6, 34.0], coverage="dataset")
+
+        # A dataset covers what any of its active assets covers; an asset with
+        # no dataset has only its own coverage to go by (docs/adr/019).
+        assert "assets.dataset IN (SELECT covering.dataset FROM assets covering" in sql
+        assert "covering.status = 'active'" in sql
+        assert "ST_Intersects(covering.extent, ST_MakeEnvelope(%s, %s, %s, %s, 4326))" in sql
+        assert "assets.dataset IS NULL AND ST_Intersects(extent, ST_MakeEnvelope(" in sql
+        # The place appears twice, so it binds twice, in the same order.
+        assert params == [35.4, 33.8, 35.6, 34.0, 35.4, 33.8, 35.6, 34.0]
+
+    def test_by_asset_is_the_default(self):
+        assert kb._catalog(point=(35.5, 33.9)) == kb._catalog(point=(35.5, 33.9), coverage="asset")
+        sql, _ = kb._catalog(point=(35.5, 33.9))
+        assert "covering" not in sql
+
+    def test_without_a_place_the_coverage_changes_nothing(self):
+        assert kb._catalog(coverage="dataset") == kb._catalog()
+
+    def test_an_unknown_coverage_never_reaches_sql(self):
+        with pytest.raises(ValueError):
+            kb._catalog([35.4, 33.8, 35.6, 34.0], coverage="topic")
+
+    def test_by_dataset_both_places_bind_before_the_other_filters(self, run):
+        kb.asset_list(point=(35.5, 33.9), coverage="dataset", q="osm", limit=12, offset=0)
+
+        assert run[0][1] == [35.5, 33.9, 35.5, 33.9, r"%osm%", 12, 0]
+        assert all("covering" in sql for sql, _ in run)
+
     def test_the_dataset_narrows_the_counts_too(self, run):
         # Unlike the data type selection, which the counts ignore on purpose:
         # inside a dataset, the counts describe that dataset.
@@ -393,6 +423,13 @@ class TestDatasetList:
 
         ((_, params),) = grouped
         assert params == [35.5, 33.9, "A", "%road%", "%road%"]
+
+    def test_datasets_can_be_found_by_their_own_coverage(self, grouped):
+        kb.dataset_list(bbox=[35.4, 33.8, 35.6, 34.0], coverage="dataset")
+
+        ((sql, params),) = grouped
+        assert "covering" in sql
+        assert params == [35.4, 33.8, 35.6, 34.0, 35.4, 33.8, 35.6, 34.0]
 
     def test_datasets_are_ordered_by_what_people_read(self, grouped):
         kb.dataset_list()

@@ -24,6 +24,7 @@ def test_no_filters_asks_for_everything(as_viewer, captured):
         "bbox": None,
         "point": None,
         "area": None,
+        "coverage": "asset",
         "ingested_after": None,
         "ingested_before": None,
         "sort": "-ingested_at",
@@ -81,8 +82,16 @@ def test_paging_reaches_the_query(as_viewer, captured):
         {"limit": "201"},
         {"offset": "-1"},
         {"ingested_after": "last tuesday"},
+        {"coverage": "topic"},
     ],
-    ids=["unknown sort", "limit too small", "limit too large", "negative offset", "bad date"],
+    ids=[
+        "unknown sort",
+        "limit too small",
+        "limit too large",
+        "negative offset",
+        "bad date",
+        "unknown coverage",
+    ],
 )
 def test_a_parameter_the_api_does_not_offer_is_rejected(as_viewer, captured, params):
     assert as_viewer.get(URL, params).status_code == 400

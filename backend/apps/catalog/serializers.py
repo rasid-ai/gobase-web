@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from rest_framework import serializers
 
-from .kb import SORTS
+from .kb import COVERAGES, SORTS
 
 
 class BboxField(serializers.CharField):
@@ -229,8 +229,9 @@ class CatalogScopeSerializer(serializers.Serializer):
     has to be the number of assets you then find inside it (docs/adr/016).
 
     A place is at most one of three: a searched place's `bbox`, a clicked
-    point, or a drawn `area`. The Assets page sends the first and the map's
-    panel the other two. All three are optional to the contract and at most one
+    point, or a drawn `area`. The Assets page sends the first, compared with
+    each dataset's coverage, and the map's panel the other two, compared with
+    each asset's own (docs/adr/019). All three are optional to the contract and at most one
     is accepted here, because OpenAPI has no plain way to say "one of these"
     that the generated client would honour.
     """
@@ -262,6 +263,17 @@ class CatalogScopeSerializer(serializers.Serializer):
             "crossing itself."
         ),
     )
+    coverage = serializers.ChoiceField(
+        choices=COVERAGES,
+        default="asset",
+        help_text=(
+            "What the place is compared with. `asset`: each asset's own coverage. "
+            "`dataset`: its dataset's, the union of the coverage of the dataset's "
+            "active assets, so every asset of a dataset that overlaps the place is "
+            "included, those with no coverage of their own too. An asset with no "
+            "dataset is compared by its own. Only matters with a place."
+        ),
+    )
     ingested_after = serializers.DateTimeField(
         required=False, help_text="Ingested at or after this moment."
     )
@@ -278,12 +290,13 @@ class CatalogScopeSerializer(serializers.Serializer):
         return attrs
 
     def place(self) -> dict:
-        """The validated place as `kb` keyword arguments: at most one of them set."""
+        """The validated place as `kb` keyword arguments, and what it is compared with."""
         data = self.validated_data
         return {
             "bbox": data.get("bbox"),
             "point": (data["lon"], data["lat"]) if "lon" in data else None,
             "area": data["area"].wkt if "area" in data else None,
+            "coverage": data["coverage"],
         }
 
 

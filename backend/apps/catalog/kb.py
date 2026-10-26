@@ -158,12 +158,25 @@ _CATALOG_HEAD = f"""
 # The three places a caller can narrow the catalog to. A searched place is a
 # box; a clicked point and a drawn polygon come from the map (docs/adr/016).
 # The WKT reaches here already validated by `AreaField`.
-_BBOX = "          AND ST_Intersects(extent, ST_MakeEnvelope(%s, %s, %s, %s, 4326))\n"
-_POINT = "          AND ST_Intersects(extent, ST_SetSRID(ST_MakePoint(%s, %s), 4326))\n"
-_AREA = "          AND ST_Intersects(extent, ST_GeomFromText(%s, 4326))\n"
+_BBOX = "ST_MakeEnvelope(%s, %s, %s, %s, 4326)"
+_POINT = "ST_SetSRID(ST_MakePoint(%s, %s), 4326)"
+_AREA = "ST_GeomFromText(%s, 4326)"
+
+# What the place is compared with (docs/adr/019). `asset`: the asset's own
+# coverage, the map's question. `dataset`: its dataset's, the Assets page's. A
+# dataset covers what any of its active assets covers, so every file of a
+# dataset in the place comes with it, documents and others with no coverage of
+# their own included. An asset with no dataset has only its own to go by.
+COVERAGES = ("asset", "dataset")
+_BY_ASSET = "          AND ST_Intersects(extent, {place})\n"
+_BY_DATASET = """          AND (assets.dataset IN (SELECT covering.dataset FROM assets covering
+                                  WHERE covering.status = 'active'
+                                    AND ST_Intersects(covering.extent, {place}))
+               OR (assets.dataset IS NULL AND ST_Intersects(extent, {place})))
+"""
 
 
-def _catalog(bbox=None, point=None, area=None) -> tuple[str, list]:
+def _catalog(bbox=None, point=None, area=None, coverage="asset") -> tuple[str, list]:
     """The browse CTE, optionally narrowed to one place.
 
     The place belongs inside the CTE rather than in `_where`, and that placement
@@ -181,20 +194,32 @@ def _catalog(bbox=None, point=None, area=None) -> tuple[str, list]:
     already carries them -- min_lon, min_lat, max_lon, max_lat -- so nothing is
     reordered anywhere between the URL and the bind. A point is `(lon, lat)`,
     which is `ST_MakePoint`'s order too.
+
+    By dataset, the place appears twice in the SQL, so its parameters are bound
+    twice. A dataset's coverage is the union of its assets' rather than the box
+    around them: the box around two far-apart files covers everything between
+    them, which the dataset holds nothing of.
     """
     given = [place for place in (bbox, point, area) if place is not None]
     if len(given) > 1:
         # The serializers refuse this first; reaching here is a caller's bug,
         # and ANDing two places would answer a question nobody asked.
         raise ValueError("Narrow the catalog to one place at most.")
+    if coverage not in COVERAGES:
+        raise ValueError(f"Unknown coverage: {coverage!r}.")
 
     if bbox is not None:
-        return _CATALOG_HEAD + _BBOX + "    )\n", list(bbox)
-    if point is not None:
-        return _CATALOG_HEAD + _POINT + "    )\n", list(point)
-    if area is not None:
-        return _CATALOG_HEAD + _AREA + "    )\n", [area]
-    return _CATALOG_HEAD + "    )\n", []
+        sql, params = _BBOX, list(bbox)
+    elif point is not None:
+        sql, params = _POINT, list(point)
+    elif area is not None:
+        sql, params = _AREA, [area]
+    else:
+        return _CATALOG_HEAD + "    )\n", []
+
+    if coverage == "dataset":
+        return _CATALOG_HEAD + _BY_DATASET.format(place=sql) + "    )\n", params * 2
+    return _CATALOG_HEAD + _BY_ASSET.format(place=sql) + "    )\n", params
 
 
 # Sort keys are looked up, never interpolated from what a caller typed. An
@@ -252,6 +277,7 @@ def asset_list(
     bbox: list[float] | None = None,
     point: tuple[float, float] | None = None,
     area: str | None = None,
+    coverage: str = "asset",
     ingested_after=None,
     ingested_before=None,
     sort: str = "-ingested_at",
@@ -273,7 +299,7 @@ def asset_list(
     order wrong binds the numbers to the wrong placeholders and returns a wrong
     answer rather than raising, which is why `test_browse_query` checks it.
     """
-    catalog, place = _catalog(bbox, point, area)
+    catalog, place = _catalog(bbox, point, area, coverage)
 
     where, params = _where(q, data_types, ingested_after, ingested_before, dataset)
     page = _rows(
@@ -398,6 +424,7 @@ def dataset_list(
     bbox: list[float] | None = None,
     point: tuple[float, float] | None = None,
     area: str | None = None,
+    coverage: str = "asset",
     ingested_after=None,
     ingested_before=None,
 ) -> list[dict]:
@@ -417,7 +444,7 @@ def dataset_list(
     Not paged: there is one dataset per top folder of the raw bucket, which is
     eleven today. Ordered by label, the thing a person reads.
     """
-    catalog, place = _catalog(bbox, point, area)
+    catalog, place = _catalog(bbox, point, area, coverage)
 
     where, params = _where(None, None, ingested_after, ingested_before)
     clauses = ["dataset IS NOT NULL"]

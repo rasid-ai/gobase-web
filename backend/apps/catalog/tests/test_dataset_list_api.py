@@ -22,6 +22,7 @@ def test_no_filters_asks_for_every_dataset(as_viewer, captured_datasets):
         "bbox": None,
         "point": None,
         "area": None,
+        "coverage": "asset",
         "ingested_after": None,
         "ingested_before": None,
     }
@@ -48,6 +49,21 @@ def test_a_cleared_search_box_is_not_a_filter(as_viewer, captured_datasets):
 def test_each_kind_of_place_reaches_the_query(as_viewer, captured_datasets, params, key, value):
     assert as_viewer.get(URL, params).status_code == 200
     assert captured_datasets[key] == value
+
+
+@pytest.mark.parametrize("url", [URL, "/api/catalog/assets"], ids=["datasets", "assets"])
+def test_a_place_can_be_compared_with_the_dataset_coverage(
+    as_viewer, captured, captured_datasets, url
+):
+    # What the Assets page asks (docs/adr/019): the datasets in a place, and
+    # every file of them.
+    assert (
+        as_viewer.get(url, {"bbox": "35.4,33.8,35.6,34.0", "coverage": "dataset"}).status_code
+        == 200
+    )
+    asked = captured_datasets if url == URL else captured
+    assert asked["coverage"] == "dataset"
+    assert asked["bbox"] == [35.4, 33.8, 35.6, 34.0]
 
 
 def test_a_drawn_area_reaches_the_query(as_viewer, captured_datasets):

@@ -100,6 +100,8 @@ export const getCatalogAssetListUrl = (params?: CatalogAssetListParams,) => {
  * place, and the map's panel to a clicked point or a drawn area — one
  * question with three geometries, and one answer to it, so the search, the
  * datasets and the counts cannot differ between the two (docs/adr/016).
+ * What the place is compared with is the caller's to say: each asset's own
+ * coverage for the map, its dataset's for the Assets page (docs/adr/019).
  * @summary Browse the asset catalog
  */
 export const catalogAssetList = async (params?: CatalogAssetListParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogAssetListResponse> => {
@@ -518,8 +520,8 @@ export const getCatalogDatasetListUrl = (params?: CatalogDatasetListParams,) => 
  * The datasets holding matching assets, and how many of each type.
  *
  * The first step of browsing by dataset, on both pages: pick one here, then
- * list its assets with `dataset=` on the asset list, sending the same place
- * and window so the count shown here is the count found there.
+ * list its assets with `dataset=` on the asset list, sending the same place,
+ * coverage and window so the count shown here is the count found there.
  * @summary Datasets in the catalog
  */
 export const catalogDatasetList = async (params?: CatalogDatasetListParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogDatasetListResponse> => {

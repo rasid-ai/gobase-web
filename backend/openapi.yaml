@@ -120,6 +120,8 @@ paths:
         place, and the map's panel to a clicked point or a drawn area — one
         question with three geometries, and one answer to it, so the search, the
         datasets and the counts cannot differ between the two (docs/adr/016).
+        What the place is compared with is the caller's to say: each asset's own
+        coverage for the map, its dataset's for the Assets page (docs/adr/019).
       summary: Browse the asset catalog
       parameters:
       - in: query
@@ -137,6 +139,20 @@ paths:
           minLength: 1
         description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
           SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: coverage
+        schema:
+          enum:
+          - asset
+          - dataset
+          type: string
+          default: asset
+          minLength: 1
+        description: |-
+          What the place is compared with. `asset`: each asset's own coverage. `dataset`: its dataset's, the union of the coverage of the dataset's active assets, so every asset of a dataset that overlaps the place is included, those with no coverage of their own too. An asset with no dataset is compared by its own. Only matters with a place.
+
+          * `asset` - asset
+          * `dataset` - dataset
       - in: query
         name: data_type
         schema:
@@ -337,8 +353,8 @@ paths:
         The datasets holding matching assets, and how many of each type.
 
         The first step of browsing by dataset, on both pages: pick one here, then
-        list its assets with `dataset=` on the asset list, sending the same place
-        and window so the count shown here is the count found there.
+        list its assets with `dataset=` on the asset list, sending the same place,
+        coverage and window so the count shown here is the count found there.
       summary: Datasets in the catalog
       parameters:
       - in: query
@@ -356,6 +372,20 @@ paths:
           minLength: 1
         description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
           SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: coverage
+        schema:
+          enum:
+          - asset
+          - dataset
+          type: string
+          default: asset
+          minLength: 1
+        description: |-
+          What the place is compared with. `asset`: each asset's own coverage. `dataset`: its dataset's, the union of the coverage of the dataset's active assets, so every asset of a dataset that overlaps the place is included, those with no coverage of their own too. An asset with no dataset is compared by its own. Only matters with a place.
+
+          * `asset` - asset
+          * `dataset` - dataset
       - in: query
         name: ingested_after
         schema:

@@ -5,6 +5,7 @@
  * Internal API for the Geo Portal SPA. Read-only over the knowledge base.
  * OpenAPI spec version: 0.1.0
  */
+import type { CatalogAssetListCoverage } from './catalogAssetListCoverage';
 import type { CatalogAssetListSort } from './catalogAssetListSort';
 
 export type CatalogAssetListParams = {
@@ -18,6 +19,14 @@ area?: string;
  * @minLength 1
  */
 bbox?: string;
+/**
+ * What the place is compared with. `asset`: each asset's own coverage. `dataset`: its dataset's, the union of the coverage of the dataset's active assets, so every asset of a dataset that overlaps the place is included, those with no coverage of their own too. An asset with no dataset is compared by its own. Only matters with a place.
+ *
+ * * `asset` - asset
+ * * `dataset` - dataset
+ * @minLength 1
+ */
+coverage?: CatalogAssetListCoverage;
 /**
  * Repeatable. Omitted means every data type.
  * @items.minLength 1
