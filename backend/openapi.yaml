@@ -25,6 +25,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - apiKeyAuth: []
       responses:
         '204':
           description: Password changed.
@@ -69,6 +70,7 @@ paths:
       - auth
       security:
       - jwtAuth: []
+      - apiKeyAuth: []
       responses:
         '204':
           description: Signed out.
@@ -81,6 +83,7 @@ paths:
       - auth
       security:
       - jwtAuth: []
+      - apiKeyAuth: []
       responses:
         '200':
           content:
@@ -175,6 +178,12 @@ components:
         * `admin` - Admin
         * `viewer` - Viewer
   securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: '`Api-Key <key>`, for desktop clients. Read-only: any method other
+        than GET, HEAD or OPTIONS is refused with 403 (docs/adr/020).'
     jwtAuth:
       type: http
       scheme: bearer
