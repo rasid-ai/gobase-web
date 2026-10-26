@@ -13,7 +13,14 @@ import { serializeBbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
 
-import { AssetFilters, type BrowseMode, ingestedAfter } from './AssetFilters'
+import {
+  ANY_TIME,
+  AssetFilters,
+  type BrowseMode,
+  type IngestionWindow,
+  ingestedAfter,
+  type SearchKind,
+} from './AssetFilters'
 import { OpenPdf } from './OpenPdf'
 import { formatBbox, formatBytes, formatIngested, formatPages } from './formatAsset'
 import { PAGE_SIZE, useAssetPage } from './useAssetPage'
@@ -45,6 +52,10 @@ const SORTS: { value: CatalogAssetListSort; label: string }[] = [
  * by name, then the assets of the one you open, searched by their metadata and
  * filtered by data type. Or every asset at once, searched by metadata — the
  * dataset's name included, so a dataset can be found from here too.
+ *
+ * The search box searches one thing at a time, chosen beside it: metadata or
+ * places (docs/adr/019). A place is matched by its datasets' coverage in both
+ * modes, so a dataset in the place brings every one of its files.
  */
 export function AssetsPage() {
   const [mode, setMode] = useState<BrowseMode>('datasets')
@@ -55,7 +66,11 @@ export function AssetsPage() {
   const [datasetSearch, setDatasetSearch] = useState('')
   const [search, setSearch] = useState('')
   const [types, setTypes] = useState<string[]>([])
-  const [window, setWindow] = useState('any')
+  const [searchKind, setSearchKind] = useState<SearchKind>('metadata')
+  // What is typed to find a place. Not a filter, so it never reaches the
+  // catalog; picking a place is what sets the area.
+  const [placeQuery, setPlaceQuery] = useState('')
+  const [window, setWindow] = useState<IngestionWindow>(ANY_TIME)
   const [sort, setSort] = useState<CatalogAssetListSort>('-ingested_at')
   const [page, setPage] = useState(1)
   const scroller = useRef<HTMLDivElement>(null)
@@ -70,8 +85,11 @@ export function AssetsPage() {
   // Position matters in both: the generated client builds the query string in
   // each object's own order, and the tests key on the whole URL.
   const scope = {
-    ...(ingestedAfter(window) ? { ingested_after: ingestedAfter(window) } : {}),
-    ...(area ? { bbox: serializeBbox(area.bbox) } : {}),
+    ...(window.after ? { ingested_after: window.after } : {}),
+    // By the dataset's coverage, among datasets and among assets alike
+    // (docs/adr/019): a dataset in the place brings all of its files,
+    // documents and others that cover nowhere of their own included.
+    ...(area ? { bbox: serializeBbox(area.bbox), coverage: 'dataset' as const } : {}),
   }
 
   const datasets = useCatalogDatasetList(
@@ -92,8 +110,8 @@ export function AssetsPage() {
   )
 
   const filtered = listingDatasets
-    ? datasetSearch !== '' || window !== 'any' || area !== null
-    : search !== '' || types.length > 0 || window !== 'any' || area !== null
+    ? datasetSearch !== '' || window.key !== 'any' || area !== null
+    : search !== '' || types.length > 0 || window.key !== 'any' || area !== null
 
   const answer = assets.data
   const read = answer?.status === 200
@@ -132,7 +150,8 @@ export function AssetsPage() {
       setSearch('')
       setTypes([])
     }
-    setWindow('any')
+    setWindow(ANY_TIME)
+    setPlaceQuery('')
     setArea(null)
   }
 
@@ -146,6 +165,9 @@ export function AssetsPage() {
       setTypes([])
     })
 
+  // Switching starts afresh: every filter goes, the place and the window too,
+  // so nothing stays applied that the rail no longer shows. The sort is an
+  // ordering rather than a filter, and stays.
   const changeMode = (next: BrowseMode) =>
     applyFilter(() => {
       setMode(next)
@@ -153,6 +175,9 @@ export function AssetsPage() {
       setSearch('')
       setDatasetSearch('')
       setTypes([])
+      setWindow(ANY_TIME)
+      setPlaceQuery('')
+      if (area) setArea(null)
     })
 
   const toggleType = (dataType: string) =>
@@ -167,6 +192,8 @@ export function AssetsPage() {
       <AssetFilters
         mode={mode}
         onMode={changeMode}
+        searchKind={searchKind}
+        onSearchKind={setSearchKind}
         search={listingDatasets ? datasetSearch : search}
         onSearch={(next) =>
           applyFilter(() => (listingDatasets ? setDatasetSearch(next) : setSearch(next)))
@@ -180,15 +207,17 @@ export function AssetsPage() {
         }
         placeholder={
           // Short enough for the 240px rail: longer ones were cut off mid-word.
-          listingDatasets ? 'Dataset name or place…' : 'Metadata or place…'
+          listingDatasets ? 'Dataset name…' : 'Name or metadata…'
         }
+        placeQuery={placeQuery}
+        onPlaceQuery={setPlaceQuery}
         // Choosing a data type means nothing among datasets, which each hold
         // several; it is offered once there are assets to choose between.
         dataTypes={listingDatasets ? [] : dataTypes}
         selectedTypes={types}
         onToggleType={(dataType) => applyFilter(() => toggleType(dataType))}
-        window={window}
-        onWindow={(next) => applyFilter(() => setWindow(next))}
+        window={window.key}
+        onWindow={(next) => applyFilter(() => setWindow({ key: next, after: ingestedAfter(next) }))}
         area={area}
         onArea={(next) => applyFilter(() => setArea(next))}
         onClear={() => applyFilter(clear)}

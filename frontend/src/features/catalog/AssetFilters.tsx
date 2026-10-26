@@ -1,3 +1,6 @@
+import { type LucideIcon, MapPin, TextSearch } from 'lucide-react'
+import { type Ref, useRef } from 'react'
+
 import type { DataTypeCount, Place } from '@/api/generated/model'
 import { Button } from '@/components/ui/button'
 import { ComboboxPopup } from '@/components/ui/combobox'
@@ -33,6 +36,17 @@ export function ingestedAfter(windowKey: string, now: Date = new Date()): string
 }
 
 /**
+ * A chosen window, and the moment it starts.
+ *
+ * The moment is fixed when the window is chosen, not worked out on every
+ * render: a fresh `new Date()` per render made a new query key per render, and
+ * every answer asked again, without end.
+ */
+export type IngestionWindow = { key: string; after: string | undefined }
+
+export const ANY_TIME: IngestionWindow = { key: 'any', after: undefined }
+
+/**
  * The two ways to browse (docs/adr/016): datasets first and then their files,
  * or every asset at once.
  */
@@ -43,13 +57,29 @@ const MODES: { value: BrowseMode; label: string }[] = [
   { value: 'assets', label: 'Assets' },
 ]
 
+/**
+ * What the search box is searching (docs/adr/019). One at a time, chosen
+ * before typing, so a word is never a name and a place at once. Semantic
+ * search is the third, and is not built yet.
+ */
+export type SearchKind = 'metadata' | 'places'
+
+const SEARCH_KINDS: { value: SearchKind; label: string; Icon: LucideIcon }[] = [
+  { value: 'metadata', label: 'Metadata', Icon: TextSearch },
+  { value: 'places', label: 'Places', Icon: MapPin },
+]
+
 export function AssetFilters({
   mode,
   onMode,
+  searchKind,
+  onSearchKind,
   search,
   onSearch,
   searchLabel,
   placeholder,
+  placeQuery,
+  onPlaceQuery,
   dataTypes,
   selectedTypes,
   onToggleType,
@@ -62,11 +92,17 @@ export function AssetFilters({
 }: {
   mode: BrowseMode
   onMode: (next: BrowseMode) => void
+  searchKind: SearchKind
+  onSearchKind: (next: SearchKind) => void
+  /** The metadata search: a filter, applied as it is typed. */
   search: string
   onSearch: (next: string) => void
-  /** What the box searches, for assistive technology: it changes with the level. */
+  /** What the metadata search searches, for assistive technology: it changes with the level. */
   searchLabel: string
   placeholder: string
+  /** What is typed to find a place. Not a filter: picking a place is. */
+  placeQuery: string
+  onPlaceQuery: (next: string) => void
   /** Straight from the API — the portal never holds its own list of data types. */
   dataTypes: readonly DataTypeCount[]
   selectedTypes: readonly string[]
@@ -78,6 +114,10 @@ export function AssetFilters({
   onClear: () => void
   dirty: boolean
 }) {
+  // The box is a different input for each kind, so choosing a kind hands
+  // focus to the new one: choose, then type.
+  const box = useRef<HTMLInputElement>(null)
+
   return (
     <aside
       aria-label="Filter assets"
@@ -85,37 +125,56 @@ export function AssetFilters({
     >
       <Segmented label="Browse by" value={mode} onChange={onMode} options={MODES} />
 
-      <SearchBox
-        search={search}
-        onSearch={onSearch}
-        label={searchLabel}
-        placeholder={placeholder}
-        onArea={onArea}
-      />
+      <div className="flex flex-col gap-2">
+        {searchKind === 'places' ? (
+          <PlaceBox inputRef={box} query={placeQuery} onQuery={onPlaceQuery} onArea={onArea} />
+        ) : (
+          <Input
+            ref={box}
+            type="search"
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder={placeholder}
+            aria-label={searchLabel}
+          />
+        )}
 
-      {/*
-        The area sits under the box that set it, and is removed from there.
-        With no place name — a hand-written link — the box itself is the label,
-        and a coordinate box is data chrome, so it is mono.
-      */}
-      {area ? (
-        <div className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
-          <span
-            className={cn('min-w-0 flex-1 truncate text-sm', !area.name && 'font-mono text-[11px]')}
-            title={area.name ?? formatBbox(area.bbox) ?? undefined}
-          >
-            {area.name ?? formatBbox(area.bbox)}
-          </span>
-          <button
-            type="button"
-            onClick={() => onArea(null)}
-            aria-label={`Remove area ${area.name ?? 'filter'}`}
-            className="rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            ✕
-          </button>
-        </div>
-      ) : null}
+        <SearchKindSwitch
+          value={searchKind}
+          onChange={(next) => {
+            onSearchKind(next)
+            requestAnimationFrame(() => box.current?.focus())
+          }}
+        />
+
+        {/*
+          The filters the box set, each named by its kind, so a place and a
+          search for the same word cannot be mistaken for each other. The
+          metadata search is shown here only while the box is finding places;
+          otherwise the box itself shows it.
+        */}
+        {searchKind === 'places' && search !== '' ? (
+          <FilterChip
+            kind="Metadata"
+            value={search}
+            removeLabel={`Remove metadata search ${search}`}
+            onRemove={() => onSearch('')}
+          />
+        ) : null}
+        {/*
+          With no place name — a hand-written link — the box itself is the
+          label, and a coordinate box is data chrome, so it is mono.
+        */}
+        {area ? (
+          <FilterChip
+            kind="Place"
+            value={area.name ?? formatBbox(area.bbox) ?? ''}
+            mono={!area.name}
+            removeLabel={`Remove area ${area.name ?? 'filter'}`}
+            onRemove={() => onArea(null)}
+          />
+        ) : null}
+      </div>
 
       {/*
         The data types are whatever the catalog returned, with the counts it
@@ -227,28 +286,101 @@ function CheckRow({
 }
 
 /**
- * The rail's search box: the catalog and places at once.
+ * What the search box searches: small icons under it.
  *
- * Typing filters the page straight away — dataset names in the list of
- * datasets, the metadata of assets everywhere else (docs/adr/016) — and the
- * same text is offered to the geocoder underneath. Both answers are available
- * and you pick, which is how "Beirut" stops being ambiguous without anyone
- * having to guess which of the two was meant.
+ * Quieter than the Datasets / Assets switch on purpose. That one changes what
+ * the page lists; this one changes only what the box is for. Each icon's name
+ * is its tooltip and what assistive technology reads.
  */
-function SearchBox({
-  search,
-  onSearch,
-  label,
-  placeholder,
+function SearchKindSwitch({
+  value,
+  onChange,
+}: {
+  value: SearchKind
+  onChange: (next: SearchKind) => void
+}) {
+  return (
+    <div role="radiogroup" aria-label="Search by" className="flex items-center gap-1">
+      {SEARCH_KINDS.map(({ value: kind, label, Icon }) => (
+        <button
+          key={kind}
+          type="button"
+          role="radio"
+          aria-checked={value === kind}
+          aria-label={label}
+          title={`Search ${label.toLowerCase()}`}
+          onClick={() => onChange(kind)}
+          className={cn(
+            'flex size-7 items-center justify-center rounded-md',
+            'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+            value === kind
+              ? 'bg-primary/15 text-primary'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Icon aria-hidden className="size-4" />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** A filter the search box set, named by its kind, and the way to remove it. */
+function FilterChip({
+  kind,
+  value,
+  mono = false,
+  removeLabel,
+  onRemove,
+}: {
+  kind: string
+  value: string
+  mono?: boolean
+  removeLabel: string
+  onRemove: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
+      <span className={MICRO}>{kind}</span>
+      <span
+        className={cn('min-w-0 flex-1 truncate text-sm', mono && 'font-mono text-[11px]')}
+        title={value}
+      >
+        {value}
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={removeLabel}
+        className="rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
+/**
+ * The search box while it finds places.
+ *
+ * What is typed goes to the geocoder and nowhere else: it filters nothing
+ * until a place is picked, and a metadata search is never billed as a place
+ * search (docs/adr/011). Picking sets the area and empties the box; the
+ * area's chip names it from then on, and the metadata search is left alone,
+ * so the two combine.
+ */
+function PlaceBox({
+  inputRef,
+  query,
+  onQuery,
   onArea,
 }: {
-  search: string
-  onSearch: (next: string) => void
-  label: string
-  placeholder: string
+  inputRef: Ref<HTMLInputElement>
+  query: string
+  onQuery: (next: string) => void
   onArea: (area: Area | null) => void
 }) {
-  const places = usePlaceSearch(search)
+  const places = usePlaceSearch(query)
 
   const combobox = useCombobox({
     count: places.places.length,
@@ -257,22 +389,23 @@ function SearchBox({
   })
 
   function pick(place: Place) {
-    // The name filter is left alone on purpose: the two combine, so an area
-    // plus a name is a question you can ask.
-    if (place.bbox) onArea({ name: place.name, bbox: place.bbox as Area['bbox'] })
+    if (!place.bbox) return
+    onArea({ name: place.name, bbox: place.bbox as Area['bbox'] })
+    onQuery('')
   }
 
   return (
     <div {...combobox.rootProps} className="relative">
       <Input
+        ref={inputRef}
         type="search"
-        value={search}
+        value={query}
         onChange={(event) => {
-          onSearch(event.target.value)
+          onQuery(event.target.value)
           combobox.reopen()
         }}
-        placeholder={placeholder}
-        aria-label={label}
+        placeholder="Place name…"
+        aria-label="Search places"
         {...combobox.inputProps}
       />
 

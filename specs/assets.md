@@ -15,8 +15,9 @@ A switch at the top of the filter rail chooses between them (docs/adr/016):
 - **Assets** — every asset at once, as one list.
 
 The page is called Assets in both; the count beside the title says what is
-listed. Switching clears the search and the open dataset, and keeps the date
-and the area, which describe when and where rather than what.
+listed. Switching clears every filter (the search, the data types, the date
+and the area) and the open dataset, so nothing stays applied that the rail no
+longer shows (docs/adr/019). The sort stays: it orders and does not filter.
 
 ## Datasets
 
@@ -29,19 +30,20 @@ many of each data type.
 The label is spaced and in sentence case, and nothing else: the knowledge
 base is read-only, so the data's own spelling stays ("Goverment").
 
-The search box searches dataset **names** here — the label or the raw name —
-and nothing inside them. No data type filter is offered, because a dataset
-holds several types and choosing one among datasets means nothing. The date
-and the area narrow the list to datasets with assets in that window or place,
-and each count is the number you will find on opening the dataset.
+The metadata search searches dataset **names** here — the label or the raw
+name — and nothing inside them. No data type filter is offered, because a
+dataset holds several types and choosing one among datasets means nothing.
+The date narrows the list to datasets with assets ingested in that window, and
+the area to datasets whose coverage overlaps the place (see Filtering). Each
+count is the number you will find on opening the dataset.
 
 Datasets are listed by label and are not paged. An asset with no dataset is
 in none of them; it still appears in the Assets mode.
 
 Opening a dataset shows its assets, exactly as the list below, with the
 dataset's label as the title and **All datasets** to go back. Inside, the
-search box starts empty and searches the assets' metadata, and the data type
-filter appears. Going back finds the dataset search as it was left.
+metadata search starts empty and searches the assets' metadata, and the data
+type filter appears. Going back finds the dataset search as it was left.
 
 The mode and the open dataset are not in the URL, because they cross no page
 (docs/adr/011). The browser's Back button leaves the page rather than
@@ -100,7 +102,7 @@ ways and reports a total, and a cursor over one id serves neither.
 
 Four filters, and they combine:
 
-- **Search** — the asset's catalog text (docs/adr/016): its file name,
+- **Metadata search** — the asset's catalog text (docs/adr/016): its file name,
   dataset and dataset label, topic, format, data type, summary, layer names,
   the column names of a vector file and the tag values of a raster. So
   `shapeName` finds the boundary files by a column, and `water` finds the
@@ -117,32 +119,43 @@ Four filters, and they combine:
   Those counts answer "what else is there", so they do not shrink to the
   type already selected.
 - **Date of ingestion** — any time, or the last 7, 30 or 90 days.
-- **Area** — assets whose coverage overlaps a place. Set by searching for
-  one in the same box as the name filter, and shown underneath as a chip
-  that removes it.
+- **Area** — the assets of every dataset whose coverage overlaps a place
+  (docs/adr/019). A dataset covers what its assets cover together, so a
+  dataset in the place brings all of its files, including the documents and
+  unparsed files that cover nowhere themselves. An asset with no dataset is
+  matched by its own coverage. A dataset where no file has coverage (today
+  `airports`) is in no place. Set by finding a place in the search box, and
+  shown underneath as a chip that removes it.
 
 A filter that matches nothing says so, and offers to clear the filters,
 rather than claiming the catalog is empty. An empty catalog says that
 instead. Clearing is only offered when there is something to clear.
 
-## Searching for a place
+## The search box
 
-The search box does two jobs at once. What is typed filters the page straight
-away — dataset names among datasets, asset metadata everywhere else — and the
-same text is offered to a geocoder underneath the box, under a **Places**
-label.
+Two small icons under the box choose what it searches: **Metadata** (a
+text-search icon) or **Places** (a map pin). It searches one at a time, so a
+word is never a name and a place at once (docs/adr/019). Each icon's name is
+its tooltip, and choosing one puts the cursor in the box. The icons are
+quieter than the Datasets / Assets switch on purpose: that switch changes what
+the page lists, and these change only what the box is for. Semantic search
+will be the third (not built).
 
-Both answers are available and you choose. That is how "Beirut" stops being
-ambiguous: nobody has to decide in advance whether it names an asset or a
-place, because the page answers both ways and lets you pick the one you meant.
+- **Metadata** filters the page as you type: dataset names among datasets,
+  asset metadata everywhere else. Nothing typed here goes to the geocoder.
+- **Places** sends what is typed to the geocoder and filters nothing. Picking
+  a place sets the area and empties the box.
 
-Picking a place sets the area filter and **leaves the search alone** — the
-two combine, so an area plus a search is a question you can ask.
+Each filter the box set is shown under it as a chip named by its kind:
+**Place**, and **Metadata** while the box is finding places. That way a place
+and a search for the same word cannot be mistaken for each other. The two
+combine, so a metadata search plus a place is a question you can ask.
+Switching the box between the two kinds changes neither filter.
 
-Searching starts at three characters and runs once per pause in typing rather
-than once per letter, because every search is billed (docs/adr/011). Text that
-matches no place says so; a geocoder that cannot be reached says that instead,
-and is not asked again.
+A place search starts at three characters and runs once per pause in typing
+rather than once per letter, because every search is billed (docs/adr/011).
+Text that matches no place says so; a geocoder that cannot be reached says
+that instead, and is not asked again.
 
 ## The area is an address
 
@@ -150,7 +163,7 @@ The area lives in the URL as `?place=<name>&bbox=<area>`, so a filtered list
 survives a reload and can be sent to someone. It is the same parameter the map
 uses, so an area found on one page carries to the other (docs/adr/011).
 
-The filter matches assets whose **coverage overlaps** the area — not only
+The filter matches datasets whose **coverage overlaps** the area — not only
 those wholly inside it. An area in the URL that cannot be read is removed,
 reported once, and the whole catalog is shown.
 
@@ -195,7 +208,9 @@ nowhere to go.
 - **Opening a PDF at a page or a passage.** The chunk index knows which
   pages a passage is on; the tab opens at page one regardless. Nothing
   records lines, so "open at a line" is not possible with this data.
-- **Searching documents by meaning**, or **by where their dataset is**.
-  Documents have no coverage of their own.
+- **Semantic search** on this page, the box's third kind. It is on the map
+  today (docs/adr/018).
+- **Typing a coordinate** to set the area. The map's place search takes one;
+  this box takes place names only.
 - **Word-by-word or forgiving search**, and showing **why** an asset matched
   (which field held the text).

@@ -191,8 +191,10 @@ geo-portal/
    (docs/adr/010). Following an asset goes to `/map?asset=<id>`, and the
    map then reads `GET /api/map/assets/{id}` for the footprint.
    `bbox=minLon,minLat,maxLon,maxLat` narrows the page, the total and the
-   type counts together to assets whose coverage overlaps that area — the
-   one place a bbox is an input rather than an output (docs/adr/011).
+   type counts together — the one place a bbox is an input rather than an
+   output (docs/adr/011). The page sends it with `coverage=dataset`, so it
+   matches the assets of every dataset whose coverage overlaps that area;
+   the map's point and drawn area keep each asset's own (docs/adr/019).
 4. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
    normalized JSON → TanStack Table. `GET /api/runs/{id}` adds the
    per-step breakdown from Dagster's `stepStats`, and `GET

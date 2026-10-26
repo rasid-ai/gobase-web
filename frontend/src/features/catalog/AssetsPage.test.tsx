@@ -327,61 +327,61 @@ describe('documents', () => {
   })
 })
 
+const BEIRUT = {
+  name: 'Beirut, Lebanon',
+  lat: 33.8938,
+  lon: 35.5018,
+  bbox: [35.4, 33.8, 35.6, 34.1],
+}
+const LINK = '/assets?place=Beirut%2C+Lebanon&bbox=35.4,33.8,35.6,34.1'
+// The generated client builds the query with URLSearchParams, which escapes
+// the commas, and in the order the params object is written. The page always
+// compares a place with the datasets' coverage (docs/adr/019).
+const AREA = 'bbox=35.4%2C33.8%2C35.6%2C34.1&coverage=dataset'
+const DATASETS_IN_AREA = `GET /api/catalog/datasets?${AREA}`
+
 describe('filtering by area', () => {
-  const BEIRUT = {
-    name: 'Beirut, Lebanon',
-    lat: 33.8938,
-    lon: 35.5018,
-    bbox: [35.4, 33.8, 35.6, 34.1],
-  }
-  const LINK = '/assets?place=Beirut%2C+Lebanon&bbox=35.4,33.8,35.6,34.1'
-  // The generated client builds the query with URLSearchParams, which escapes
-  // the commas, and in the order the params object is written.
-  const AREA = 'bbox=35.4%2C33.8%2C35.6%2C34.1'
-  const IN_AREA = `GET /api/catalog/assets?${AREA}&sort=-ingested_at&limit=12&offset=0`
-  const DATASETS_IN_AREA = {
-    [`GET /api/catalog/datasets?${AREA}`]: { status: 200, body: { results: [dataset()] } },
-  }
-
   it('filters to the area in the link, and names it', async () => {
-    mockFetch({ ...session(), ...DATASETS_IN_AREA, [IN_AREA]: { status: 200, body: page() } })
-    await openAssets(LINK)
+    const { calls } = mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+    })
+    renderApp(LINK)
 
-    expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Open Boundaries' })).toBeInTheDocument()
+    expect(calls).toContain(DATASETS_IN_AREA)
     expect(screen.getByText('Beirut, Lebanon')).toBeInTheDocument()
   })
 
-  it('keeps the name filter when a place is picked', async () => {
-    // The two combine: an area plus a name is a question you can ask.
-    const named = 'GET /api/catalog/assets?q=osm&sort=-ingested_at&limit=12&offset=0'
-    const both = `GET /api/catalog/assets?q=osm&${AREA}&sort=-ingested_at&limit=12&offset=0`
+  it('opens a dataset found in the area to all of its files', async () => {
+    // By the dataset's coverage, the files that cover nowhere — documents,
+    // unparsed files — come with the dataset rather than vanishing.
+    const inside = `GET /api/catalog/assets?dataset=boundaries&${AREA}&sort=-ingested_at&limit=12&offset=0`
     const { calls } = mockFetch({
       ...session(),
-      [FIRST_PAGE]: { status: 200, body: page() },
-      [named]: { status: 200, body: page() },
-      'GET /api/places/search?q=osm': { status: 200, body: { results: [BEIRUT] } },
-      [both]: { status: 200, body: page() },
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+      [inside]: { status: 200, body: page({ results: [item({ bbox: null })] }) },
     })
-    const user = await openAssets()
+    const user = userEvent.setup()
+    renderApp(LINK)
 
-    await user.type(await screen.findByLabelText('Search assets'), 'osm')
-    await user.click(await screen.findByRole('option', { name: /Beirut, Lebanon/ }))
+    await user.click(await screen.findByRole('button', { name: 'Open Boundaries' }))
 
-    await waitFor(() => expect(calls).toContain(both))
+    expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+    expect(calls).toContain(inside)
   })
 
   it('drops both parameters when the area is removed', async () => {
     const { calls } = mockFetch({
       ...session(),
-      ...DATASETS_IN_AREA,
-      [IN_AREA]: { status: 200, body: page() },
-      [FIRST_PAGE]: { status: 200, body: page() },
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
     })
-    const user = await openAssets(LINK)
+    const user = userEvent.setup()
+    renderApp(LINK)
 
     await user.click(await screen.findByRole('button', { name: 'Remove area Beirut, Lebanon' }))
 
-    await waitFor(() => expect(calls).toContain(FIRST_PAGE))
+    await waitFor(() => expect(calls.at(-1)).toBe(DATASETS))
     expect(screen.queryByText('Beirut, Lebanon')).toBeNull()
   })
 
@@ -396,14 +396,168 @@ describe('filtering by area', () => {
   it('counts the area as something to clear', async () => {
     mockFetch({
       ...session(),
-      ...DATASETS_IN_AREA,
-      [IN_AREA]: { status: 200, body: page({ count: 0, results: [] }) },
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [] } },
     })
-    await openAssets(LINK)
+    renderApp(LINK)
 
     // Not "the catalog is empty" — the catalog is fine, this corner of it is.
-    expect(await screen.findByText('No assets match these filters')).toBeInTheDocument()
+    expect(await screen.findByText('No datasets match these filters')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeInTheDocument()
+  })
+})
+
+describe('the search box', () => {
+  /** Choose what the box searches. */
+  async function searchBy(user: ReturnType<typeof userEvent.setup>, kind: 'Metadata' | 'Places') {
+    const group = screen.getByRole('radiogroup', { name: 'Search by' })
+    await user.click(within(group).getByRole('radio', { name: kind }))
+  }
+
+  it('searches metadata without asking for places', async () => {
+    // A metadata search is never billed as a place search (docs/adr/011).
+    const named = 'GET /api/catalog/assets?q=shapeName&sort=-ingested_at&limit=12&offset=0'
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [named]: { status: 200, body: page() },
+    })
+    const user = await openAssets()
+
+    await user.type(await screen.findByLabelText('Search assets'), 'shapeName')
+
+    await waitFor(() => expect(calls).toContain(named))
+    // Past the geocoder's pause, which a place search waits for.
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(calls.some((call) => call.startsWith('GET /api/places'))).toBe(false)
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('finds places without filtering the catalog by their name', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      'GET /api/places/search?q=Beirut': { status: 200, body: { results: [BEIRUT] } },
+    })
+    const user = await openAssets()
+    await screen.findByText('gis_osm_boundaries_07_1')
+
+    await searchBy(user, 'Places')
+    // Choose, then type: the box for the new kind has the focus.
+    await waitFor(() => expect(screen.getByLabelText('Search places')).toHaveFocus())
+    await user.type(screen.getByLabelText('Search places'), 'Beirut')
+
+    expect(await screen.findByRole('option', { name: /Beirut, Lebanon/ })).toBeInTheDocument()
+    expect(calls.some((call) => call.includes('q=Beirut') && call.includes('/catalog/'))).toBe(
+      false,
+    )
+  })
+
+  it('combines a metadata search and a picked place, and names each by its kind', async () => {
+    const named = 'GET /api/catalog/assets?q=osm&sort=-ingested_at&limit=12&offset=0'
+    const both = `GET /api/catalog/assets?q=osm&${AREA}&sort=-ingested_at&limit=12&offset=0`
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [named]: { status: 200, body: page() },
+      'GET /api/places/search?q=Beirut': { status: 200, body: { results: [BEIRUT] } },
+      [both]: { status: 200, body: page() },
+    })
+    const user = await openAssets()
+
+    await user.type(await screen.findByLabelText('Search assets'), 'osm')
+    await searchBy(user, 'Places')
+    // The metadata search is still applied, and says what it is.
+    expect(screen.getByRole('button', { name: 'Remove metadata search osm' })).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Search places'), 'Beirut')
+    await user.click(await screen.findByRole('option', { name: /Beirut, Lebanon/ }))
+
+    await waitFor(() => expect(calls).toContain(both))
+    // The chip names the place now; the box is free for the next one.
+    expect(screen.getByLabelText('Search places')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Remove area Beirut, Lebanon' })).toBeInTheDocument()
+
+    await searchBy(user, 'Metadata')
+    expect(screen.getByLabelText('Search assets')).toHaveValue('osm')
+    expect(screen.queryByRole('button', { name: 'Remove metadata search osm' })).toBeNull()
+  })
+})
+
+describe('filtering by date', () => {
+  const NOW = new Date('2026-10-26T12:00:00Z')
+  const WEEK =
+    'GET /api/catalog/assets?ingested_after=2026-10-19T12%3A00%3A00.000Z&sort=-ingested_at&limit=12&offset=0'
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('asks once for the window, from the moment it was chosen', async () => {
+    // Only the clock is faked; timers stay real for the user events.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [WEEK]: { status: 200, body: page({ count: 0, results: [] }) },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('radio', { name: 'Last 7 days' }))
+    expect(await screen.findByText('No assets match these filters')).toBeInTheDocument()
+
+    // A later render, a minute on, asks nothing new. The window used to be
+    // worked out on every render, so every render — every answer included —
+    // asked again for a slightly different moment, without end.
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+    await user.click(screen.getByRole('radio', { name: 'Places' }))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    expect(calls.filter((call) => call.includes('ingested_after'))).toEqual([WEEK])
+  })
+})
+
+describe('switching between datasets and assets', () => {
+  it('clears every filter, so none stays applied out of sight', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+      [FIRST_PAGE]: { status: 200, body: page() },
+    })
+    const user = userEvent.setup()
+    renderApp(LINK)
+
+    await user.type(await screen.findByLabelText('Search datasets'), 'bound')
+    await user.click(screen.getByRole('radio', { name: 'Last 30 days' }))
+    await user.click(screen.getByRole('radio', { name: 'Assets' }))
+
+    await waitFor(() => expect(calls.at(-1)).toBe(FIRST_PAGE))
+    expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Search assets')).toHaveValue('')
+    expect(screen.queryByText('Beirut, Lebanon')).toBeNull()
+    expect(screen.getByRole('radio', { name: 'Any time' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('button', { name: 'Clear all filters' })).toBeNull()
+  })
+
+  it('clears a data type chosen among assets', async () => {
+    const typed = 'GET /api/catalog/assets?data_type=vector&sort=-ingested_at&limit=12&offset=0'
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [typed]: { status: 200, body: page() },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('checkbox', { name: /vector/ }))
+    await waitFor(() => expect(calls).toContain(typed))
+    await user.click(screen.getByRole('radio', { name: 'Datasets' }))
+    await user.click(screen.getByRole('radio', { name: 'Assets' }))
+
+    await waitFor(() => expect(calls.at(-1)).toBe(FIRST_PAGE))
+    expect(await screen.findByRole('checkbox', { name: /vector/ })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
   })
 })
 
@@ -521,7 +675,7 @@ describe('browsing by dataset', () => {
 
     expect(screen.getByLabelText('Search assets')).toHaveAttribute(
       'placeholder',
-      'Metadata or place…',
+      'Name or metadata…',
     )
   })
 })
