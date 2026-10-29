@@ -4,7 +4,7 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -91,6 +91,19 @@ class ApiKey(models.Model):
         raw = key.assign_secret()
         key.save()
         return key, raw
+
+    @classmethod
+    def issue_replacing(cls, user, name: str) -> tuple["ApiKey", str]:
+        """Issue a key and revoke the user's other live keys of the same name.
+
+        A desktop client names its key after the computer, so signing in again
+        from that computer leaves one live key there, not one per sign-in.
+        """
+        with transaction.atomic():
+            cls.objects.filter(user=user, name=name, revoked_at=None).update(
+                revoked_at=timezone.now()
+            )
+            return cls.issue(user, name)
 
     @classmethod
     def find_active(cls, raw: str) -> "ApiKey | None":

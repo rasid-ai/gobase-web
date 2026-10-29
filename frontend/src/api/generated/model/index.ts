@@ -7,6 +7,8 @@
  */
 
 export * from './accessToken';
+export * from './apiKeyIssued';
+export * from './apiKeyIssueRequest';
 export * from './changePasswordRequest';
 export * from './loginRequest';
 export * from './me';

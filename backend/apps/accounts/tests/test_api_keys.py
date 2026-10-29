@@ -5,6 +5,7 @@ from datetime import timedelta
 from io import StringIO
 
 import pytest
+from django.conf import settings
 from django.core.management import call_command
 from django.test import override_settings
 from django.urls import reverse
@@ -12,6 +13,7 @@ from django.utils import timezone
 from drf_spectacular.generators import SchemaGenerator
 
 from apps.accounts.models import ApiKey
+from apps.accounts.tests.conftest import PASSWORD
 
 pytestmark = pytest.mark.django_db
 
@@ -237,3 +239,99 @@ def test_the_schema_offers_the_key_on_protected_endpoints():
     assert scheme == {**scheme, "type": "apiKey", "in": "header", "name": "Authorization"}
     assert {"apiKeyAuth": []} in schema["paths"]["/api/auth/me"]["get"]["security"]
     assert {"apiKeyAuth": []} not in schema["paths"]["/api/auth/login"]["post"]["security"]
+
+
+# --- Self-service: a username and password for a key ------------------------------
+
+ISSUE_URL = "/api/auth/api-keys"
+
+
+def issue(api, user, name="ArcGIS Pro on DESKTOP-1", password=PASSWORD):
+    return api.post(
+        ISSUE_URL,
+        {"username": user.username, "password": password, "name": name},
+        format="json",
+    )
+
+
+def test_credentials_get_a_key_that_signs_in_as_the_user(api, viewer):
+    response = issue(api, viewer)
+
+    assert response.status_code == 201
+    raw = response.data["key"]
+    assert KEY_PATTERN.fullmatch(raw)
+    assert response.data["name"] == "ArcGIS Pro on DESKTOP-1"
+    assert raw.startswith(f"gbk_{response.data['prefix']}_")
+    assert response["Cache-Control"] == "no-store"
+    assert with_key(api, raw).get("/api/auth/me").data["username"] == viewer.username
+
+
+def test_issuing_starts_no_session(api, viewer):
+    response = issue(api, viewer)
+
+    assert "access" not in response.data
+    assert settings.REFRESH_COOKIE_NAME not in response.cookies
+
+
+@pytest.mark.parametrize(
+    "username,password",
+    [
+        pytest.param("viewer-user", "wrong-password", id="wrong-password"),
+        pytest.param("nobody", PASSWORD, id="unknown-user"),
+    ],
+)
+def test_bad_credentials_get_the_login_message_and_no_key(api, viewer, username, password):
+    response = api.post(
+        ISSUE_URL, {"username": username, "password": password, "name": "laptop"}, format="json"
+    )
+
+    assert response.status_code == 400
+    assert "Incorrect username or password." in str(response.data)
+    assert not ApiKey.objects.exists()
+
+
+def test_a_disabled_user_gets_no_key(api, viewer):
+    viewer.is_active = False
+    viewer.save()
+
+    assert issue(api, viewer).status_code == 400
+    assert not ApiKey.objects.exists()
+
+
+def test_a_name_is_required(api, viewer):
+    assert issue(api, viewer, name="").status_code == 400
+
+
+def test_signing_in_again_from_one_computer_replaces_its_key(api, viewer):
+    first = issue(api, viewer).data["key"]
+    second = issue(api, viewer).data["key"]
+
+    assert with_key(api, first).get("/api/auth/me").status_code == 401
+    assert with_key(api, second).get("/api/auth/me").status_code == 200
+
+
+def test_keys_of_other_computers_and_other_users_are_kept(api, viewer, admin_user):
+    laptop = issue(api, viewer, name="laptop").data["key"]
+    issue(api, viewer, name="desktop")
+    admins = issue(api, admin_user, name="laptop").data["key"]
+
+    assert with_key(api, laptop).get("/api/auth/me").status_code == 200
+    assert with_key(api, admins).get("/api/auth/me").status_code == 200
+
+
+def test_a_key_cannot_get_another_key(api, viewer):
+    """The endpoint takes credentials only; a key in the header is not a sign-in."""
+    _, raw = ApiKey.issue(viewer, "laptop")
+
+    response = with_key(api, raw).post(ISSUE_URL, {"name": "laptop"}, format="json")
+
+    assert response.status_code == 400
+    assert ApiKey.objects.count() == 1
+
+
+def test_the_schema_lists_the_issue_endpoint_without_a_sign_in():
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+
+    operation = schema["paths"][ISSUE_URL]["post"]
+    assert set(operation["responses"]) == {"201", "400"}
+    assert operation["security"] == [{}]

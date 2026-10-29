@@ -4,6 +4,40 @@ info:
   version: 0.1.0
   description: Internal API for the Geo Portal SPA. Read-only over the knowledge base.
 paths:
+  /api/auth/api-keys:
+    post:
+      operationId: auth_api_keys_create
+      description: |-
+        Exchange credentials for an API key.
+
+        Checked exactly as login checks them, with the same single error message.
+        No session is started: the client keeps the key, never the password.
+      summary: Get an API key
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyIssueRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ApiKeyIssueRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ApiKeyIssueRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyIssued'
+          description: ''
+        '400':
+          description: Incorrect username or password, or no name.
   /api/auth/change-password:
     post:
       operationId: auth_change_password_create
@@ -128,6 +162,52 @@ components:
           readOnly: true
       required:
       - access
+    ApiKeyIssueRequest:
+      type: object
+      description: Credentials, checked as login checks them, plus a name for the
+        new key.
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        name:
+          type: string
+          writeOnly: true
+          minLength: 1
+          description: Names the computer, e.g. “ArcGIS Pro on DESKTOP-6NHTMEV”. The
+            user's other live keys of this name are revoked.
+          maxLength: 100
+      required:
+      - name
+      - password
+      - username
+    ApiKeyIssued:
+      type: object
+      properties:
+        key:
+          type: string
+          readOnly: true
+          description: 'Send as `Authorization: Api-Key <key>`. Shown only here.'
+        prefix:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - key
+      - name
+      - prefix
     ChangePasswordRequest:
       type: object
       properties:
