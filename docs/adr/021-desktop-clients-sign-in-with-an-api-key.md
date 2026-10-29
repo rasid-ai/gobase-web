@@ -1,4 +1,4 @@
-# ADR-020: Desktop clients sign in with an API key
+# ADR-021: Desktop clients sign in with an API key
 
 **Status:** Accepted · 2026-10-26
 

@@ -183,7 +183,7 @@ components:
       in: header
       name: Authorization
       description: '`Api-Key <key>`, for desktop clients. Read-only: any method other
-        than GET, HEAD or OPTIONS is refused with 403 (docs/adr/020).'
+        than GET, HEAD or OPTIONS is refused with 403 (docs/adr/021).'
     jwtAuth:
       type: http
       scheme: bearer

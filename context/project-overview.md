@@ -29,6 +29,6 @@ the team can see data freshness and failures without server access.
 ## Out of scope
 
 - Dashboards and analytics
-- Public access (internal desktop clients may sign in with an API key: docs/adr/020)
+- Public access (internal desktop clients may sign in with an API key: docs/adr/021)
 - Editing or uploading data (ingestion belongs to the data platform repo)
 - Raster results displayed on the map (later phase)

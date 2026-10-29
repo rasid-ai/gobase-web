@@ -14,6 +14,6 @@ class ApiKeyAuthenticationScheme(OpenApiAuthenticationExtension):
             "name": "Authorization",
             "description": (
                 "`Api-Key <key>`, for desktop clients. Read-only: any method other than "
-                "GET, HEAD or OPTIONS is refused with 403 (docs/adr/020)."
+                "GET, HEAD or OPTIONS is refused with 403 (docs/adr/021)."
             ),
         }

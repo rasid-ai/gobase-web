@@ -1,7 +1,7 @@
 # API keys
 
 Desktop clients, such as the ArcGIS Pro add-in, sign in with an API key
-instead of the browser session. The decision is docs/adr/020.
+instead of the browser session. The decision is docs/adr/021.
 
 Built.
 

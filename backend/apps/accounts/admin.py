@@ -32,7 +32,7 @@ admin.site.register(User, UserAdmin)
 @admin.register(ApiKey)
 class ApiKeyAdmin(admin.ModelAdmin):
     """
-    Issue and revoke desktop API keys (docs/adr/020).
+    Issue and revoke desktop API keys (docs/adr/021).
 
     Adding a key asks only for its user and name. The key is shown once, on the
     page right after, rendered into that response and nowhere else: not in a

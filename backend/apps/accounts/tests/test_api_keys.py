@@ -1,4 +1,4 @@
-"""API-key sign-in for desktop clients (docs/adr/020, specs/api-keys.md)."""
+"""API-key sign-in for desktop clients (docs/adr/021, specs/api-keys.md)."""
 
 import re
 from datetime import timedelta

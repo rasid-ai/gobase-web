@@ -1,5 +1,5 @@
 """
-API-key sign-in for desktop clients (docs/adr/020).
+API-key sign-in for desktop clients (docs/adr/021).
 
 A desktop program sends `Authorization: Api-Key gbk_<prefix>_<secret>`. The
 header word is its own, not `Bearer`: simplejwt claims every Bearer value and

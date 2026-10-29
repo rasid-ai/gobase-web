@@ -44,7 +44,7 @@ def _hash_key(raw: str) -> str:
 
 class ApiKey(models.Model):
     """
-    A long-lived credential for a desktop client, tied to one user (docs/adr/020).
+    A long-lived credential for a desktop client, tied to one user (docs/adr/021).
 
     The key reads as its owner, with the owner's role, and only on safe methods
     (`apps.accounts.authentication`). It looks like `gbk_<prefix>_<secret>`:
