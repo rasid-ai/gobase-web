@@ -36,6 +36,14 @@ not. project-overview.md now says so.
   that page only, not into a message, because a message would travel in a
   cookie. `manage.py create_api_key <username> <name>` does the same from a
   shell. Only the hash is stored.
+- **Self-service:** a user can also get a key for themselves.
+  `POST /api/auth/api-keys` with `{username, password, name}` returns
+  `201 {key, prefix, name, created_at}`, marked `Cache-Control: no-store`.
+  The credentials are checked exactly as login checks them, with the same one
+  error message, and no session is started. The add-in names the key after the
+  computer. Getting a key revokes the user's other live keys of the same name,
+  so each computer keeps one key, not one per sign-in. The person types a
+  username and password as on the web; the add-in keeps only the key.
 - **Revoking:** revocation is an admin action. A revoked key gets a 401. So
   does a key whose user has been disabled.
 - **Format:** a key looks like `gbk_<prefix>_<secret>`. The 12 hex
@@ -72,16 +80,23 @@ every read into a write.
   Admin.
 - **Tied to a user,** so roles, `GET /api/auth/me` and every permission check
   keep working unchanged.
+- **Self-service, traded for the password once,** so signing in to the add-in
+  feels like the web. No Admin has to hand out keys, and the password is never
+  stored on the laptop.
 
 ## Consequences
 
 - **openapi.yaml has two consumers.** A change to an endpoint the add-in uses
   now breaks a client that ships separately. Those endpoints are the four
-  above and `/api/auth/me`.
-- **Nothing throttles a key.** `ScopedRateThrottle` is the fix when it
-  matters (docs/adr/011).
-- **The SPA is unchanged.** It never sees a key, and
-  `frontend/src/api/generated` regenerates identical.
+  above, `/api/auth/me` and `/api/auth/api-keys`.
+- **Nothing throttles a key, or the key endpoint.** `POST /api/auth/api-keys`
+  is as open to password guessing as `POST /api/auth/login`, and no more.
+  `ScopedRateThrottle` on both is the fix when it matters (docs/adr/011).
+- **Signing out of the add-in does not revoke its key on the server.** A key
+  can only read, so it cannot revoke itself. The next sign-in from that
+  computer replaces it, and an Admin can revoke it at any time.
+- **The SPA does not use the new endpoint.** `frontend/src/api/generated`
+  gains its client, which nothing calls.
 - **Rasters are not covered.** Giving a desktop client temporary credentials
   for the lake would bend the CLAUDE.md rule that anything carrying a
   credential goes through the backend. That is decided in its own ADR, once
@@ -99,6 +114,10 @@ every read into a write.
 - **`djangorestframework-api-key`.** Its keys are not tied to a user, so
   `request.user` stays anonymous. That means no role and no audit trail.
 - **A permission class for the read-only rule.** See Decision.
+- **Getting a key through the JWT session** (log in, then
+  `POST /api/auth/api-keys` with the access token). It is two calls instead
+  of one, and it leaves a refresh token behind that the add-in neither needs
+  nor keeps.
 - **Expiry dates on keys.** Not now. Revocation covers a lost laptop, and the
   last-used time shows keys nobody uses. Add `expires_at` if a policy asks for
   rotation.
@@ -107,5 +126,4 @@ every read into a write.
 
 - The add-in gains chat, which needs POST with a key.
 - OGC API Features is added, which needs the key as a Basic-auth password.
-- People outside the team need keys, which needs self-service issuing and
-  rate limits.
+- People outside the team need keys, which needs rate limits.

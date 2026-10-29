@@ -13,6 +13,15 @@ stored and cannot be shown again.
 `python manage.py create_api_key <username> <name>` does the same from a
 shell and prints only the key.
 
+A user can also get a key for themselves with their username and password:
+`POST /api/auth/api-keys` with `{username, password, name}`. The answer is a
+201 holding the key, its prefix, its name and when it was made, and it is
+never cached. A wrong username or password gets a 400 with the same message
+as login, and no key is made. No session is started.
+
+The add-in sends the computer's name as `name`. Getting a key revokes that
+user's other live keys with the same name, so each computer has one.
+
 ## Using
 
 The client sends `Authorization: Api-Key <key>` on every request. The key
@@ -35,6 +44,6 @@ within five minutes.
 ## Not built
 
 - Expiry dates
-- Self-service keys for users who are not Admins
+- Revoking a key from the add-in when signing out
 - Rate limits
 - Sign-in with a key as a Basic-auth password
