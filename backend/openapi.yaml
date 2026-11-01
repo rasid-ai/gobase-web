@@ -480,6 +480,48 @@ paths:
           description: The file could not be read.
         '503':
           description: The lake could not be reached.
+  /api/map/assets/{asset_id}/raster-access:
+    get:
+      operationId: map_asset_raster_access
+      description: |-
+        Short-lived, read-only lake credentials for one raster, and its address.
+
+        ArcGIS Pro cannot open a COG from a URL. It reads one through a cloud
+        storage connection, which signs its own range requests to the bucket, so
+        the portal hands out what that connection needs and never the pixels
+        (docs/adr/022). Raster only: any other asset is a 404, as `/data` is for
+        anything but a vector.
+
+        A GET although each call issues new credentials: an API key may only
+        read (docs/adr/021), and nothing in the portal or the lake changes.
+      summary: Credentials to read a raster from the lake
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RasterAccess'
+          description: ''
+        '404':
+          description: No active raster asset with that id.
+        '502':
+          description: The lake answered with an error, or the raster is not in the
+            lake.
+        '503':
+          description: Raster access is not set up on this portal, or the lake could
+            not be reached.
   /api/places/search:
     get:
       operationId: places_search
@@ -999,6 +1041,32 @@ components:
         * `schedule` - schedule
         * `sensor` - sensor
         * `manual` - manual
+    LakeCredentials:
+      type: object
+      description: 'Temporary S3 credentials: the three values a client signs with,
+        and when they stop.'
+      properties:
+        access_key_id:
+          type: string
+          readOnly: true
+        secret_access_key:
+          type: string
+          readOnly: true
+        session_token:
+          type: string
+          readOnly: true
+          description: Sent with every request, as the x-amz-security-token header,
+            and signed.
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: After this the lake refuses them. Ask again before then.
+      required:
+      - access_key_id
+      - expires_at
+      - secret_access_key
+      - session_token
     LaunchedRun:
       type: object
       description: The run a trigger started.
@@ -1129,6 +1197,52 @@ components:
           readOnly: true
       required:
       - results
+    RasterAccess:
+      type: object
+      description: |-
+        Where one raster is in the lake, and credentials that can read it.
+
+        For a desktop client that reads the COG itself, with range requests it
+        signs (docs/adr/022). The credentials read this one object and list the
+        names in its folder; nothing else.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+          description: 'The COG''s address on the lake, path-style: endpoint, bucket,
+            key. Reading it takes the credentials; it is not a presigned link.'
+        endpoint:
+          type: string
+          readOnly: true
+          description: 'The lake as a desktop client reaches it: scheme, host and
+            port.'
+        region:
+          type: string
+          readOnly: true
+          description: The region to sign for. The lake has no others.
+        bucket:
+          type: string
+          readOnly: true
+        key:
+          type: string
+          readOnly: true
+          description: The object's key inside the bucket.
+        credentials:
+          allOf:
+          - $ref: '#/components/schemas/LakeCredentials'
+          readOnly: true
+      required:
+      - asset_id
+      - bucket
+      - credentials
+      - endpoint
+      - key
+      - region
+      - url
     RoleEnum:
       enum:
       - admin

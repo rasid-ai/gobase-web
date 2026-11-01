@@ -13,6 +13,10 @@ whitenoise==6.12.0
 # ASGI serving: gunicorn supervises, uvicorn workers speak ASGI (SSE, later).
 gunicorn==23.0.0
 uvicorn[standard]==0.41.0
+# Asks the lake's STS for short-lived credentials that read one raster, for
+# desktop clients (docs/adr/022). The only module that imports it is
+# apps/map/sts.py; nothing in the portal reads a raster itself.
+boto3==1.43.114
 # Reads GeoParquet from the lake over S3 (GP-4). The only module that imports
 # it is apps/map/lake.py; kb stays on Django's connection, never DuckDB.
 duckdb==1.5.5
