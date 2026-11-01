@@ -15,6 +15,10 @@ imports `duckdb`. Everything above it speaks GeoJSON.
 DuckDB reads the lake only. It never touches Postgres — `kb` stays on Django's
 connection and its read-only role (docs/adr/002).
 
+One other module speaks to the lake, and reads nothing from it:
+`apps/map/sts.py` asks its STS for credentials that a desktop client uses to
+read one raster itself (docs/adr/022, context/integrations/lake-sts.md).
+
 ## Configuration
 
 Seven settings, all from the environment, all defaulted:

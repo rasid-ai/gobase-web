@@ -432,6 +432,27 @@ def asset_detail(asset_id) -> dict | None:
     }
 
 
+# The lake path for one raster asset: a COG in silver. The portal never reads
+# it; it tells a desktop client where it is, with credentials to read it
+# (docs/adr/022). Like the vector read, it names a modality because its
+# endpoint serves one.
+_RASTER_SOURCE_URI = """
+    SELECT source_uri
+    FROM assets
+    WHERE asset_id = %s AND status = 'active' AND modality = 'raster'
+"""
+
+
+def raster_source_uri(asset_id) -> str | None:
+    """The lake URI of an active raster asset, or None if there is no such asset.
+
+    None covers the same three misses as `vector_source_uri`, and each is the
+    same 404.
+    """
+    found = _rows(_RASTER_SOURCE_URI, [str(asset_id)])
+    return found[0]["source_uri"] if found else None
+
+
 def vector_source_uri(asset_id) -> str | None:
     """The lake URI of an active vector asset, or None if there is no such asset.
 

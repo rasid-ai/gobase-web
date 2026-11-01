@@ -35,4 +35,5 @@ server access.
 - Dashboards and analytics
 - Public access (internal desktop clients may sign in with an API key: docs/adr/021)
 - Editing or uploading data (ingestion belongs to the data platform repo)
-- Raster results displayed on the map (later phase)
+- Raster results displayed on the web map (later phase). The ArcGIS Pro add-in
+  opens rasters itself, straight from the lake (docs/adr/022)

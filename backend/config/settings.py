@@ -250,3 +250,24 @@ LAKE_S3_URL_STYLE = env("LAKE_S3_URL_STYLE", "vhost")
 # scan — the measurements are in that file — so a bigger page mostly saves
 # round trips.
 LAKE_PAGE_SIZE = int(env("LAKE_PAGE_SIZE", "10000"))
+
+# --- rasters for desktop clients (docs/adr/022) ------------------------------
+# The ArcGIS Pro add-in reads a COG from the lake itself, with short-lived
+# credentials the portal asks the lake's STS for. Only apps/map/sts.py reads
+# these. Blank is meaningful rather than missing: without a public address or
+# an issuing user, the endpoint answers 503 and the portal runs without
+# raster access.
+#
+# The lake as a desktop client reaches it, scheme included: an https
+# hostname in front of RustFS, or the VPS's Tailscale address while there is
+# none. The portal itself keeps using LAKE_S3_ENDPOINT, STS call included.
+LAKE_PUBLIC_ENDPOINT = env("LAKE_PUBLIC_ENDPOINT", "")
+# A regular RustFS user, whose name and password are its keys. Not an access
+# key made on the console's Access Keys page: RustFS refuses STS from those.
+# Its only grant is reading the raster folder (context/integrations/lake-sts.md).
+LAKE_STS_ACCESS_KEY = env("LAKE_STS_ACCESS_KEY", "")
+LAKE_STS_SECRET_KEY = env("LAKE_STS_SECRET_KEY", "")
+# How long one set of credentials reads for. Clamped to 900-43200, the range
+# STS allows. The add-in asks for a new set before this runs out.
+LAKE_STS_DURATION_SECONDS = int(env("LAKE_STS_DURATION_SECONDS", "3600"))
+LAKE_STS_TIMEOUT_SECONDS = float(env("LAKE_STS_TIMEOUT_SECONDS", "5"))
