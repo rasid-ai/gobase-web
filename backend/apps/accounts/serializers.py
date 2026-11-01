@@ -61,3 +61,25 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(self.validated_data["new_password"])
         user.save(update_fields=["password"])
         return user
+
+
+class ApiKeyIssueSerializer(LoginSerializer):
+    """Credentials, checked as login checks them, plus a name for the new key."""
+
+    name = serializers.CharField(
+        write_only=True,
+        max_length=100,
+        help_text=(
+            "Names the computer, e.g. “ArcGIS Pro on DESKTOP-6NHTMEV”. The user's other "
+            "live keys of this name are revoked."
+        ),
+    )
+
+
+class ApiKeyIssuedSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        read_only=True, help_text="Send as `Authorization: Api-Key <key>`. Shown only here."
+    )
+    prefix = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
