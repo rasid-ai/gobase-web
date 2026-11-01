@@ -34,7 +34,8 @@ Changing any of these is a decision worth an ADR.
   computes an answer — it renders what the API returns. Anything carrying a
   credential, or returning data about the knowledge base, goes through the
   backend; the basemap's raster tiles are the one exception and are neither.
-  See docs/adr/011.
+  See docs/adr/011. Desktop clients are the other: the backend hands them
+  short-lived, read-only lake credentials for one raster. See docs/adr/022.
 - Agent-issued SQL is SELECT-only, rejected before execution.
 - Dagster only via its GraphQL API; the sole mutation is `launchRun`,
   Admin-only. See docs/adr/004.
