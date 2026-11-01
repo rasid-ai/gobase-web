@@ -26,6 +26,8 @@ import type {
 
 import type {
   AccessToken,
+  ApiKeyIssueRequest,
+  ApiKeyIssued,
   ChangePasswordRequest,
   LoginRequest,
   Me
@@ -53,7 +55,109 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
-export type authChangePasswordCreateResponse204 = {
+export type authApiKeysCreateResponse201 = {
+  data: ApiKeyIssued
+  status: 201
+}
+
+export type authApiKeysCreateResponse400 = {
+  data: void
+  status: 400
+}
+
+export type authApiKeysCreateResponseSuccess = (authApiKeysCreateResponse201) & {
+  headers: Headers;
+};
+export type authApiKeysCreateResponseError = (authApiKeysCreateResponse400) & {
+  headers: Headers;
+};
+
+export type authApiKeysCreateResponse = (authApiKeysCreateResponseSuccess | authApiKeysCreateResponseError)
+
+export const getAuthApiKeysCreateUrl = () => {
+
+
+
+
+  return `/api/auth/api-keys`
+}
+
+/**
+ * Exchange credentials for an API key.
+ *
+ * Checked exactly as login checks them, with the same single error message.
+ * No session is started: the client keeps the key, never the password.
+ * @summary Get an API key
+ */
+export const authApiKeysCreate = async (apiKeyIssueRequest: ApiKeyIssueRequest, options?: Parameters<typeof httpClient>[1]): Promise<authApiKeysCreateResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return httpClient<authApiKeysCreateResponse>(getAuthApiKeysCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(apiKeyIssueRequest)
+  }
+);}
+
+
+
+
+
+export const getAuthApiKeysCreateMutationKey = () => ['authApiKeysCreate'] as const;
+
+export const getAuthApiKeysCreateMutationOptions = <TError = void,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof authApiKeysCreate>>, TError,AuthApiKeysCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof authApiKeysCreate>>, TError,AuthApiKeysCreateMutationVariables, TContext> => {
+
+const mutationKey = getAuthApiKeysCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof authApiKeysCreate>>, AuthApiKeysCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  authApiKeysCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AuthApiKeysCreateMutationResult = NonNullable<Awaited<ReturnType<typeof authApiKeysCreate>>>
+    export type AuthApiKeysCreateMutationBody = ApiKeyIssueRequest
+    export type AuthApiKeysCreateMutationError = void
+    export type AuthApiKeysCreateMutationVariables = {data: ApiKeyIssueRequest}
+
+    /**
+ * @summary Get an API key
+ */
+export const useAuthApiKeysCreate = <TError = void,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof authApiKeysCreate>>, TError,AuthApiKeysCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof authApiKeysCreate>>,
+        TError,
+        AuthApiKeysCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAuthApiKeysCreateMutationOptions(options), queryClient);
+    }
+    export type authChangePasswordCreateResponse204 = {
   data: void
   status: 204
 }

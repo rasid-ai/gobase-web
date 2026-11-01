@@ -33,6 +33,6 @@ server access.
 ## Out of scope
 
 - Dashboards and analytics
-- Public or client-external access
+- Public access (internal desktop clients may sign in with an API key: docs/adr/021)
 - Editing or uploading data (ingestion belongs to the data platform repo)
 - Raster results displayed on the map (later phase)
