@@ -139,3 +139,46 @@ class AssetDataSerializer(serializers.Serializer):
         child=serializers.JSONField(),
         help_text="GeoJSON Features, SRID 4326.",
     )
+
+
+class LakeCredentialsSerializer(serializers.Serializer):
+    """Temporary S3 credentials: the three values a client signs with, and when they stop."""
+
+    access_key_id = serializers.CharField(read_only=True)
+    secret_access_key = serializers.CharField(read_only=True)
+    session_token = serializers.CharField(
+        read_only=True,
+        help_text="Sent with every request, as the x-amz-security-token header, and signed.",
+    )
+    expires_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="After this the lake refuses them. Ask again before then.",
+    )
+
+
+class RasterAccessSerializer(serializers.Serializer):
+    """Where one raster is in the lake, and credentials that can read it.
+
+    For a desktop client that reads the COG itself, with range requests it
+    signs (docs/adr/022). The credentials read this one object and list the
+    names in its folder; nothing else.
+    """
+
+    asset_id = serializers.UUIDField(read_only=True)
+    url = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The COG's address on the lake, path-style: endpoint, bucket, key. "
+            "Reading it takes the credentials; it is not a presigned link."
+        ),
+    )
+    endpoint = serializers.CharField(
+        read_only=True,
+        help_text="The lake as a desktop client reaches it: scheme, host and port.",
+    )
+    region = serializers.CharField(
+        read_only=True, help_text="The region to sign for. The lake has no others."
+    )
+    bucket = serializers.CharField(read_only=True)
+    key = serializers.CharField(read_only=True, help_text="The object's key inside the bucket.")
+    credentials = LakeCredentialsSerializer(read_only=True)

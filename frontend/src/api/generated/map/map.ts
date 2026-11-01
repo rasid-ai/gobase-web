@@ -23,7 +23,8 @@ import type {
 import type {
   AssetData,
   AssetDetail,
-  MapAssetDataParams
+  MapAssetDataParams,
+  RasterAccess
 } from '../model';
 
 import { httpClient } from '../../http-client';
@@ -328,6 +329,145 @@ export function useMapAssetData<TData = Awaited<ReturnType<typeof mapAssetData>>
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getMapAssetDataQueryOptions(assetId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type mapAssetRasterAccessResponse200 = {
+  data: RasterAccess
+  status: 200
+}
+
+export type mapAssetRasterAccessResponse404 = {
+  data: void
+  status: 404
+}
+
+export type mapAssetRasterAccessResponse502 = {
+  data: void
+  status: 502
+}
+
+export type mapAssetRasterAccessResponse503 = {
+  data: void
+  status: 503
+}
+
+export type mapAssetRasterAccessResponseSuccess = (mapAssetRasterAccessResponse200) & {
+  headers: Headers;
+};
+export type mapAssetRasterAccessResponseError = (mapAssetRasterAccessResponse404 | mapAssetRasterAccessResponse502 | mapAssetRasterAccessResponse503) & {
+  headers: Headers;
+};
+
+export type mapAssetRasterAccessResponse = (mapAssetRasterAccessResponseSuccess | mapAssetRasterAccessResponseError)
+
+export const getMapAssetRasterAccessUrl = (assetId: string,) => {
+
+
+
+
+  return `/api/map/assets/${assetId}/raster-access`
+}
+
+/**
+ * Short-lived, read-only lake credentials for one raster, and its address.
+ *
+ * ArcGIS Pro cannot open a COG from a URL. It reads one through a cloud
+ * storage connection, which signs its own range requests to the bucket, so
+ * the portal hands out what that connection needs and never the pixels
+ * (docs/adr/022). Raster only: any other asset is a 404, as `/data` is for
+ * anything but a vector.
+ *
+ * A GET although each call issues new credentials: an API key may only
+ * read (docs/adr/021), and nothing in the portal or the lake changes.
+ * @summary Credentials to read a raster from the lake
+ */
+export const mapAssetRasterAccess = async (assetId: string, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetRasterAccessResponse> => {
+
+  return httpClient<mapAssetRasterAccessResponse>(getMapAssetRasterAccessUrl(assetId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMapAssetRasterAccessQueryKey = (assetId: string,) => {
+    return [
+    `/api/map/assets/${assetId}/raster-access`
+    ] as const;
+    }
+
+
+export const getMapAssetRasterAccessQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError = void>(assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMapAssetRasterAccessQueryKey(assetId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetRasterAccess>>> = ({ signal }) => mapAssetRasterAccess(assetId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MapAssetRasterAccessQueryResult = NonNullable<Awaited<ReturnType<typeof mapAssetRasterAccess>>>
+export type MapAssetRasterAccessQueryError = void
+
+
+export function useMapAssetRasterAccess<TData = Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError = void>(
+ assetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetRasterAccess>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetRasterAccess>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetRasterAccess<TData = Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetRasterAccess>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetRasterAccess>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetRasterAccess<TData = Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Credentials to read a raster from the lake
+ */
+
+export function useMapAssetRasterAccess<TData = Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterAccess>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMapAssetRasterAccessQueryOptions(assetId,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
