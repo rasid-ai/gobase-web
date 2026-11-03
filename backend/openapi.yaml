@@ -253,6 +253,64 @@ paths:
         '400':
           description: A filter that cannot be read, half a point, or more than one
             place.
+  /api/catalog/assets/{asset_id}/pages/{page}.png:
+    get:
+      operationId: catalog_document_page
+      description: |-
+        One page of a document's PDF as an image, a passage drawn on it (docs/adr/020).
+
+        The page is counted from 1, as the passages endpoint reports it. With
+        `chunk`, the passage's boxes are drawn; without, the plain page. Read from
+        bronze through the lake, like the PDF itself, and rendered here: the browser
+        never sees the bucket, and an `<img>` cannot carry a token anyway.
+
+        The ETag is the PDF's hash, the chunk, the page and the renderer's version,
+        so a revalidation is a catalog lookup and neither a lake read nor a render.
+      summary: A page of a document's PDF, with a passage marked
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: chunk
+        schema:
+          type: string
+          minLength: 1
+          pattern: ^[A-Za-z0-9._:-]{1,128}$
+        description: 'A passage''s `chunk_id`: its boxes are drawn on the page. Omitted
+          renders the plain page.'
+      - in: path
+        name: page
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+          description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held.
+        '400':
+          description: A chunk id that is not one.
+        '404':
+          description: No active document with that id or no PDF recorded for it,
+            a page it does not have, or a chunk that is not in it.
+        '502':
+          description: The PDF could not be read or rendered.
+        '503':
+          description: The lake or the chunk index could not be reached.
   /api/catalog/assets/{asset_id}/pdf:
     get:
       operationId: catalog_document_pdf
@@ -436,6 +494,126 @@ paths:
         '400':
           description: A filter that cannot be read, half a point, or more than one
             place.
+  /api/catalog/passages:
+    get:
+      operationId: catalog_passages
+      description: |-
+        The documents whose passages best answer a question (docs/adr/020).
+
+        The Assets page's Semantic search. The question is embedded by the data
+        platform's document service, the catalog names the documents in scope —
+        narrowed by place, window and dataset like any browse — and the chunk
+        index ranks their passages. Deep, where `assets/similar` is shallow.
+      summary: Passages answering a question
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this drawn polygon:
+          WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself.'
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
+          SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: coverage
+        schema:
+          enum:
+          - asset
+          - dataset
+          type: string
+          default: asset
+          minLength: 1
+        description: |-
+          What the place is compared with. `asset`: each asset's own coverage. `dataset`: its dataset's, the union of the coverage of the dataset's active assets, so every asset of a dataset that overlaps the place is included, those with no coverage of their own too. An asset with no dataset is compared by its own. Only matters with a place.
+
+          * `asset` - asset
+          * `dataset` - dataset
+      - in: query
+        name: dataset
+        schema:
+          type: string
+          maxLength: 200
+        description: Only documents in this dataset, matched exactly. Omitted means
+          every dataset.
+      - in: query
+        name: ingested_after
+        schema:
+          type: string
+          format: date-time
+        description: Ingested at or after this moment.
+      - in: query
+        name: ingested_before
+        schema:
+          type: string
+          format: date-time
+        description: Ingested strictly before this moment.
+      - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        description: Latitude of the point, WGS 84. Sent with `lon`.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 10
+        description: The most documents to return.
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        description: 'Restrict to assets covering this point: longitude, WGS 84. Sent
+          with `lat`.'
+      - in: query
+        name: passages
+        schema:
+          type: integer
+          maximum: 10
+          minimum: 1
+          default: 3
+        description: The most passages per document.
+      - in: query
+        name: q
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description: What you are looking for, in words. Embedded as typed and matched
+          against the documents' passages by meaning, not by text.
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Passages'
+          description: ''
+        '400':
+          description: Missing or empty text, a limit out of range, or a bad place.
+        '502':
+          description: The embedding service refused the question, or the index failed.
+        '503':
+          description: The embedding service is unreachable or not configured, or
+            the index could not be reached.
   /api/health/:
     get:
       operationId: health_retrieve
@@ -1043,6 +1221,111 @@ components:
       - pages
       - pdf
       - title
+    DocumentPassages:
+      type: object
+      description: A list row for a document, plus the passages of it that matched.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed — the
+            catalog has no name column (docs/adr/010). A document is named after its
+            PDF instead, extension kept (docs/adr/017).
+        data_type:
+          type: string
+          readOnly: true
+        format:
+          type: string
+          readOnly: true
+          nullable: true
+        dataset:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name as the catalog holds it: a folder of the
+            raw bucket.'
+        dataset_label:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name made readable: spaced and in sentence
+            case.'
+        topic_path:
+          type: string
+          readOnly: true
+          nullable: true
+        bytes:
+          type: integer
+          readOnly: true
+          nullable: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The asset's coverage as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326. Null when the asset has no coverage.
+          maxItems: 4
+          minItems: 4
+        summary:
+          type: string
+          readOnly: true
+          nullable: true
+        time_start:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        time_end:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ingested_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        document:
+          allOf:
+          - $ref: '#/components/schemas/Document'
+          readOnly: true
+          nullable: true
+          description: Set for a document; null for every other data type.
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: The best passage's score. Documents come in this order.
+        passages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Passage'
+          readOnly: true
+      required:
+      - asset_id
+      - bbox
+      - bytes
+      - data_type
+      - dataset
+      - dataset_label
+      - document
+      - format
+      - ingested_at
+      - name
+      - passages
+      - score
+      - summary
+      - time_end
+      - time_start
+      - topic_path
     Health:
       type: object
       properties:
@@ -1146,6 +1429,79 @@ components:
       required:
       - role
       - username
+    Passage:
+      type: object
+      description: One passage of a document that matched the question.
+      properties:
+        chunk_id:
+          type: string
+          readOnly: true
+          description: The passage's id in the chunk index; what the page image takes.
+        text:
+          type: string
+          readOnly: true
+        heading_path:
+          type: array
+          items:
+            type: string
+          readOnly: true
+          description: The section headings above the passage, outermost first. Empty
+            when none.
+        page_start:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The page the passage starts on, as a reader counts them, from
+            1 — the number `/pages/{page}.png` and a PDF viewer's `#page=` take. The
+            chunk index stores pages from 0. Null when the index records no page.
+        page_end:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The page it ends on, from 1.
+        pages_with_boxes:
+          type: array
+          items:
+            type: integer
+          readOnly: true
+          description: The pages, from 1, on which the passage can be drawn.
+        chunk_type:
+          type: string
+          readOnly: true
+          description: 'What the parser read: text, table, list, chart, …'
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: 'Cosine similarity to the question: 1 is identical. Rows come
+            best first.'
+      required:
+      - chunk_id
+      - chunk_type
+      - heading_path
+      - page_end
+      - page_start
+      - pages_with_boxes
+      - score
+      - text
+    Passages:
+      type: object
+      description: The documents whose passages best answer a question, best first.
+      properties:
+        embedder:
+          type: string
+          readOnly: true
+          description: The model that embedded the question. Only documents whose
+            passages were embedded by the same model are searched.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentPassages'
+          readOnly: true
+      required:
+      - embedder
+      - results
     Place:
       type: object
       description: One candidate place. Nothing here names a vendor.

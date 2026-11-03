@@ -1,5 +1,13 @@
-import { type LucideIcon, MapPin, TextSearch } from 'lucide-react'
-import { type Ref, useRef } from 'react'
+import { CornerDownLeft, type LucideIcon, MapPin, Sparkles, TextSearch } from 'lucide-react'
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type Ref,
+  type RefCallback,
+  useCallback,
+  useRef,
+  useState,
+} from 'react'
 
 import type { DataTypeCount, Place } from '@/api/generated/model'
 import { Button } from '@/components/ui/button'
@@ -58,15 +66,17 @@ const MODES: { value: BrowseMode; label: string }[] = [
 ]
 
 /**
- * What the search box is searching (docs/adr/019). One at a time, chosen
- * before typing, so a word is never a name and a place at once. Semantic
- * search is the third, and is not built yet.
+ * What the search box is searching (docs/adr/019, docs/adr/020). One at a
+ * time, chosen before typing, so a word is never a name and a place at once.
+ * Semantic finds passages by meaning, and is asked on submit rather than as
+ * typed: an embedding per keystroke is the wrong shape.
  */
-export type SearchKind = 'metadata' | 'places'
+export type SearchKind = 'metadata' | 'places' | 'semantic'
 
 const SEARCH_KINDS: { value: SearchKind; label: string; Icon: LucideIcon }[] = [
   { value: 'metadata', label: 'Metadata', Icon: TextSearch },
   { value: 'places', label: 'Places', Icon: MapPin },
+  { value: 'semantic', label: 'Semantic', Icon: Sparkles },
 ]
 
 export function AssetFilters({
@@ -80,6 +90,8 @@ export function AssetFilters({
   placeholder,
   placeQuery,
   onPlaceQuery,
+  question,
+  onAsk,
   dataTypes,
   selectedTypes,
   onToggleType,
@@ -103,6 +115,9 @@ export function AssetFilters({
   /** What is typed to find a place. Not a filter: picking a place is. */
   placeQuery: string
   onPlaceQuery: (next: string) => void
+  /** The question asked, once submitted. Empty is none. */
+  question: string
+  onAsk: (question: string) => void
   /** Straight from the API — the portal never holds its own list of data types. */
   dataTypes: readonly DataTypeCount[]
   selectedTypes: readonly string[]
@@ -114,9 +129,14 @@ export function AssetFilters({
   onClear: () => void
   dirty: boolean
 }) {
-  // The box is a different input for each kind, so choosing a kind hands
-  // focus to the new one: choose, then type.
-  const box = useRef<HTMLInputElement>(null)
+  // The box is a different field for each kind — a textarea for a question,
+  // an input otherwise — so choosing a kind hands focus to the new one:
+  // choose, then type. A callback ref, since one object ref cannot be typed
+  // for both.
+  const field = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+  const box = useCallback((element: HTMLInputElement | HTMLTextAreaElement | null) => {
+    field.current = element
+  }, [])
 
   return (
     <aside
@@ -128,6 +148,8 @@ export function AssetFilters({
       <div className="flex flex-col gap-2">
         {searchKind === 'places' ? (
           <PlaceBox inputRef={box} query={placeQuery} onQuery={onPlaceQuery} onArea={onArea} />
+        ) : searchKind === 'semantic' ? (
+          <QuestionBox inputRef={box} question={question} onAsk={onAsk} />
         ) : (
           <Input
             ref={box}
@@ -143,7 +165,7 @@ export function AssetFilters({
           value={searchKind}
           onChange={(next) => {
             onSearchKind(next)
-            requestAnimationFrame(() => box.current?.focus())
+            requestAnimationFrame(() => field.current?.focus())
           }}
         />
 
@@ -153,12 +175,24 @@ export function AssetFilters({
           metadata search is shown here only while the box is finding places;
           otherwise the box itself shows it.
         */}
-        {searchKind === 'places' && search !== '' ? (
+        {searchKind !== 'metadata' && search !== '' ? (
           <FilterChip
             kind="Metadata"
             value={search}
             removeLabel={`Remove metadata search ${search}`}
             onRemove={() => onSearch('')}
+          />
+        ) : null}
+        {/*
+          The question is a filter from the moment it is asked, so its chip is
+          shown in every kind: the box holds a draft, the chip what was asked.
+        */}
+        {question !== '' ? (
+          <FilterChip
+            kind="Semantic"
+            value={question}
+            removeLabel="Remove question"
+            onRemove={() => onAsk('')}
           />
         ) : null}
         {/*
@@ -322,6 +356,81 @@ function SearchKindSwitch({
         </button>
       ))}
     </div>
+  )
+}
+
+/**
+ * The search box while it asks by meaning: three lines of question, and under
+ * them, inside the same border, how to send it and the button that does.
+ *
+ * Sent on Enter or the button, never as typed, the way the map's Semantic
+ * pane does it (docs/adr/018): every submission is an embedding round trip.
+ * Shift+Enter breaks a line, since a question can be longer than a word. The
+ * box holds a draft seeded from the question asked; the chip under it shows
+ * what is actually applied.
+ */
+function QuestionBox({
+  inputRef,
+  question,
+  onAsk,
+}: {
+  inputRef: RefCallback<HTMLTextAreaElement>
+  question: string
+  onAsk: (question: string) => void
+}) {
+  const [draft, setDraft] = useState(question)
+  // The draft follows the question when it changes from outside — asked,
+  // removed, or cleared with everything else — without a remount, so the
+  // box keeps its focus. Set during render, not in an effect.
+  const [seed, setSeed] = useState(question)
+  if (seed !== question) {
+    setSeed(question)
+    setDraft(question)
+  }
+
+  function submit(event?: FormEvent) {
+    event?.preventDefault()
+    const asked = draft.trim()
+    if (asked !== '') onAsk(asked)
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      submit()
+    }
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      aria-label="Search by meaning"
+      className={cn(
+        'flex flex-col rounded-md border border-border bg-input',
+        'focus-within:border-ring focus-within:ring-2 focus-within:ring-ring',
+      )}
+    >
+      <textarea
+        ref={inputRef}
+        rows={3}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Describe what you are looking for…"
+        aria-label="Ask about documents"
+        maxLength={500}
+        className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-snug placeholder:text-muted-foreground focus-visible:outline-none"
+      />
+      <div className="flex items-center justify-between gap-2 px-2 pb-2 pl-3">
+        <span className={cn(MICRO, 'flex items-center gap-1')}>
+          <CornerDownLeft aria-hidden className="size-3" />
+          to search
+        </span>
+        <Button type="submit" variant="outline" size="sm" disabled={draft.trim() === ''}>
+          Search
+        </Button>
+      </div>
+    </form>
   )
 }
 

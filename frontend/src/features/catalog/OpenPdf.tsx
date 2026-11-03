@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { openDocumentPdf } from './openDocument'
 
@@ -15,17 +15,23 @@ export function OpenPdf({
   assetId,
   className,
   label = 'Open PDF',
+  icon,
+  page,
 }: {
   assetId: string
   className: string
   /** The button's text: "Open PDF" on a card, plain "Open" beside Draw in a row. */
   label?: string
+  /** Decoration after the text, such as an arrow out; hidden from assistive technology by the caller. */
+  icon?: ReactNode
+  /** Open the viewer at this page, counted from 1. Omitted opens at the start. */
+  page?: number
 }) {
   const [state, setState] = useState<'idle' | 'opening' | 'failed'>('idle')
 
   async function open() {
     setState('opening')
-    const opened = await openDocumentPdf(assetId)
+    const opened = await openDocumentPdf(assetId, page)
     setState(opened ? 'idle' : 'failed')
   }
 
@@ -38,6 +44,7 @@ export function OpenPdf({
       )}
       <button type="button" onClick={open} disabled={state === 'opening'} className={className}>
         {label}
+        {icon}
       </button>
     </>
   )

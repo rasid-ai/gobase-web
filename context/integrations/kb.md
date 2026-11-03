@@ -141,10 +141,11 @@ the `vector` (pgvector) extension in `kb`.
 | `headings` (`text[]`), `lang`, `pages` | |
 | `bundle_uri` | the parsed bundle in silver, `…/documents/<tree>/<stem>.bundle.zip` — the same value as `assets.source_uri` |
 | `pdf_uri` | **the PDF itself, in bronze**: `s3://geobase-bronze/raw/<tree>/<name>.pdf`. Null for a bundle loaded without its source stamp |
-| `chunks_uri`, `chunker_id`, `embedder_id`, `dim`, `n_chunks` | the chunk table (one LanceDB table per embedder, on silver) and how it was built |
+| `chunks_uri`, `chunker_id`, `embedder_id`, `dim`, `n_chunks` | the chunk table (one LanceDB table per embedder, on silver) and how it was built. The portal reads the table for deep search (context/integrations/lance.md, docs/adr/020); `embedder_id` is what it filters on, so a table made by another model is never searched with this question's vector |
 
 Chunks are not in Postgres at all; `v_queryable_documents` is the
-active-only view over the join.
+active-only view over the join. `doc.pages` and `doc.chunks_uri` ride on the
+PDF read (`_DOCUMENT_PDF`) for the page image, which needs both.
 
 **`doc_documents` must exist in production before this portal build ships.**
 Every catalog read LEFT JOINs it (`_DOCUMENTS` in `apps/catalog/kb.py`), so

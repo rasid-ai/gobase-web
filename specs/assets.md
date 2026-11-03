@@ -133,29 +133,67 @@ instead. Clearing is only offered when there is something to clear.
 
 ## The search box
 
-Two small icons under the box choose what it searches: **Metadata** (a
-text-search icon) or **Places** (a map pin). It searches one at a time, so a
-word is never a name and a place at once (docs/adr/019). Each icon's name is
-its tooltip, and choosing one puts the cursor in the box. The icons are
-quieter than the Datasets / Assets switch on purpose: that switch changes what
-the page lists, and these change only what the box is for. Semantic search
-will be the third (not built).
+Three small icons under the box choose what it searches: **Metadata** (a
+text-search icon), **Places** (a map pin) or **Semantic** (sparkles). It
+searches one at a time, so a word is never a name and a place at once
+(docs/adr/019, docs/adr/020). Each icon's name is its tooltip, and choosing
+one puts the cursor in the box. The icons are quieter than the Datasets /
+Assets switch on purpose: that switch changes what the page lists, and these
+change only what the box is for.
 
 - **Metadata** filters the page as you type: dataset names among datasets,
   asset metadata everywhere else. Nothing typed here goes to the geocoder.
 - **Places** sends what is typed to the geocoder and filters nothing. Picking
   a place sets the area and empties the box.
+- **Semantic** asks a question of the documents, by meaning. The box grows
+  to three lines for it, with the Search button inside. It is sent when you
+  press Enter or the Search button, never as you type, because each question
+  is an embedding round trip; Shift+Enter breaks a line. The answer replaces
+  the grid (see Deep search results).
 
 Each filter the box set is shown under it as a chip named by its kind:
-**Place**, and **Metadata** while the box is finding places. That way a place
-and a search for the same word cannot be mistaken for each other. The two
-combine, so a metadata search plus a place is a question you can ask.
-Switching the box between the two kinds changes neither filter.
+**Place**, **Semantic**, and **Metadata** while the box is on another kind.
+That way a place, a question and a search for the same word cannot be
+mistaken for each other. A place combines with either of the other two. A
+question and a metadata search never stand together: they share the box, so
+choosing Semantic clears the metadata search and choosing Metadata clears the
+question. Switching the box to Places changes neither.
 
 A place search starts at three characters and runs once per pause in typing
 rather than once per letter, because every search is billed (docs/adr/011).
 Text that matches no place says so; a geocoder that cannot be reached says
 that instead, and is not asked again.
+
+## Deep search results
+
+While a question is active the grid, in both modes, lists the **documents**
+whose passages best answer it, best first, up to ten. Each is the document's
+asset card with its matching passages (up to three) under the name. The
+count beside the title says "N documents"; there is no sort, because the
+answer is ranked. No similarity number is shown anywhere: the order carries
+it (docs/adr/018).
+
+A passage shows the section headings above it ("3 Security › 3.2
+Checkpoints"), its page or pages, the kind of block it is (text, table,
+chart…), and its text, clamped to three lines. Opening it shows the whole
+text, then **the page itself**, rendered by the server with the passage's
+area marked on it, and **Open PDF at p. N**, which opens the browser's
+viewer at that page. A passage that runs over several pages offers a button
+per page for the preview. The page is fetched only when a passage is opened.
+A document whose PDF the catalog does not record offers neither.
+
+The question is narrowed like every list: by the place (through the
+datasets' coverage), by the date of ingestion, and by the open dataset — inside
+one, the question is asked of its documents only. The data type filter is
+not offered while a question is active, because only documents have passages.
+Removing the question's chip brings the datasets or assets back as they were.
+
+Only documents whose passages were embedded by the model the service runs
+are searched; a document indexed by another model, or not indexed at all, is
+never in the answer. "Semantic search is unavailable" means the embedding
+service is not configured or cannot be reached. "No passages match that
+question" means the search ran and found nothing close enough among the
+documents in scope.
 
 ## The area is an address
 
@@ -205,12 +243,14 @@ nowhere to go.
 - **Opening an asset in place.** Selecting an asset shows it on the map;
   there is no detail view on this page. A document's PDF opens in a new
   tab, not in the page.
-- **Opening a PDF at a page or a passage.** The chunk index knows which
-  pages a passage is on; the tab opens at page one regardless. Nothing
-  records lines, so "open at a line" is not possible with this data.
-- **Semantic search** on this page, the box's third kind. It is on the map
-  today (docs/adr/018).
 - **Typing a coordinate** to set the area. The map's place search takes one;
   this box takes place names only.
 - **Word-by-word or forgiving search**, and showing **why** an asset matched
   (which field held the text).
+- **Opening a PDF at a passage's line.** The viewer opens at the page and
+  the preview marks the passage; nothing records lines, only boxes on a
+  0..1000 grid per passage.
+- **Paging through passages, or a reranker.** A question lists the best ten
+  documents and three passages each, ranked by cosine alone.
+- **Highlighting the matching words in a passage's text.** The match is by
+  meaning, and the index does not say which words carried it.

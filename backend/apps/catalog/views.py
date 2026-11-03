@@ -15,12 +15,15 @@ from rest_framework.views import APIView
 from apps.map import lake
 from apps.map.http import LakeFailed, LakeUnreachable, cacheable
 
-from . import godoc, kb
+from . import chunks, godoc, kb, pages, passages
 from .serializers import (
     AssetListQuerySerializer,
     AssetListSerializer,
     DatasetListQuerySerializer,
     DatasetListSerializer,
+    DocumentPageQuerySerializer,
+    PassagesQuerySerializer,
+    PassagesSerializer,
     SimilarAssetsQuerySerializer,
     SimilarAssetsSerializer,
 )
@@ -235,3 +238,159 @@ def _embed(text: str) -> tuple[str, list[float]]:
     except godoc.GoDocError as exc:
         logger.warning("GoDoc error: %s", exc)
         raise SemanticSearchFailed() from exc
+
+
+class ChunkIndexUnreachable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The chunk index is unreachable"
+
+
+class ChunkIndexFailed(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "The chunk index returned an error"
+
+
+class PassagesView(APIView):
+    """The documents whose passages best answer a question (docs/adr/020).
+
+    The Assets page's Semantic search. The question is embedded by the data
+    platform's document service, the catalog names the documents in scope —
+    narrowed by place, window and dataset like any browse — and the chunk
+    index ranks their passages. Deep, where `assets/similar` is shallow.
+    """
+
+    @extend_schema(
+        parameters=[PassagesQuerySerializer],
+        responses={
+            200: PassagesSerializer,
+            400: OpenApiResponse(
+                description="Missing or empty text, a limit out of range, or a bad place."
+            ),
+            502: OpenApiResponse(
+                description="The embedding service refused the question, or the index failed."
+            ),
+            503: OpenApiResponse(
+                description=(
+                    "The embedding service is unreachable or not configured, or the "
+                    "index could not be reached."
+                )
+            ),
+        },
+        operation_id="catalog_passages",
+        summary="Passages answering a question",
+        tags=["catalog"],
+    )
+    def get(self, request):
+        query = PassagesQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        asked = query.validated_data
+
+        if not settings.GODOC_URL:
+            logger.warning("Semantic search asked for, but no GoDoc URL is configured")
+            raise SemanticSearchUnreachable("Semantic search is not configured")
+
+        model, vector = _embed(asked["q"])
+        try:
+            results = passages.search(
+                vector,
+                model,
+                limit=asked["limit"],
+                per_document=asked["passages"],
+                dataset=asked.get("dataset") or None,
+                **query.place(),
+                ingested_after=asked.get("ingested_after"),
+                ingested_before=asked.get("ingested_before"),
+            )
+        except chunks.ChunkStoreUnavailable as exc:
+            logger.warning("Chunk index unreachable: %s", exc)
+            raise ChunkIndexUnreachable() from exc
+        except chunks.ChunkStoreError as exc:
+            logger.warning("Chunk index error: %s", exc)
+            raise ChunkIndexFailed() from exc
+        return Response(PassagesSerializer({"embedder": model, "results": results}).data)
+
+
+class DocumentPageView(APIView):
+    """One page of a document's PDF as an image, a passage drawn on it (docs/adr/020).
+
+    The page is counted from 1, as the passages endpoint reports it. With
+    `chunk`, the passage's boxes are drawn; without, the plain page. Read from
+    bronze through the lake, like the PDF itself, and rendered here: the browser
+    never sees the bucket, and an `<img>` cannot carry a token anyway.
+
+    The ETag is the PDF's hash, the chunk, the page and the renderer's version,
+    so a revalidation is a catalog lookup and neither a lake read nor a render.
+    """
+
+    @extend_schema(
+        parameters=[DocumentPageQuerySerializer],
+        responses={
+            (200, "image/png"): OpenApiTypes.BINARY,
+            304: OpenApiResponse(
+                description=(
+                    "The ETag sent in If-None-Match still matches; use the copy already held."
+                )
+            ),
+            400: OpenApiResponse(description="A chunk id that is not one."),
+            404: OpenApiResponse(
+                description=(
+                    "No active document with that id or no PDF recorded for it, a page "
+                    "it does not have, or a chunk that is not in it."
+                )
+            ),
+            502: OpenApiResponse(description="The PDF could not be read or rendered."),
+            503: OpenApiResponse(description="The lake or the chunk index could not be reached."),
+        },
+        operation_id="catalog_document_page",
+        summary="A page of a document's PDF, with a passage marked",
+        tags=["catalog"],
+    )
+    def get(self, request, asset_id, page):
+        query = DocumentPageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        chunk_id = query.validated_data.get("chunk")
+
+        document = kb.document_pdf(asset_id)
+        if document is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if page < 1 or (document.get("pages") and page > document["pages"]):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        etag = f'"{document["content_hash"]}:{chunk_id or "-"}:{page}:r{pages.RENDER_VERSION}"'
+        held = parse_etags(request.headers.get("If-None-Match", ""))
+        if etag in held or "*" in held:
+            return cacheable(HttpResponseNotModified(), etag)
+
+        boxes = []
+        if chunk_id:
+            if not document.get("chunks_uri"):
+                return Response(status=status.HTTP_404_NOT_FOUND)
+            try:
+                hit = chunks.chunk(document["chunks_uri"], asset_id, chunk_id)
+            except chunks.ChunkStoreUnavailable as exc:
+                logger.warning("Chunk index unreachable: %s", exc)
+                raise ChunkIndexUnreachable() from exc
+            except chunks.ChunkStoreError as exc:
+                logger.warning("Chunk index error: %s", exc)
+                raise ChunkIndexFailed() from exc
+            if hit is None:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+            # The index counts pages from 0; the URL from 1.
+            boxes = [box["bbox"] for box in hit["bboxes"] if box["page"] == page - 1]
+
+        try:
+            data = lake.read_blob(document["pdf_uri"])
+        except lake.LakeUnavailable as exc:
+            raise LakeUnreachable() from exc
+        except lake.LakeReadError as exc:
+            raise LakeFailed() from exc
+
+        try:
+            png = pages.render(data, page - 1, boxes)
+        except pages.PageUnreadable as exc:
+            logger.warning("Page %s of document %s could not be rendered: %s", page, asset_id, exc)
+            raise LakeFailed() from exc
+
+        response = HttpResponse(png, content_type="image/png")
+        response["Content-Length"] = str(len(png))
+        return cacheable(response, etag)

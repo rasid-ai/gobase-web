@@ -1,9 +1,8 @@
 import { keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 
-import { useCatalogDatasetList } from '@/api/generated/catalog/catalog'
+import { useCatalogDatasetList, useCatalogPassages } from '@/api/generated/catalog/catalog'
 import type { AssetListItem, CatalogAssetListSort, Dataset } from '@/api/generated/model'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -13,6 +12,7 @@ import { serializeBbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
 
+import { AssetCard, GRID, MICRO } from './AssetCard'
 import {
   ANY_TIME,
   AssetFilters,
@@ -21,17 +21,12 @@ import {
   ingestedAfter,
   type SearchKind,
 } from './AssetFilters'
-import { OpenPdf } from './OpenPdf'
-import { formatBbox, formatBytes, formatIngested, formatPages } from './formatAsset'
+import { PassagesBody } from './PassagesBody'
 import { PAGE_SIZE, useAssetPage } from './useAssetPage'
 
-const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
-
-/** A card's action: a text link in the foot, whether it is a link or a button. */
-const ACTION = cn(
-  'rounded text-xs text-primary hover:underline',
-  'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-)
+/** How many documents one question lists, and how many passages of each. The best few, not a page. */
+export const DOCUMENTS = 10
+export const PASSAGES = 3
 
 const SORTS: { value: CatalogAssetListSort; label: string }[] = [
   { value: '-ingested_at', label: 'Newest ingestion' },
@@ -53,9 +48,13 @@ const SORTS: { value: CatalogAssetListSort; label: string }[] = [
  * filtered by data type. Or every asset at once, searched by metadata — the
  * dataset's name included, so a dataset can be found from here too.
  *
- * The search box searches one thing at a time, chosen beside it: metadata or
- * places (docs/adr/019). A place is matched by its datasets' coverage in both
- * modes, so a dataset in the place brings every one of its files.
+ * The search box searches one thing at a time, chosen beside it: metadata,
+ * places, or meaning (docs/adr/019, docs/adr/020). A place is matched by its
+ * datasets' coverage in both modes, so a dataset in the place brings every one
+ * of its files. A question replaces the grid, in both modes, with the
+ * documents whose passages answer it; it combines with the place, the window
+ * and the open dataset, and never with the metadata search, which it shares
+ * the box with.
  */
 export function AssetsPage() {
   const [mode, setMode] = useState<BrowseMode>('datasets')
@@ -70,6 +69,9 @@ export function AssetsPage() {
   // What is typed to find a place. Not a filter, so it never reaches the
   // catalog; picking a place is what sets the area.
   const [placeQuery, setPlaceQuery] = useState('')
+  // The question asked by meaning, once submitted. A filter like the metadata
+  // search, so the two are never both set.
+  const [question, setQuestion] = useState('')
   const [window, setWindow] = useState<IngestionWindow>(ANY_TIME)
   const [sort, setSort] = useState<CatalogAssetListSort>('-ingested_at')
   const [page, setPage] = useState(1)
@@ -79,6 +81,8 @@ export function AssetsPage() {
   // dataset cross no page, so by the same rule they are not in it.
   const [area, setArea] = useAreaParam()
 
+  /** A question is active: the documents answering it are on screen, in either mode. */
+  const asking = question !== ''
   /** The datasets are on screen, rather than assets. */
   const listingDatasets = mode === 'datasets' && dataset === null
 
@@ -94,7 +98,7 @@ export function AssetsPage() {
 
   const datasets = useCatalogDatasetList(
     { ...(datasetSearch !== '' ? { q: datasetSearch } : {}), ...scope },
-    { query: { enabled: listingDatasets, placeholderData: keepPreviousData } },
+    { query: { enabled: listingDatasets && !asking, placeholderData: keepPreviousData } },
   )
 
   const assets = useAssetPage(
@@ -106,12 +110,33 @@ export function AssetsPage() {
       sort,
     },
     page,
-    !listingDatasets,
+    !listingDatasets && !asking,
   )
 
-  const filtered = listingDatasets
-    ? datasetSearch !== '' || window.key !== 'any' || area !== null
-    : search !== '' || types.length > 0 || window.key !== 'any' || area !== null
+  const passages = useCatalogPassages(
+    {
+      q: question,
+      limit: DOCUMENTS,
+      passages: PASSAGES,
+      ...(dataset ? { dataset: dataset.dataset } : {}),
+      ...scope,
+    },
+    {
+      query: {
+        enabled: asking,
+        // A refused or unavailable service is the answer; asking again on
+        // the user's behalf would only spend more embeddings on it.
+        retry: false,
+        placeholderData: keepPreviousData,
+      },
+    },
+  )
+
+  const filtered =
+    asking ||
+    (listingDatasets
+      ? datasetSearch !== '' || window.key !== 'any' || area !== null
+      : search !== '' || types.length > 0 || window.key !== 'any' || area !== null)
 
   const answer = assets.data
   const read = answer?.status === 200
@@ -122,6 +147,9 @@ export function AssetsPage() {
 
   const datasetAnswer = datasets.data
   const datasetList = datasetAnswer?.status === 200 ? datasetAnswer.data.results : []
+
+  const passagesAnswer = passages.data
+  const documents = passagesAnswer?.status === 200 ? passagesAnswer.data.results : []
 
   // A refetch can shrink the catalog under a page that no longer exists, and
   // the empty grid there would read as "nothing matches", which is not what
@@ -150,6 +178,7 @@ export function AssetsPage() {
       setSearch('')
       setTypes([])
     }
+    setQuestion('')
     setWindow(ANY_TIME)
     setPlaceQuery('')
     setArea(null)
@@ -157,12 +186,35 @@ export function AssetsPage() {
 
   // Entering or leaving a dataset starts its asset search afresh: what was
   // typed about one dataset's assets says nothing about another's. The place
-  // and the window stay, because they describe where and when, not what.
+  // and the window stay, because they describe where and when, not what. The
+  // question is a "what" too, and is asked again inside, scoped to it.
   const openDataset = (next: Dataset | null) =>
     applyFilter(() => {
       setDataset(next)
       setSearch('')
       setTypes([])
+      setQuestion('')
+    })
+
+  // The box's text means one thing at a time: a question and a metadata
+  // search cannot both be applied, so choosing one clears the other. Places
+  // leaves both alone (docs/adr/020).
+  const changeSearchKind = (next: SearchKind) => {
+    setSearchKind(next)
+    if (next === 'semantic' && (search !== '' || datasetSearch !== '')) {
+      applyFilter(() => {
+        setSearch('')
+        setDatasetSearch('')
+      })
+    }
+    if (next === 'metadata' && question !== '') applyFilter(() => setQuestion(''))
+  }
+
+  // A data type means nothing to a question: only documents have passages.
+  const ask = (next: string) =>
+    applyFilter(() => {
+      setQuestion(next)
+      if (next !== '') setTypes([])
     })
 
   // Switching starts afresh: every filter goes, the place and the window too,
@@ -175,6 +227,7 @@ export function AssetsPage() {
       setSearch('')
       setDatasetSearch('')
       setTypes([])
+      setQuestion('')
       setWindow(ANY_TIME)
       setPlaceQuery('')
       if (area) setArea(null)
@@ -193,7 +246,7 @@ export function AssetsPage() {
         mode={mode}
         onMode={changeMode}
         searchKind={searchKind}
-        onSearchKind={setSearchKind}
+        onSearchKind={changeSearchKind}
         search={listingDatasets ? datasetSearch : search}
         onSearch={(next) =>
           applyFilter(() => (listingDatasets ? setDatasetSearch(next) : setSearch(next)))
@@ -211,9 +264,12 @@ export function AssetsPage() {
         }
         placeQuery={placeQuery}
         onPlaceQuery={setPlaceQuery}
+        question={question}
+        onAsk={ask}
         // Choosing a data type means nothing among datasets, which each hold
-        // several; it is offered once there are assets to choose between.
-        dataTypes={listingDatasets ? [] : dataTypes}
+        // several, nor to a question, which only documents answer; it is
+        // offered once there are assets to choose between.
+        dataTypes={listingDatasets || asking ? [] : dataTypes}
         selectedTypes={types}
         onToggleType={(dataType) => applyFilter(() => toggleType(dataType))}
         window={window.key}
@@ -241,16 +297,26 @@ export function AssetsPage() {
             {/* The page keeps its name in both modes; the count says what is listed. */}
             {dataset ? dataset.label : 'Assets'}
           </h1>
-          {listingDatasets
-            ? datasetAnswer?.status === 200 && (
-                <p className="text-sm text-muted-foreground">
-                  {datasetList.length} {datasetList.length === 1 ? 'dataset' : 'datasets'}
+          {/* A count is data chrome, so it is mono, like the counts in the rail. */}
+          {asking
+            ? passagesAnswer?.status === 200 && (
+                <p className={MICRO}>
+                  {documents.length} {documents.length === 1 ? 'document' : 'documents'}
                 </p>
               )
-            : read && <p className="text-sm text-muted-foreground">{countLabel(page, total)}</p>}
+            : listingDatasets
+              ? datasetAnswer?.status === 200 && (
+                  <p className={MICRO}>
+                    {datasetList.length} {datasetList.length === 1 ? 'dataset' : 'datasets'}
+                  </p>
+                )
+              : read && <p className={MICRO}>{countLabel(page, total)}</p>}
           <span className="flex-1" />
-          {/* Datasets are listed by name; only assets have orderings to choose. */}
-          {listingDatasets ? null : (
+          {/*
+            Datasets are listed by name and a question's answer is ranked;
+            only a list of assets has orderings to choose.
+          */}
+          {listingDatasets || asking ? null : (
             <label className="flex items-center gap-2">
               <span className={MICRO}>Sort</span>
               <select
@@ -270,7 +336,20 @@ export function AssetsPage() {
           )}
         </header>
 
-        {listingDatasets ? (
+        {asking ? (
+          <div
+            className={cn('mt-6 transition-opacity', passages.isFetching && 'opacity-60')}
+            aria-busy={passages.isFetching}
+          >
+            <PassagesBody
+              pending={passages.isPending}
+              status={passagesAnswer?.status}
+              results={documents}
+              inDataset={dataset !== null}
+              onRetry={() => void passages.refetch()}
+            />
+          </div>
+        ) : listingDatasets ? (
           <div
             className={cn('mt-6 transition-opacity', datasets.isFetching && 'opacity-60')}
             aria-busy={datasets.isFetching}
@@ -485,74 +564,5 @@ function AssetsBody({
         </li>
       ))}
     </ul>
-  )
-}
-
-const GRID = 'grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3'
-
-function AssetCard({ asset, showDataset }: { asset: AssetListItem; showDataset: boolean }) {
-  const bbox = formatBbox(asset.bbox)
-  // A document's name is its PDF's; the title the parser read is a second
-  // line, when there is one and it says something the name does not. Its
-  // size is always 0 in the catalog, so the page count stands in.
-  const title =
-    asset.document?.title && asset.document.title !== asset.name ? asset.document.title : null
-  const size =
-    asset.document && asset.document.pages != null
-      ? formatPages(asset.document.pages)
-      : formatBytes(asset.bytes)
-
-  return (
-    <article className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card">
-      {/*
-        The data type is shown as the catalog wrote it and styled like every
-        other type. Nothing here maps a type to a colour or a label — that list
-        belongs to the knowledge base and it grows (specs/map.md).
-      */}
-      <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-        <span className={MICRO}>{asset.data_type}</span>
-        <span className="flex-1" />
-        {asset.format && <span className={MICRO}>{asset.format}</span>}
-      </div>
-
-      <div className="flex flex-1 flex-col gap-1.5 px-3.5 pb-3 pt-3">
-        {showDataset && asset.dataset_label ? (
-          <p className="text-xs text-muted-foreground">{asset.dataset_label}</p>
-        ) : null}
-        {/* Some names have no break in them at all: lulc_2019_bbox_34.88257_… */}
-        <p className="text-sm font-medium leading-snug wrap-anywhere">{asset.name}</p>
-        {title && (
-          <p className="text-xs leading-snug text-muted-foreground wrap-anywhere">{title}</p>
-        )}
-        <p className="truncate font-mono text-[11px] text-foreground" title={asset.asset_id}>
-          {asset.asset_id}
-        </p>
-        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          {asset.topic_path && <span>{asset.topic_path}</span>}
-          {asset.topic_path && <span className="text-border">·</span>}
-          <span>{size}</span>
-        </p>
-
-        <div className="mt-auto flex items-center gap-2 border-t border-border pt-2.5">
-          <span className="font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
-            {formatIngested(asset.ingested_at)}
-          </span>
-          <span className="flex-1" />
-          {/*
-            Each action is offered only where it can go: no PDF button for a
-            document whose PDF the catalog does not record, and no map link
-            for an asset with no coverage. Offered and broken is worse.
-          */}
-          {asset.document?.pdf && (
-            <OpenPdf assetId={asset.asset_id} className={cn(ACTION, 'disabled:opacity-60')} />
-          )}
-          {asset.bbox && (
-            <Link to={`/map?asset=${asset.asset_id}`} title={bbox ?? undefined} className={ACTION}>
-              Locate on map
-            </Link>
-          )}
-        </div>
-      </div>
-    </article>
   )
 }

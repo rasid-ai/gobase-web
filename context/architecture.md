@@ -131,7 +131,8 @@ geo-portal/
     config/                # settings, urls, asgi (SSE requires ASGI serving)
     apps/
       accounts/            # JWT auth, UserProfile (admin|viewer)
-      catalog/             # kb.py (the kb schema reader) + browse endpoint
+      catalog/             # kb.py (the kb schema reader) + browse endpoints;
+                           # chunks.py (LanceDB), pages.py (pdfium), passages.py
       chat/                # sessions, messages, agent loop, SSE streaming
       map/                 # footprint/coverage + asset metadata endpoints
       runs/                # Dagster GraphQL client, run list/detail
@@ -235,3 +236,13 @@ geo-portal/
   only.
 - Do not invent endpoints, tables, or tools beyond this document and the
   specs; if something needed is missing, stop and ask.
+7. **Deep search:** a question on the Assets page → `GET
+   /api/catalog/passages?q=` → the backend embeds it through GoDoc, asks
+   `kb` for the documents in scope (the browse CTE joined to
+   `doc_documents`, filtered on the model's `embedder_id`), then the
+   chunk index on silver (LanceDB, `apps/catalog/chunks.py`) for the
+   nearest passages among them → documents with their passages, pages from
+   1 (docs/adr/020). Opening a passage → `GET
+   /api/catalog/assets/{id}/pages/{page}.png?chunk=` → the PDF read from
+   bronze and one page rendered with the passage's boxes drawn
+   (`apps/catalog/pages.py`); Open PDF at the page appends `#page=N`.

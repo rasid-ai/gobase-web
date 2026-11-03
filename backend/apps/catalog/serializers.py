@@ -520,3 +520,110 @@ class SimilarAssetsSerializer(serializers.Serializer):
         ),
     )
     results = SimilarAssetSerializer(many=True, read_only=True)
+
+
+class PassagesQuerySerializer(CatalogScopeSerializer):
+    """A question, and how much of the catalog to answer it from (docs/adr/020).
+
+    The place, the window and the dataset narrow which documents are searched.
+    No data type: only documents have passages. No sort or offset: the answer
+    is a ranked list, not a page.
+    """
+
+    q = serializers.CharField(
+        min_length=1,
+        max_length=500,
+        trim_whitespace=True,
+        help_text=(
+            "What you are looking for, in words. Embedded as typed and matched "
+            "against the documents' passages by meaning, not by text."
+        ),
+    )
+    dataset = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Only documents in this dataset, matched exactly. Omitted means every dataset.",
+    )
+    limit = serializers.IntegerField(
+        default=10, min_value=1, max_value=50, help_text="The most documents to return."
+    )
+    passages = serializers.IntegerField(
+        default=3, min_value=1, max_value=10, help_text="The most passages per document."
+    )
+
+
+class PassageSerializer(serializers.Serializer):
+    """One passage of a document that matched the question."""
+
+    chunk_id = serializers.CharField(
+        read_only=True, help_text="The passage's id in the chunk index; what the page image takes."
+    )
+    text = serializers.CharField(read_only=True)
+    heading_path = serializers.ListField(
+        read_only=True,
+        child=serializers.CharField(),
+        help_text="The section headings above the passage, outermost first. Empty when none.",
+    )
+    page_start = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The page the passage starts on, as a reader counts them, from 1 — the "
+            "number `/pages/{page}.png` and a PDF viewer's `#page=` take. The chunk "
+            "index stores pages from 0. Null when the index records no page."
+        ),
+    )
+    page_end = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="The page it ends on, from 1."
+    )
+    pages_with_boxes = serializers.ListField(
+        read_only=True,
+        child=serializers.IntegerField(),
+        help_text="The pages, from 1, on which the passage can be drawn.",
+    )
+    chunk_type = serializers.CharField(
+        read_only=True, help_text="What the parser read: text, table, list, chart, …"
+    )
+    score = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Cosine similarity to the question: 1 is identical. Rows come best first.",
+    )
+
+
+class DocumentPassagesSerializer(AssetListItemSerializer):
+    """A list row for a document, plus the passages of it that matched."""
+
+    score = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="The best passage's score. Documents come in this order.",
+    )
+    passages = PassageSerializer(many=True, read_only=True)
+
+
+class PassagesSerializer(serializers.Serializer):
+    """The documents whose passages best answer a question, best first."""
+
+    embedder = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The model that embedded the question. Only documents whose passages "
+            "were embedded by the same model are searched."
+        ),
+    )
+    results = DocumentPassagesSerializer(many=True, read_only=True)
+
+
+class DocumentPageQuerySerializer(serializers.Serializer):
+    """Which passage, if any, to draw on the page."""
+
+    chunk = serializers.RegexField(
+        r"^[A-Za-z0-9._:-]{1,128}$",
+        required=False,
+        help_text=(
+            "A passage's `chunk_id`: its boxes are drawn on the page. Omitted "
+            "renders the plain page."
+        ),
+    )

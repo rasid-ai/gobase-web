@@ -43,7 +43,10 @@ URIs to objects nothing is serving.
 There are two buckets, `geobase-silver` (GeoParquet, parsed bundles, the
 chunk index) and `geobase-bronze` (the raw files as synced in), and the one
 set of credentials covers both. Until 2026-10-19 the portal read silver only;
-a document's PDF is the first thing it reads from bronze (docs/adr/017).
+a document's PDF is the first thing it reads from bronze (docs/adr/017), and
+since 2026-10-27 the page renderer reads it again, whole, to draw one page
+(docs/adr/020). The chunk index on silver is read by lancedb, not DuckDB,
+with the same credentials (context/integrations/lance.md).
 
 ## Two things that cost time to find
 

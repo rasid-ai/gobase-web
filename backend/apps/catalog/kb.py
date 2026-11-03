@@ -117,7 +117,8 @@ _VECTOR_SOURCE_URI = """
 # `content_hash` is the PDF's own sha256, which is what makes it a strong ETag
 # (docs/adr/017).
 _DOCUMENT_PDF = """
-    SELECT doc.pdf_uri, content_hash, split_part(doc.pdf_uri, '/', -1) AS filename
+    SELECT doc.pdf_uri, content_hash, split_part(doc.pdf_uri, '/', -1) AS filename,
+           doc.pages, doc.chunks_uri
     FROM assets JOIN doc_documents doc ON doc.asset_id = assets.asset_id
     WHERE assets.asset_id = %s AND status = 'active' AND modality = 'document'
 """
@@ -525,7 +526,8 @@ def vector_source_uri(asset_id) -> str | None:
 def document_pdf(asset_id) -> dict | None:
     """Where an active document's PDF is, or None if there is nothing to serve.
 
-    `pdf_uri`, `filename` and `content_hash`. None covers every miss alike —
+    `pdf_uri`, `filename` and `content_hash`, with `pages` and `chunks_uri` for
+    the page image, which needs both. None covers every miss alike —
     no such id, a superseded row, another modality, and a document whose PDF
     the catalog never recorded — because each is the same 404 to the caller.
 
@@ -586,6 +588,55 @@ def similar_assets(vector, embedder_id: str, limit: int) -> list[dict]:
     catalog, place = _catalog()
     rows = _rows(f"{catalog}{_SIMILAR}", [*place, _vector_literal(vector), embedder_id, limit])
     return [_similar_item(row) for row in rows]
+
+
+# The most documents one deep search considers. A guard, not a page: 4 today,
+# and the whole catalog is 54 assets. Newest first, so if it is ever hit the
+# cut falls on the oldest.
+SHORTLIST = 500
+
+# The documents a deep search may look inside: those with a chunk table, made
+# by the model that embedded the question (docs/adr/020). Off the browse CTE,
+# so the place, the window and the dataset narrow it exactly as they narrow the
+# list — and `doc_documents` is joined again here rather than widened into the
+# CTE, which the three browse reads share and do not need it in.
+_CHUNKED = """
+    SELECT catalog.*, doc.chunks_uri
+    FROM catalog
+    JOIN doc_documents doc ON doc.asset_id = catalog.asset_id
+    WHERE doc.chunks_uri IS NOT NULL AND doc.embedder_id = %s
+"""
+
+
+def chunked_documents(
+    *,
+    embedder_id: str,
+    dataset: str | None = None,
+    bbox: list[float] | None = None,
+    point: tuple[float, float] | None = None,
+    area: str | None = None,
+    coverage: str = "asset",
+    ingested_after=None,
+    ingested_before=None,
+    limit: int = SHORTLIST,
+) -> list[dict]:
+    """The documents whose passages a question may be matched against.
+
+    Each row is a list row plus `chunks_uri`, the Lance table its passages are
+    in. Filtering on the embedder here is what makes a model mismatch an empty
+    answer rather than nonsense: a table made by another model is never
+    searched with this vector. Binds the place first (the CTE), then the
+    embedder, then the window and the dataset, then the limit.
+    """
+    catalog, place = _catalog(bbox, point, area, coverage)
+    where, params = _where(None, None, ingested_after, ingested_before, dataset)
+    # `_where` opens with WHERE; here it continues one.
+    narrowed = where.replace(" WHERE ", " AND ", 1)
+    rows = _rows(
+        f"{catalog}{_CHUNKED}{narrowed} ORDER BY ingested_at DESC, catalog.asset_id LIMIT %s",
+        [*place, embedder_id, *params, limit],
+    )
+    return [{**_list_item(row), "chunks_uri": row["chunks_uri"]} for row in rows]
 
 
 def _similar_item(row: dict) -> dict:

@@ -3,13 +3,16 @@
 GoDoc is the data platform's document parser and RAG server (the `godoc`
 repo beside `gobase`). Its `serve-rag` server parses PDFs into the bundles
 the catalog ingests, and holds the embedding model that made every card in
-`doc_cards`. The portal uses it for one thing: turning the map's Semantic
-question into a vector with that same model (docs/adr/018).
+`doc_cards` and every passage in the chunk index. The portal uses it for one
+thing: turning a question into a vector with that same model — the map's
+Semantic question (docs/adr/018) and the Assets page's deep search
+(docs/adr/020) alike.
 
 Only `backend/apps/catalog/godoc.py` speaks to it. Everything above that
 module handles a question in and a `(model, vector)` out, and would not
 change if the embedding moved elsewhere. The frontend never reaches it; it
-calls `GET /api/catalog/assets/similar` like any other portal endpoint.
+calls `GET /api/catalog/assets/similar` or `GET /api/catalog/passages` like
+any other portal endpoint.
 
 Read on 2026-10-19 against GoDoc 0.1.0 on this laptop.
 

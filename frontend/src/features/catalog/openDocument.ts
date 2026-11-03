@@ -14,8 +14,12 @@ import { fetchWithSession } from '@/api/http-client'
  * Resolves to false when the PDF could not be fetched, and closes the tab
  * again so nothing is left blank. The object URL is kept for the life of the
  * page: the tab may reload it, and nothing says when the tab is closed.
+ *
+ * `page` opens the viewer at that page, counted from 1 as the passages
+ * endpoint reports it: every browser's viewer honours `#page=N` on the URL
+ * (docs/adr/017, docs/adr/020).
  */
-export async function openDocumentPdf(assetId: string): Promise<boolean> {
+export async function openDocumentPdf(assetId: string, page?: number): Promise<boolean> {
   const tab = window.open('', '_blank')
   if (!tab) return false
 
@@ -23,7 +27,7 @@ export async function openDocumentPdf(assetId: string): Promise<boolean> {
     const response = await fetchWithSession(getCatalogDocumentPdfUrl(assetId), { method: 'GET' })
     if (response.status !== 200) throw new Error(`HTTP ${response.status}`)
     const blob = await response.blob()
-    tab.location.href = URL.createObjectURL(blob)
+    tab.location.href = URL.createObjectURL(blob) + (page ? `#page=${page}` : '')
     return true
   } catch {
     tab.close()

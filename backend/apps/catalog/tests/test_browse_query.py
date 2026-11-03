@@ -365,6 +365,68 @@ class TestPlace:
         assert "modality = ANY" not in counts[0]
 
 
+class TestChunkedDocuments:
+    """The documents a deep search may look inside (docs/adr/020)."""
+
+    @pytest.fixture
+    def run(self, monkeypatch):
+        """Records the one read and answers it with no rows.
+
+        Not the module's `run`: that one answers a row shaped for the count
+        reads, and this read selects list rows.
+        """
+        calls = []
+
+        def fake(sql, params):
+            calls.append((sql, list(params)))
+            return []
+
+        monkeypatch.setattr(kb, "_rows", fake)
+        return calls
+
+    def test_only_documents_with_a_table_made_by_the_question_s_model(self, run):
+        kb.chunked_documents(embedder_id="BAAI/bge-small-en-v1.5")
+
+        ((sql, params),) = run
+        assert "JOIN doc_documents doc ON doc.asset_id = catalog.asset_id" in sql
+        assert "doc.chunks_uri IS NOT NULL AND doc.embedder_id = %s" in sql
+        assert "ORDER BY ingested_at DESC, catalog.asset_id LIMIT %s" in sql
+        assert params == ["BAAI/bge-small-en-v1.5", kb.SHORTLIST]
+
+    def test_the_place_binds_first_then_the_model_then_the_rest(self, run):
+        kb.chunked_documents(
+            embedder_id="m",
+            bbox=[35.4, 33.8, 35.6, 34.0],
+            coverage="dataset",
+            dataset="airports",
+            ingested_after="A",
+            limit=7,
+        )
+
+        ((sql, params),) = run
+        assert "covering" in sql
+        # The place twice (by dataset), the model, then the window and the
+        # dataset as `_where` orders them, then the limit.
+        assert params == [35.4, 33.8, 35.6, 34.0, 35.4, 33.8, 35.6, 34.0, "m", "airports", "A", 7]
+        # `_where` opens with WHERE; here it continues the one already open.
+        assert "doc.embedder_id = %s\n AND dataset = %s AND ingested_at >= %s" in sql
+
+    def test_a_row_is_a_list_row_plus_its_table(self, monkeypatch):
+        monkeypatch.setattr(
+            kb, "_rows", lambda sql, params: [_row(chunks_uri="s3://silver/x.lance")]
+        )
+
+        (document,) = kb.chunked_documents(embedder_id="m")
+
+        assert document["chunks_uri"] == "s3://silver/x.lance"
+        assert document["name"] == "gis_osm_boundaries_07_1"
+        assert "search" not in document
+
+
+def test_the_pdf_read_carries_the_page_count_and_the_chunk_table():
+    assert "doc.pages, doc.chunks_uri" in kb._DOCUMENT_PDF
+
+
 class TestDatasetList:
     """The first step of browsing by dataset."""
 
