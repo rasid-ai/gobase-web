@@ -5,8 +5,9 @@ sits, page composition — is in context/ui-rules.md. MapLibre GL, per
 docs/adr/003.
 
 Point inspection, drawing an area, drawing an asset's vector data, and
-searching the catalog by meaning are built. Area questions and answer
-layers are not.
+searching the catalog by meaning are built. The map side of Ask — sending the
+area with a question, and drawing an answer's layers — is built; the answers
+themselves wait on the agent (specs/ask.md).
 
 ## Opening view — built
 
@@ -264,20 +265,25 @@ dataset is (the answer carries the dataset's envelope as `dataset_bbox`
 for it), searching inside a document for a passage, and opening a PDF at
 the page a passage is on.
 
-## Area questions — not built
+## Area questions — the map side built
 
-The area exists — drawing one is built, above. What is not built is asking
-a question of it: the user draws an area and asks, the polygon travels with
-the question, and retrieval is restricted to it. This waits on the ask path
-(GP-6, GP-7).
+A question asked in the Ask panel carries the map's state as data: the
+viewport, and the drawn area or the clicked point, and the selected asset
+(specs/ask.md). The line above the question box says which ("Asking about ·
+this area"). Restricting retrieval to the area is the agent's, through the
+catalog endpoints its tools call (docs/adr/022), and is not built.
 
 Worth knowing when it is built: the features endpoint matches a drawn area
 exactly, but a window only by bounding box (docs/adr/012), so anything that
 counts or answers from a window rather than an area inherits that
 looseness.
 
-## Answer layers — not built
+## Answer layers — built, without the filter
 
 An answer carrying a vector layer renders it on the map, and the user can
-hide and re-show it without re-asking. An answer referencing a raster
-asset displays it as tiles over the basemap when the answer completes.
+hide and re-show it without re-asking: its chip in the answer toggles it, and
+it is in the layers panel like any other (specs/ask.md). It is drawn through
+the same layer store as Draw, so it follows the drawn area or the view; the
+answer's own filter is not applied until `/data` takes one (docs/adr/022).
+Not built: an answer referencing a raster asset displaying it as tiles
+over the basemap when the answer completes.

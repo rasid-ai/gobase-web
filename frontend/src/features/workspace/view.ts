@@ -30,6 +30,18 @@ function stepFor(zoom: number): number {
 const clampLon = (value: number) => Math.min(180, Math.max(-180, value))
 const clampLat = (value: number) => Math.min(90, Math.max(-90, value))
 
+/**
+ * The viewport as a bbox the API accepts.
+ *
+ * MapLibre reports a world that wraps: zoomed out, or panned across the
+ * antimeridian, its west and east run past ±180, and the backend refuses
+ * those. Clamping keeps the part of the box that is on the one world.
+ */
+export function viewportOf(viewport: Bbox): Bbox {
+  const [west, south, east, north] = viewport
+  return [clampLon(west), clampLat(south), clampLon(east), clampLat(north)]
+}
+
 export function windowFor(viewport: Bbox, zoom: number): Bbox {
   const [west, south, east, north] = viewport
   const step = stepFor(zoom)

@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import type { Feature, Geometry } from 'geojson'
 import type { StyleSpecification } from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -10,9 +11,13 @@ import Map, {
 } from 'react-map-gl/maplibre'
 import { useSearchParams } from 'react-router-dom'
 
-import { useMapAssetDetail } from '@/api/generated/map/map'
-import type { Place } from '@/api/generated/model'
+import { getMapAssetDetailQueryOptions, useMapAssetDetail } from '@/api/generated/map/map'
+import type { AskContextRequest, ChatReference, Place } from '@/api/generated/model'
 import { useToast } from '@/components/ui/toast'
+import { type AskScope, AskPanel } from '@/features/ask/AskPanel'
+import { AskToggle } from '@/features/ask/AskToggle'
+import { layerScope } from '@/features/ask/references'
+import { useAsk } from '@/features/ask/useAsk'
 import type { Bbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
 import { cn } from '@/lib/utils'
@@ -33,7 +38,7 @@ import {
 } from './layers'
 import { useMapTokens } from './mapTokens'
 import { useAssetFeatures } from './useAssetFeatures'
-import { windowFor } from './view'
+import { viewportOf, windowFor } from './view'
 
 // Side effect only: points MapLibre at its worker before any map is built.
 import './mapWorker'
@@ -373,88 +378,157 @@ function MapWorkspace() {
     [add, selected, selectedId],
   )
 
+  /**
+   * Ask (specs/ask.md). The conversation lives here rather than in the panel,
+   * so closing the panel neither stops an answer nor loses it.
+   *
+   * What a question is about travels with it as data: the viewport always,
+   * and the drawn area or the clicked point and the selected asset when there
+   * is one. The context line under the panel names the most specific.
+   */
+  const [askOpen, setAskOpen] = useState(false)
+  const queryClient = useQueryClient()
+  const askScope: AskScope = drawnArea ? 'area' : point ? 'point' : 'view'
+
+  const getAskContext = (): AskContextRequest => {
+    const context: AskContextRequest = {}
+    const bounds = map.current?.getBounds()
+    if (bounds) {
+      context.viewport = viewportOf([
+        bounds.getWest(),
+        bounds.getSouth(),
+        bounds.getEast(),
+        bounds.getNorth(),
+      ])
+    }
+    if (drawnArea) context.area = serializeArea(drawnArea)
+    else if (point) context.point = [point.lon, point.lat]
+    if (selectedId) context.asset_id = selectedId
+    return context
+  }
+
+  /**
+   * A reference arrived while an answer streamed: a frame moves the map, and
+   * a layer is drawn, as the panel's design promises ("can add layers to the
+   * map"). A layer needs its asset's name for the layers panel, which the
+   * reference does not carry, so it is read first — the same read the chip
+   * makes, so one request serves both.
+   */
+  const fit = useCallback((box: Bbox) => {
+    map.current?.fitBounds(
+      [
+        [box[0], box[1]],
+        [box[2], box[3]],
+      ],
+      FIT,
+    )
+  }, [])
+
+  const onAskReference = useCallback(
+    (reference: ChatReference) => {
+      if (reference.kind === 'frame' && reference.bbox?.length === 4) {
+        fit(reference.bbox as Bbox)
+        return
+      }
+      const assetId = reference.asset_id
+      if (reference.kind !== 'layer' || !assetId) return
+      void queryClient
+        .fetchQuery(getMapAssetDetailQueryOptions(assetId))
+        .then((answer) => {
+          if (answer.status === 200) {
+            add({ assetId, label: `${answer.data.name} · ${layerScope(reference)}` })
+          }
+        })
+        .catch(() => {})
+    },
+    [add, fit, queryClient],
+  )
+
+  const ask = useAsk({ open: askOpen, getContext: getAskContext, onReference: onAskReference })
+
   return (
-    <div className="relative h-full w-full">
-      <Map
-        ref={map}
-        initialViewState={HOME_VIEW}
-        mapStyle={OSM}
-        onClick={onMapClick}
-        onLoad={onLoad}
-        onMoveEnd={onMoveEnd}
-        cursor={mode === 'navigate' || mode === 'semantic' ? 'grab' : 'crosshair'}
-        style={{ position: 'absolute', inset: 0 }}
-      >
-        {point ? (
-          <Marker longitude={point.lon} latitude={point.lat} color={tokens.selection} />
-        ) : null}
+    <div className="flex h-full w-full">
+      <div className="relative h-full min-w-0 flex-1">
+        <Map
+          ref={map}
+          initialViewState={HOME_VIEW}
+          mapStyle={OSM}
+          onClick={onMapClick}
+          onLoad={onLoad}
+          onMoveEnd={onMoveEnd}
+          cursor={mode === 'navigate' || mode === 'semantic' ? 'grab' : 'crosshair'}
+          style={{ position: 'absolute', inset: 0 }}
+        >
+          {point ? (
+            <Marker longitude={point.lon} latitude={point.lat} color={tokens.selection} />
+          ) : null}
 
-        {layers.map((layer) => (
-          <DrawnLayer key={layer.assetId} layer={layer} color={tokens.result} />
-        ))}
+          {layers.map((layer) => (
+            <DrawnLayer key={layer.assetId} layer={layer} color={tokens.result} />
+          ))}
 
-        {/*
+          {/*
           After the layers, so the outline sits on top of what it scopes. The
           fill is faint on purpose: it marks the area without hiding the data.
         */}
-        {areaOutline ? (
-          <Source id="drawn-area" type="geojson" data={areaOutline}>
-            <Layer
-              id="drawn-area-fill"
-              type="fill"
-              paint={{ 'fill-color': tokens.selection, 'fill-opacity': 0.08 }}
-            />
-            <Layer
-              id="drawn-area-line"
-              type="line"
-              paint={{ 'line-color': tokens.selection, 'line-width': 2 }}
-            />
-          </Source>
-        ) : null}
-
-        {footprint ? (
-          <Source id="footprint" type="geojson" data={footprint}>
-            <Layer
-              id="footprint-fill"
-              type="fill"
-              paint={{ 'fill-color': tokens.footprint, 'fill-opacity': 0.25 }}
-            />
-            <Layer
-              id="footprint-line"
-              type="line"
-              paint={{ 'line-color': tokens.footprint, 'line-width': 1.5 }}
-            />
-          </Source>
-        ) : null}
-      </Map>
-
-      <DrawArea
-        mapRef={map}
-        ready={mapReady}
-        active={mode === 'area'}
-        color={tokens.selection}
-        onDrawn={onDrawn}
-        onRefused={toast.show}
-      />
-
-      <div className="absolute left-4 top-4 z-10 flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <ModeSwitch mode={mode} onChange={setMode} />
-          {drawnArea ? (
-            <button
-              type="button"
-              onClick={() => setDrawnArea(null)}
-              className="rounded-md border border-border bg-background/95 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground backdrop-blur hover:text-foreground"
-            >
-              Clear area
-            </button>
+          {areaOutline ? (
+            <Source id="drawn-area" type="geojson" data={areaOutline}>
+              <Layer
+                id="drawn-area-fill"
+                type="fill"
+                paint={{ 'fill-color': tokens.selection, 'fill-opacity': 0.08 }}
+              />
+              <Layer
+                id="drawn-area-line"
+                type="line"
+                paint={{ 'line-color': tokens.selection, 'line-width': 2 }}
+              />
+            </Source>
           ) : null}
-        </div>
-        <PlaceSearch onGo={goTo} onGoPlace={goToPlace} />
-      </div>
-      <LayersPanel />
 
-      {/*
+          {footprint ? (
+            <Source id="footprint" type="geojson" data={footprint}>
+              <Layer
+                id="footprint-fill"
+                type="fill"
+                paint={{ 'fill-color': tokens.footprint, 'fill-opacity': 0.25 }}
+              />
+              <Layer
+                id="footprint-line"
+                type="line"
+                paint={{ 'line-color': tokens.footprint, 'line-width': 1.5 }}
+              />
+            </Source>
+          ) : null}
+        </Map>
+
+        <DrawArea
+          mapRef={map}
+          ready={mapReady}
+          active={mode === 'area'}
+          color={tokens.selection}
+          onDrawn={onDrawn}
+          onRefused={toast.show}
+        />
+
+        <div className="absolute left-4 top-4 z-10 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <ModeSwitch mode={mode} onChange={setMode} />
+            {drawnArea ? (
+              <button
+                type="button"
+                onClick={() => setDrawnArea(null)}
+                className="rounded-md border border-border bg-background/95 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground backdrop-blur hover:text-foreground"
+              >
+                Clear area
+              </button>
+            ) : null}
+          </div>
+          <PlaceSearch onGo={goTo} onGoPlace={goToPlace} />
+        </div>
+        <LayersPanel />
+
+        {/*
         Nothing covering the point or overlapping the area renders nothing at
         all — no panel, no error (specs/map.md). An asset reached from the
         Assets page opens the panel too, with nothing chosen and so no list
@@ -468,27 +542,55 @@ function MapWorkspace() {
         In Semantic mode the pane is the question and its matches instead.
         The point and the area are not cleared by the switch; their pane
         comes back, keyed as before, when the mode does.
+
+        The pane shares the right edge with the Ask toggle, so both sit in
+        one column: the toggle on top while the Ask panel is closed, the pane
+        below it. The column lets clicks through to the map wherever it is
+        empty.
       */}
-      {mode === 'semantic' ? (
-        <SemanticPane
-          question={question}
-          onAsk={setQuestion}
-          selected={selected}
-          selectedId={selectedId}
-          onSelect={select}
-          onDraw={draw}
+        <div className="pointer-events-none absolute inset-4 z-10 flex flex-col items-end gap-2">
+          {askOpen ? null : (
+            <AskToggle
+              unread={ask.unread}
+              onOpen={() => {
+                setAskOpen(true)
+                ask.markRead()
+              }}
+            />
+          )}
+          {mode === 'semantic' ? (
+            <SemanticPane
+              question={question}
+              onAsk={setQuestion}
+              selected={selected}
+              selectedId={selectedId}
+              onSelect={select}
+              onDraw={draw}
+            />
+          ) : (
+            <AssetPane
+              key={placeKey}
+              place={place}
+              label={drawnArea ? 'Assets in this area' : 'Assets at this point'}
+              selected={selected}
+              selectedId={selectedId}
+              onSelect={select}
+              onDraw={draw}
+            />
+          )}
+        </div>
+      </div>
+
+      {askOpen ? (
+        <AskPanel
+          ask={ask}
+          scope={askScope}
+          assetSelected={selectedId !== null}
+          onClose={() => setAskOpen(false)}
+          onSelectAsset={select}
+          onFrame={fit}
         />
-      ) : (
-        <AssetPane
-          key={placeKey}
-          place={place}
-          label={drawnArea ? 'Assets in this area' : 'Assets at this point'}
-          selected={selected}
-          selectedId={selectedId}
-          onSelect={select}
-          onDraw={draw}
-        />
-      )}
+      ) : null}
     </div>
   )
 }

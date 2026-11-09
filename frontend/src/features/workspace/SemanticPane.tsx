@@ -82,8 +82,8 @@ export function SemanticPane({
     <aside
       aria-label={selected ? 'Selected asset' : 'Semantic search'}
       className={cn(
-        'absolute bottom-4 right-4 top-4 z-10 flex flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur transition-[width]',
-        selected && expanded ? 'w-[min(48rem,calc(100%-2rem))]' : 'w-[22rem]',
+        'pointer-events-auto flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur transition-[width]',
+        selected && expanded ? 'w-[min(48rem,100%)]' : 'w-[22rem]',
       )}
     >
       {selected ? (
