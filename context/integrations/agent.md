@@ -33,6 +33,21 @@ the request. The agent trusts it because only this backend holds the token.
 Session ids are UUIDs. The SPA mints a new one for a new chat; the backend's
 URL routes accept only a UUID, so nothing else reaches the agent's S3 keys.
 
+## How the agent calls back
+
+The agent's tools read the knowledge base through this backend's API
+(docs/adr/024), the other way round from everything above. For that it holds
+an API key (docs/adr/021) of its own Viewer user, `gobase-agent`, which has
+no usable password. It sends `Authorization: Api-Key <key>`, read from
+`BACKEND_SERVICE_TOKEN` in the agent's environment. A key can only read, so
+the agent can never write, and it sees what any Viewer sees. Issue it with
+`manage.py create_api_key gobase-agent "<where it runs>"`; revoke it in
+Django admin.
+
+The two secrets are different and go opposite ways: `AGENT_SERVICE_TOKEN`
+is what this backend shows the agent, and the API key is what the agent
+shows this backend.
+
 ## The calls
 
 | Portal endpoint (SPA → backend) | Agent call (backend → agent) |
@@ -137,9 +152,10 @@ status only.
   tool calls come back into this same backend while it relays. Checked live
   with a stub agent: one uvicorn worker served three streaming answers and a
   short call at once, the short call in under 50 ms. DRF's views are
-  synchronous, so `relay_turn` authenticates with DRF's `JWTAuthentication`
-  inside `sync_to_async`, and names a schema-only `TurnView` as its `cls` so
-  drf-spectacular puts it in `openapi.yaml`.
+  synchronous, so `relay_turn` authenticates with the project's
+  `DEFAULT_AUTHENTICATION_CLASSES` inside `sync_to_async` (so an API key gets
+  the same 403 as on any other write, docs/adr/021), and names a schema-only
+  `TurnView` as its `cls` so drf-spectacular puts it in `openapi.yaml`.
 - **ASGI is required to stream.** `runserver` is WSGI and would hold the
   answer back until it finished; `docker-compose.dev.yml` runs uvicorn with
   `--reload` for that reason. Prod already runs uvicorn workers.

@@ -11,6 +11,8 @@ import httpx
 from asgiref.sync import async_to_sync
 from django.test import AsyncClient
 
+from apps.accounts.models import ApiKey
+
 from .conftest import AGENT_URL, ASSET, SESSION, TOKEN
 
 URL = f"/api/chat/sessions/{SESSION}/turns"
@@ -76,6 +78,16 @@ def test_a_bad_token_is_401(db, fake_agent):
     response, _ = ask("Bearer not-a-jwt", QUESTION)
 
     assert response.status_code == 401
+
+
+def test_an_api_key_may_not_ask(user, fake_agent):
+    # Keys only read (docs/adr/021), and asking is a POST: 403, as on every view.
+    _, raw = ApiKey.issue(user, "a desktop client")
+
+    response, _ = ask(f"Api-Key {raw}", QUESTION)
+
+    assert response.status_code == 403
+    assert fake_agent.requests == []
 
 
 def test_only_post_asks(bearer, fake_agent):

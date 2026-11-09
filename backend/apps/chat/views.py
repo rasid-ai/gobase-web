@@ -32,8 +32,8 @@ from rest_framework.exceptions import APIException, MethodNotAllowed, NotAuthent
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 from rest_framework.views import APIView
-from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from . import agent, sse
 from .serializers import (
@@ -207,8 +207,13 @@ def _admit(request) -> tuple[str, dict] | JsonResponse:
 
     Synchronous on purpose: finding the user is a database read. It runs in a
     thread for the moment it takes, never for the length of the answer.
+
+    The authenticators are the project's own list, so an API key is treated
+    here as everywhere else: it may only read, and asking is a POST, so a key
+    gets a 403 (docs/adr/021).
     """
-    wrapped = Request(request, parsers=[JSONParser()], authenticators=[JWTAuthentication()])
+    authenticators = [cls() for cls in api_settings.DEFAULT_AUTHENTICATION_CLASSES]
+    wrapped = Request(request, parsers=[JSONParser()], authenticators=authenticators)
     try:
         if not wrapped.user or not wrapped.user.is_authenticated:
             raise NotAuthenticated()
