@@ -92,7 +92,7 @@ the layer at a new `.acs`.
   link that expires. Pro cannot open one as a layer; the add-in would have
   to download the whole file first, which throws away the point of a COG.
 - **Not a proxy through Django.** Every tile read would hold a gunicorn
-  worker. `lake.read_blob` reads objects whole (docs/adr/017), so a
+  worker. `lake.read_blob` reads objects whole (docs/adr/027), so a
   streaming S3 client would be needed anyway. And Pro can send a bearer
   token to a generic web endpoint only from 3.5 on, where a 15-minute token
   is the wrong shape.

@@ -11,13 +11,13 @@ from django.utils.cache import patch_vary_headers
 from django.utils.http import parse_etags
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog import kb
 
 from . import lake
+from .http import LakeFailed, LakeUnreachable, cacheable
 from .serializers import (
     AssetDataQuerySerializer,
     AssetDataSerializer,
@@ -25,16 +25,6 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class LakeUnreachable(APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_detail = "The data lake is unreachable"
-
-
-class LakeFailed(APIException):
-    status_code = status.HTTP_502_BAD_GATEWAY
-    default_detail = "The data lake returned an error"
 
 
 class AssetDetailView(APIView):
@@ -141,7 +131,7 @@ class AssetDataView(APIView):
         etag = _features_etag(asset_id, limit, bbox, wkt, cursor)
         held = parse_etags(request.headers.get("If-None-Match", ""))
         if etag in held or "*" in held:
-            return _cacheable(HttpResponseNotModified(), etag)
+            return cacheable(HttpResponseNotModified(), etag)
 
         try:
             data = lake.read_vector_features(uri, limit=limit, bbox=bbox, area=wkt, cursor=cursor)
@@ -159,7 +149,7 @@ class AssetDataView(APIView):
             f'"next_cursor":{next_cursor},"features":{data["features_json"]}}}'
         )
         response = HttpResponse(body, content_type="application/json")
-        return _compressed(request, _cacheable(response, etag))
+        return _compressed(request, cacheable(response, etag))
 
 
 _ACCEPTS_GZIP = re.compile(r"\bgzip\b")
@@ -183,19 +173,4 @@ def _compressed(request, response):
     response.content = gzip.compress(response.content, compresslevel=1, mtime=0)
     response["Content-Encoding"] = "gzip"
     response["Content-Length"] = str(len(response.content))
-    return response
-
-
-def _cacheable(response, etag: str):
-    """Mark a features response as one the browser may keep and must revalidate.
-
-    `no-cache` is not "do not cache": the browser stores the page and asks
-    before each reuse, sending the ETag back, and a still-matching one costs a
-    catalog lookup and an empty 304 rather than a lake read. Not a long
-    max-age: that would keep serving a stale shape after a deploy changes
-    one, because the URL would not change. And `private`, because the request
-    carries a token and no shared cache should hold the answer.
-    """
-    response["ETag"] = etag
-    response["Cache-Control"] = "private, no-cache"
     return response

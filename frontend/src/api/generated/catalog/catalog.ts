@@ -24,7 +24,12 @@ import type {
   AssetList,
   CatalogAssetListParams,
   CatalogDatasetListParams,
-  DatasetList
+  CatalogDocumentPageParams,
+  CatalogPassagesParams,
+  CatalogSimilarAssetsParams,
+  DatasetList,
+  Passages,
+  SimilarAssets
 } from '../model';
 
 import { httpClient } from '../../http-client';
@@ -98,6 +103,8 @@ export const getCatalogAssetListUrl = (params?: CatalogAssetListParams,) => {
  * place, and the map's panel to a clicked point or a drawn area — one
  * question with three geometries, and one answer to it, so the search, the
  * datasets and the counts cannot differ between the two (docs/adr/016).
+ * What the place is compared with is the caller's to say: each asset's own
+ * coverage for the map, its dataset's for the Assets page (docs/adr/019).
  * @summary Browse the asset catalog
  */
 export const catalogAssetList = async (params?: CatalogAssetListParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogAssetListResponse> => {
@@ -189,6 +196,466 @@ export function useCatalogAssetList<TData = Awaited<ReturnType<typeof catalogAss
 
 
 
+export type catalogDocumentPageResponse200 = {
+  data: Blob
+  status: 200
+}
+
+export type catalogDocumentPageResponse304 = {
+  data: void
+  status: 304
+}
+
+export type catalogDocumentPageResponse400 = {
+  data: void
+  status: 400
+}
+
+export type catalogDocumentPageResponse404 = {
+  data: void
+  status: 404
+}
+
+export type catalogDocumentPageResponse502 = {
+  data: void
+  status: 502
+}
+
+export type catalogDocumentPageResponse503 = {
+  data: void
+  status: 503
+}
+
+export type catalogDocumentPageResponseSuccess = (catalogDocumentPageResponse200) & {
+  headers: Headers;
+};
+export type catalogDocumentPageResponseError = (catalogDocumentPageResponse304 | catalogDocumentPageResponse400 | catalogDocumentPageResponse404 | catalogDocumentPageResponse502 | catalogDocumentPageResponse503) & {
+  headers: Headers;
+};
+
+export type catalogDocumentPageResponse = (catalogDocumentPageResponseSuccess | catalogDocumentPageResponseError)
+
+export const getCatalogDocumentPageUrl = (assetId: string,
+    page: number,
+    params?: CatalogDocumentPageParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/catalog/assets/${assetId}/pages/${page}.png?${stringifiedParams}` : `/api/catalog/assets/${assetId}/pages/${page}.png`
+}
+
+/**
+ * One page of a document's PDF as an image, a passage drawn on it (docs/adr/020).
+ *
+ * The page is counted from 1, as the passages endpoint reports it. With
+ * `chunk`, the passage's boxes are drawn; without, the plain page. Read from
+ * bronze through the lake, like the PDF itself, and rendered here: the browser
+ * never sees the bucket, and an `<img>` cannot carry a token anyway.
+ *
+ * The ETag is the PDF's hash, the chunk, the page and the renderer's version,
+ * so a revalidation is a catalog lookup and neither a lake read nor a render.
+ * @summary A page of a document's PDF, with a passage marked
+ */
+export const catalogDocumentPage = async (assetId: string,
+    page: number,
+    params?: CatalogDocumentPageParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogDocumentPageResponse> => {
+
+  return httpClient<catalogDocumentPageResponse>(getCatalogDocumentPageUrl(assetId,page,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogDocumentPageQueryKey = (assetId: string,
+    page: number,
+    params?: CatalogDocumentPageParams,) => {
+    return [
+    `/api/catalog/assets/${assetId}/pages/${page}.png`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCatalogDocumentPageQueryOptions = <TData = Awaited<ReturnType<typeof catalogDocumentPage>>, TError = void>(assetId: string,
+    page: number,
+    params?: CatalogDocumentPageParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPage>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogDocumentPageQueryKey(assetId,page,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogDocumentPage>>> = ({ signal }) => catalogDocumentPage(assetId,page,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined && page !== null && page !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPage>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CatalogDocumentPageQueryResult = NonNullable<Awaited<ReturnType<typeof catalogDocumentPage>>>
+export type CatalogDocumentPageQueryError = void
+
+
+export function useCatalogDocumentPage<TData = Awaited<ReturnType<typeof catalogDocumentPage>>, TError = void>(
+ assetId: string,
+    page: number,
+    params: undefined |  CatalogDocumentPageParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPage>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDocumentPage>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDocumentPage>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDocumentPage<TData = Awaited<ReturnType<typeof catalogDocumentPage>>, TError = void>(
+ assetId: string,
+    page: number,
+    params?: CatalogDocumentPageParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPage>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDocumentPage>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDocumentPage>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDocumentPage<TData = Awaited<ReturnType<typeof catalogDocumentPage>>, TError = void>(
+ assetId: string,
+    page: number,
+    params?: CatalogDocumentPageParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPage>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary A page of a document's PDF, with a passage marked
+ */
+
+export function useCatalogDocumentPage<TData = Awaited<ReturnType<typeof catalogDocumentPage>>, TError = void>(
+ assetId: string,
+    page: number,
+    params?: CatalogDocumentPageParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPage>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCatalogDocumentPageQueryOptions(assetId,page,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type catalogDocumentPdfResponse200 = {
+  data: Blob
+  status: 200
+}
+
+export type catalogDocumentPdfResponse304 = {
+  data: void
+  status: 304
+}
+
+export type catalogDocumentPdfResponse404 = {
+  data: void
+  status: 404
+}
+
+export type catalogDocumentPdfResponse502 = {
+  data: void
+  status: 502
+}
+
+export type catalogDocumentPdfResponse503 = {
+  data: void
+  status: 503
+}
+
+export type catalogDocumentPdfResponseSuccess = (catalogDocumentPdfResponse200) & {
+  headers: Headers;
+};
+export type catalogDocumentPdfResponseError = (catalogDocumentPdfResponse304 | catalogDocumentPdfResponse404 | catalogDocumentPdfResponse502 | catalogDocumentPdfResponse503) & {
+  headers: Headers;
+};
+
+export type catalogDocumentPdfResponse = (catalogDocumentPdfResponseSuccess | catalogDocumentPdfResponseError)
+
+export const getCatalogDocumentPdfUrl = (assetId: string,) => {
+
+
+
+
+  return `/api/catalog/assets/${assetId}/pdf`
+}
+
+/**
+ * The PDF behind one document, read from bronze.
+ *
+ * A document's `source_uri` is the parsed bundle in silver; the file a person
+ * wants to open is the PDF it was parsed from, which the data platform leaves
+ * in bronze and records in `doc_documents.pdf_uri`. The bytes come through
+ * here rather than through a link into the bucket because the browser never
+ * talks to the lake (docs/adr/011, docs/adr/027).
+ *
+ * Served whole and uncompressed — a PDF is already compressed — with a strong
+ * ETag: `content_hash` is the PDF's own sha256, so a revalidation is a
+ * catalog lookup and never a lake read. The client opens it in a new tab, so
+ * the body is `inline` and carries the file's name.
+ * @summary A document's PDF
+ */
+export const catalogDocumentPdf = async (assetId: string, options?: Parameters<typeof httpClient>[1]): Promise<catalogDocumentPdfResponse> => {
+
+  return httpClient<catalogDocumentPdfResponse>(getCatalogDocumentPdfUrl(assetId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogDocumentPdfQueryKey = (assetId: string,) => {
+    return [
+    `/api/catalog/assets/${assetId}/pdf`
+    ] as const;
+    }
+
+
+export const getCatalogDocumentPdfQueryOptions = <TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogDocumentPdfQueryKey(assetId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogDocumentPdf>>> = ({ signal }) => catalogDocumentPdf(assetId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CatalogDocumentPdfQueryResult = NonNullable<Awaited<ReturnType<typeof catalogDocumentPdf>>>
+export type CatalogDocumentPdfQueryError = void
+
+
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDocumentPdf>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDocumentPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogDocumentPdf>>,
+          TError,
+          Awaited<ReturnType<typeof catalogDocumentPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary A document's PDF
+ */
+
+export function useCatalogDocumentPdf<TData = Awaited<ReturnType<typeof catalogDocumentPdf>>, TError = void>(
+ assetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogDocumentPdf>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCatalogDocumentPdfQueryOptions(assetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type catalogSimilarAssetsResponse200 = {
+  data: SimilarAssets
+  status: 200
+}
+
+export type catalogSimilarAssetsResponse400 = {
+  data: void
+  status: 400
+}
+
+export type catalogSimilarAssetsResponse502 = {
+  data: void
+  status: 502
+}
+
+export type catalogSimilarAssetsResponse503 = {
+  data: void
+  status: 503
+}
+
+export type catalogSimilarAssetsResponseSuccess = (catalogSimilarAssetsResponse200) & {
+  headers: Headers;
+};
+export type catalogSimilarAssetsResponseError = (catalogSimilarAssetsResponse400 | catalogSimilarAssetsResponse502 | catalogSimilarAssetsResponse503) & {
+  headers: Headers;
+};
+
+export type catalogSimilarAssetsResponse = (catalogSimilarAssetsResponseSuccess | catalogSimilarAssetsResponseError)
+
+export const getCatalogSimilarAssetsUrl = (params: CatalogSimilarAssetsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/catalog/assets/similar?${stringifiedParams}` : `/api/catalog/assets/similar`
+}
+
+/**
+ * The assets whose card is closest in meaning to a question.
+ *
+ * The map's Semantic mode (docs/adr/018). The question is embedded by the
+ * data platform's document service — the model that embedded the cards —
+ * and the catalog ranks its cards by cosine similarity. Cards only, in
+ * Postgres: the shallow search, never the chunk index. Meaning only: no
+ * place narrows it yet.
+ * @summary Assets matching a question
+ */
+export const catalogSimilarAssets = async (params: CatalogSimilarAssetsParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogSimilarAssetsResponse> => {
+
+  return httpClient<catalogSimilarAssetsResponse>(getCatalogSimilarAssetsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogSimilarAssetsQueryKey = (params?: CatalogSimilarAssetsParams,) => {
+    return [
+    `/api/catalog/assets/similar`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCatalogSimilarAssetsQueryOptions = <TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogSimilarAssetsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogSimilarAssets>>> = ({ signal }) => catalogSimilarAssets(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CatalogSimilarAssetsQueryResult = NonNullable<Awaited<ReturnType<typeof catalogSimilarAssets>>>
+export type CatalogSimilarAssetsQueryError = void
+
+
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogSimilarAssets>>,
+          TError,
+          Awaited<ReturnType<typeof catalogSimilarAssets>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogSimilarAssets>>,
+          TError,
+          Awaited<ReturnType<typeof catalogSimilarAssets>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Assets matching a question
+ */
+
+export function useCatalogSimilarAssets<TData = Awaited<ReturnType<typeof catalogSimilarAssets>>, TError = void>(
+ params: CatalogSimilarAssetsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogSimilarAssets>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCatalogSimilarAssetsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 export type catalogDatasetListResponse200 = {
   data: DatasetList
   status: 200
@@ -227,8 +694,8 @@ export const getCatalogDatasetListUrl = (params?: CatalogDatasetListParams,) => 
  * The datasets holding matching assets, and how many of each type.
  *
  * The first step of browsing by dataset, on both pages: pick one here, then
- * list its assets with `dataset=` on the asset list, sending the same place
- * and window so the count shown here is the count found there.
+ * list its assets with `dataset=` on the asset list, sending the same place,
+ * coverage and window so the count shown here is the count found there.
  * @summary Datasets in the catalog
  */
 export const catalogDatasetList = async (params?: CatalogDatasetListParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogDatasetListResponse> => {
@@ -309,6 +776,148 @@ export function useCatalogDatasetList<TData = Awaited<ReturnType<typeof catalogD
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getCatalogDatasetListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type catalogPassagesResponse200 = {
+  data: Passages
+  status: 200
+}
+
+export type catalogPassagesResponse400 = {
+  data: void
+  status: 400
+}
+
+export type catalogPassagesResponse502 = {
+  data: void
+  status: 502
+}
+
+export type catalogPassagesResponse503 = {
+  data: void
+  status: 503
+}
+
+export type catalogPassagesResponseSuccess = (catalogPassagesResponse200) & {
+  headers: Headers;
+};
+export type catalogPassagesResponseError = (catalogPassagesResponse400 | catalogPassagesResponse502 | catalogPassagesResponse503) & {
+  headers: Headers;
+};
+
+export type catalogPassagesResponse = (catalogPassagesResponseSuccess | catalogPassagesResponseError)
+
+export const getCatalogPassagesUrl = (params: CatalogPassagesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/catalog/passages?${stringifiedParams}` : `/api/catalog/passages`
+}
+
+/**
+ * The documents whose passages best answer a question (docs/adr/020).
+ *
+ * The Assets page's Semantic search. The question is embedded by the data
+ * platform's document service, the catalog names the documents in scope —
+ * narrowed by place, window and dataset like any browse — and the chunk
+ * index ranks their passages. Deep, where `assets/similar` is shallow.
+ * @summary Passages answering a question
+ */
+export const catalogPassages = async (params: CatalogPassagesParams, options?: Parameters<typeof httpClient>[1]): Promise<catalogPassagesResponse> => {
+
+  return httpClient<catalogPassagesResponse>(getCatalogPassagesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogPassagesQueryKey = (params?: CatalogPassagesParams,) => {
+    return [
+    `/api/catalog/passages`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCatalogPassagesQueryOptions = <TData = Awaited<ReturnType<typeof catalogPassages>>, TError = void>(params: CatalogPassagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogPassages>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogPassagesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogPassages>>> = ({ signal }) => catalogPassages(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogPassages>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CatalogPassagesQueryResult = NonNullable<Awaited<ReturnType<typeof catalogPassages>>>
+export type CatalogPassagesQueryError = void
+
+
+export function useCatalogPassages<TData = Awaited<ReturnType<typeof catalogPassages>>, TError = void>(
+ params: CatalogPassagesParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogPassages>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogPassages>>,
+          TError,
+          Awaited<ReturnType<typeof catalogPassages>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogPassages<TData = Awaited<ReturnType<typeof catalogPassages>>, TError = void>(
+ params: CatalogPassagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogPassages>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalogPassages>>,
+          TError,
+          Awaited<ReturnType<typeof catalogPassages>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCatalogPassages<TData = Awaited<ReturnType<typeof catalogPassages>>, TError = void>(
+ params: CatalogPassagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogPassages>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Passages answering a question
+ */
+
+export function useCatalogPassages<TData = Awaited<ReturnType<typeof catalogPassages>>, TError = void>(
+ params: CatalogPassagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof catalogPassages>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCatalogPassagesQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

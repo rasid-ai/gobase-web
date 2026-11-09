@@ -4,8 +4,10 @@ The map half of the Atlas page, at `/map`. Layout — where the chat panel
 sits, page composition — is in context/ui-rules.md. MapLibre GL, per
 docs/adr/003.
 
-Point inspection, drawing an area, and drawing an asset's vector data are
-built. Area questions and answer layers are not.
+Point inspection, drawing an area, drawing an asset's vector data, and
+searching the catalog by meaning are built. The map side of Ask — sending the
+area with a question, and drawing an answer's layers — is built; the answers
+themselves wait on the agent (specs/ask.md).
 
 ## Opening view — built
 
@@ -16,11 +18,14 @@ between visits.
 
 ## Interaction modes
 
-Three mutually exclusive modes: **navigate**, **point** and **draw area**.
+Four mutually exclusive modes: **navigate**, **point**, **draw area** and
+**semantic**.
 
 Navigate leaves clicks to the map. Point inspects what a click lands on.
-Draw area traces a polygon. Switching mode changes what the next click does
-and nothing else — it does not clear a point or an area already chosen.
+Draw area traces a polygon. Semantic takes a question instead of a click
+(below). Switching mode changes what the next click does and nothing else —
+it does not clear a point or an area already chosen, and a semantic
+question and its matches survive a switch away and back.
 
 ## Point inspection — built
 
@@ -225,20 +230,60 @@ types have features to draw is the knowledge base's to say, not the
 interface's, so an asset with none says so when asked rather than being
 quietly refused a button.
 
-## Area questions — not built
+## Semantic search — built
 
-The area exists — drawing one is built, above. What is not built is asking
-a question of it: the user draws an area and asks, the polygon travels with
-the question, and retrieval is restricted to it. This waits on the ask path
-(GP-6, GP-7).
+In semantic mode the panel on the right is a question box and, under it,
+the assets closest in meaning to the question (docs/adr/018). Type a
+subject, a place, a kind of document — "airport security", "economic
+impact of reopening an airport" — and send it; one request per question,
+never one per keystroke. The ten best matches are listed, best first.
+
+The question is embedded by the data platform's document service with the
+same model that embedded the catalog's cards, and the cards are ranked by
+cosine similarity (context/integrations/godoc.md, kb.md). Cards only — the
+shallow search; passages inside a document are not searched. Meaning only —
+the clicked point and the drawn area do not narrow it. The search names no
+data type: whatever the data platform has given a card to comes back, which
+is documents today.
+
+Each match is the same row as the point and area lists — its name opens
+the detail, Draw puts its features on the map — and, since a match is not
+inside a dataset the way a point's files are, the row says which dataset it
+is in. A document whose PDF the catalog records adds **Open** beside Draw:
+the PDF opens in a new tab, as from the Assets page (specs/assets.md). Two
+actions and no more. A document has no vector data, so Draw on one says
+"No vector data to draw", as it does anywhere.
+
+Nothing typed yet shows a line saying what the panel is for. While the
+answer is read, placeholder rows. A question nothing is close to says so.
+A service that is down or not configured says semantic search is
+unavailable; any other failure offers Try again. How well a match scored is
+not shown — the order carries it.
+
+Not built here: narrowing the matches to a place, showing where a match's
+dataset is (the answer carries the dataset's envelope as `dataset_bbox`
+for it), searching inside a document for a passage, and opening a PDF at
+the page a passage is on.
+
+## Area questions — the map side built
+
+A question asked in the Ask panel carries the map's state as data: the
+viewport, and the drawn area or the clicked point, and the selected asset
+(specs/ask.md). The line above the question box says which ("Asking about ·
+this area"). Restricting retrieval to the area is the agent's, through the
+catalog endpoints its tools call (docs/adr/024), and is not built.
 
 Worth knowing when it is built: the features endpoint matches a drawn area
 exactly, but a window only by bounding box (docs/adr/012), so anything that
 counts or answers from a window rather than an area inherits that
 looseness.
 
-## Answer layers — not built
+## Answer layers — built, without the filter
 
 An answer carrying a vector layer renders it on the map, and the user can
-hide and re-show it without re-asking. An answer referencing a raster
-asset displays it as tiles over the basemap when the answer completes.
+hide and re-show it without re-asking: its chip in the answer toggles it, and
+it is in the layers panel like any other (specs/ask.md). It is drawn through
+the same layer store as Draw, so it follows the drawn area or the view; the
+answer's own filter is not applied until `/data` takes one (docs/adr/024).
+Not built: an answer referencing a raster asset displaying it as tiles
+over the basemap when the answer completes.

@@ -20,3 +20,12 @@ boto3==1.43.114
 # Reads GeoParquet from the lake over S3 (GP-4). The only module that imports
 # it is apps/map/lake.py; kb stays on Django's connection, never DuckDB.
 duckdb==1.5.5
+# Reads the data platform's chunk index, one LanceDB table per embedder on the
+# silver bucket (docs/adr/020). The only module that imports it is
+# apps/catalog/chunks.py, and it imports it on first use: the wheel is large
+# and nothing at start-up needs it.
+lancedb==0.40.0
+# Renders one page of a PDF with a passage's boxes drawn on it (docs/adr/020).
+# The only module that imports either is apps/catalog/pages.py.
+pypdfium2==5.10.1
+pillow==12.3.0

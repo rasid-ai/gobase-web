@@ -1,6 +1,6 @@
 import { keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, Maximize2, Minimize2 } from 'lucide-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { useCatalogAssetList, useCatalogDatasetList } from '@/api/generated/catalog/catalog'
 import type { AssetDetail, AssetListItem, Dataset } from '@/api/generated/model'
@@ -84,9 +84,9 @@ export function AssetPane({
     <aside
       aria-label={selected ? 'Selected asset' : label}
       className={cn(
-        'absolute bottom-4 right-4 top-4 z-10 flex flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur transition-[width]',
+        'pointer-events-auto flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border bg-background/95 p-4 backdrop-blur transition-[width]',
         // Only the detail widens: its tables need the room, the lists do not.
-        selected && expanded ? 'w-[min(48rem,calc(100%-2rem))]' : 'w-[22rem]',
+        selected && expanded ? 'w-[min(48rem,100%)]' : 'w-[22rem]',
       )}
     >
       {selected ? (
@@ -319,7 +319,7 @@ function DatasetFiles({
   )
 }
 
-function Failed({ what, onRetry }: { what: string; onRetry: () => void }) {
+export function Failed({ what, onRetry }: { what: string; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-start gap-2">
       <p className="text-sm text-muted-foreground">{what} could not be loaded.</p>
@@ -359,16 +359,28 @@ function AssetList({
   )
 }
 
-function AssetRow({
+/**
+ * One asset in a list: its name opens the detail, and Draw puts it on the map.
+ *
+ * Shared by the point/area files and the semantic matches. `children` is where
+ * a list adds actions of its own, beside Draw — the semantic matches put Open
+ * PDF and the dataset's extent there. `showDataset` names the dataset under
+ * the name, for a list that is not already inside one.
+ */
+export function AssetRow({
   asset,
   selected,
   onSelect,
   onDraw,
+  showDataset = false,
+  children,
 }: {
   asset: AssetListItem
   selected: boolean
   onSelect: () => void
   onDraw: () => void
+  showDataset?: boolean
+  children?: ReactNode
 }) {
   const { layers } = useLayers()
   const drawn = layers.find((layer) => layer.assetId === asset.asset_id)
@@ -395,10 +407,18 @@ function AssetRow({
           className="min-w-0 flex-1 text-left"
         >
           <span className="block truncate">{asset.name}</span>
-          <span className={`${MICRO} mt-0.5 block`}>
-            {[asset.data_type, asset.format].filter(Boolean).join(' · ')}
+          <span className={`${MICRO} mt-0.5 block truncate`}>
+            {[
+              showDataset ? (asset.dataset_label ?? asset.dataset) : null,
+              asset.data_type,
+              asset.format,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </button>
+
+        {children}
 
         {/*
           Drawing is its own control, not the row click: selecting shows

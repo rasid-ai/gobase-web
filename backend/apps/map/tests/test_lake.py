@@ -403,6 +403,32 @@ class TestSecretStatement:
         assert "SECRET 'sec''ret'" in statement
 
 
+class TestReadBlob:
+    """One object, whole, as bytes — for a document's PDF (docs/adr/027)."""
+
+    def test_hands_back_the_bytes_exactly(self, tmp_path):
+        path = tmp_path / "plan.pdf"
+        content = b"%PDF-1.4\n" + bytes(range(256)) + b"\n%%EOF\n"
+        path.write_bytes(content)
+
+        assert lake.read_blob(str(path)) == content
+
+    def test_a_missing_object_is_a_read_error(self, tmp_path):
+        with pytest.raises(lake.LakeReadError):
+            lake.read_blob(str(tmp_path / "absent.pdf"))
+
+    def test_an_unreachable_endpoint_is_unavailable_not_a_read_error(self, settings):
+        settings.LAKE_S3_ENDPOINT = "127.0.0.1:1"
+        settings.LAKE_S3_USE_SSL = False
+        settings.LAKE_S3_URL_STYLE = "path"
+        settings.LAKE_S3_ACCESS_KEY = "unused"
+        settings.LAKE_S3_SECRET_KEY = "unused"
+        lake.reset()
+
+        with pytest.raises(lake.LakeUnavailable):
+            lake.read_blob("s3://nothing/here.pdf")
+
+
 def test_a_local_file_reads_with_no_object_store_configured(settings, tmp_path):
     """The lake reader must work for a local path without any S3 settings."""
     settings.LAKE_S3_ACCESS_KEY = ""

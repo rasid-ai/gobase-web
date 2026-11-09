@@ -21,8 +21,8 @@ signed-in visitor to the map (docs/adr/009):
   answers render on this map (toggleable per layer); clicking a point or
   drawing a polygon opens a panel of the datasets there, then the files of
   one, then a file's detail, which expands to show structured metadata as
-  tables. A drawn polygon also scopes drawn layers to it. Asking a question
-  of a drawn area is not built yet (specs/map.md).
+  tables. A drawn polygon also scopes drawn layers to it, and travels with a
+  question asked in the Ask panel (specs/ask.md).
 - **Assets** (`/assets`) — the catalog, browsable, by dataset or as every
   asset at once. A filter rail on the left, a card per dataset or per asset
   on the right. Data types come from the API with their counts; the page

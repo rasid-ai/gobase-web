@@ -1,8 +1,10 @@
 """The only module that reads the lake.
 
-Everything above this speaks GeoJSON. The lake is S3-compatible object storage
-holding GeoParquet written by the data platform; the catalog gives the URI and
-this module turns the file behind it into features (docs/adr/008).
+Everything above this speaks GeoJSON — or, for a document's PDF, bytes. The
+lake is S3-compatible object storage holding GeoParquet written by the data
+platform; the catalog gives the URI and this module turns the file behind it
+into features (docs/adr/008). It also holds the PDFs the documents were parsed
+from, which `read_blob` hands over whole (docs/adr/027).
 
 DuckDB rather than a Python GeoParquet reader: it pushes the area filter and
 the row cap down into the scan, so a file is never fully materialised to return
@@ -386,6 +388,33 @@ def read_vector_features(
         # A JSON array as text, ready to be written into a response unparsed.
         "features_json": f"[{features or ''}]",
     }
+
+
+def read_blob(uri: str) -> bytes:
+    """Read one object from the lake whole, as bytes.
+
+    For a document's PDF (docs/adr/027). The object comes back in memory in
+    one piece — DuckDB's `read_blob` has no streaming form — which is right
+    for the PDFs the catalog holds, hundreds of kilobytes each, and would not
+    be for a multi-gigabyte object. A local path reads the same way, which is
+    what the tests use.
+    """
+    try:
+        reader = _shared_connection().cursor()
+    except duckdb.Error as exc:
+        raise LakeUnavailable(str(exc)) from exc
+
+    try:
+        reader.execute("SELECT content FROM read_blob(?)", [uri])
+        row = reader.fetchone()
+    except duckdb.Error as exc:
+        raise _classify(exc, uri) from exc
+    finally:
+        reader.close()
+
+    if row is None:
+        raise LakeReadError(f"Nothing read from {uri}")
+    return bytes(row[0])
 
 
 # DuckDB's `to_json` writes a non-finite float as a bare `NaN` or `Infinity`,

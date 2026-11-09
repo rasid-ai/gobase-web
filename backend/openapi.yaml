@@ -157,6 +157,8 @@ paths:
         place, and the map's panel to a clicked point or a drawn area — one
         question with three geometries, and one answer to it, so the search, the
         datasets and the counts cannot differ between the two (docs/adr/016).
+        What the place is compared with is the caller's to say: each asset's own
+        coverage for the map, its dataset's for the Assets page (docs/adr/019).
       summary: Browse the asset catalog
       parameters:
       - in: query
@@ -174,6 +176,20 @@ paths:
           minLength: 1
         description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
           SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: coverage
+        schema:
+          enum:
+          - asset
+          - dataset
+          type: string
+          default: asset
+          minLength: 1
+        description: |-
+          What the place is compared with. `asset`: each asset's own coverage. `dataset`: its dataset's, the union of the coverage of the dataset's active assets, so every asset of a dataset that overlaps the place is included, those with no coverage of their own too. An asset with no dataset is compared by its own. Only matters with a place.
+
+          * `asset` - asset
+          * `dataset` - dataset
       - in: query
         name: data_type
         schema:
@@ -275,6 +291,160 @@ paths:
         '400':
           description: A filter that cannot be read, half a point, or more than one
             place.
+  /api/catalog/assets/{asset_id}/pages/{page}.png:
+    get:
+      operationId: catalog_document_page
+      description: |-
+        One page of a document's PDF as an image, a passage drawn on it (docs/adr/020).
+
+        The page is counted from 1, as the passages endpoint reports it. With
+        `chunk`, the passage's boxes are drawn; without, the plain page. Read from
+        bronze through the lake, like the PDF itself, and rendered here: the browser
+        never sees the bucket, and an `<img>` cannot carry a token anyway.
+
+        The ETag is the PDF's hash, the chunk, the page and the renderer's version,
+        so a revalidation is a catalog lookup and neither a lake read nor a render.
+      summary: A page of a document's PDF, with a passage marked
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: chunk
+        schema:
+          type: string
+          minLength: 1
+          pattern: ^[A-Za-z0-9._:-]{1,128}$
+        description: 'A passage''s `chunk_id`: its boxes are drawn on the page. Omitted
+          renders the plain page.'
+      - in: path
+        name: page
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+          description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held.
+        '400':
+          description: A chunk id that is not one.
+        '404':
+          description: No active document with that id or no PDF recorded for it,
+            a page it does not have, or a chunk that is not in it.
+        '502':
+          description: The PDF could not be read or rendered.
+        '503':
+          description: The lake or the chunk index could not be reached.
+  /api/catalog/assets/{asset_id}/pdf:
+    get:
+      operationId: catalog_document_pdf
+      description: |-
+        The PDF behind one document, read from bronze.
+
+        A document's `source_uri` is the parsed bundle in silver; the file a person
+        wants to open is the PDF it was parsed from, which the data platform leaves
+        in bronze and records in `doc_documents.pdf_uri`. The bytes come through
+        here rather than through a link into the bucket because the browser never
+        talks to the lake (docs/adr/011, docs/adr/027).
+
+        Served whole and uncompressed — a PDF is already compressed — with a strong
+        ETag: `content_hash` is the PDF's own sha256, so a revalidation is a
+        catalog lookup and never a lake read. The client opens it in a new tab, so
+        the body is `inline` and carries the file's name.
+      summary: A document's PDF
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held.
+        '404':
+          description: No active document with that id, or one whose PDF the catalog
+            does not record.
+        '502':
+          description: The PDF could not be read.
+        '503':
+          description: The lake could not be reached.
+  /api/catalog/assets/similar:
+    get:
+      operationId: catalog_similar_assets
+      description: |-
+        The assets whose card is closest in meaning to a question.
+
+        The map's Semantic mode (docs/adr/018). The question is embedded by the
+        data platform's document service — the model that embedded the cards —
+        and the catalog ranks its cards by cosine similarity. Cards only, in
+        Postgres: the shallow search, never the chunk index. Meaning only: no
+        place narrows it yet.
+      summary: Assets matching a question
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 10
+      - in: query
+        name: q
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description: What you are looking for, in words. Embedded as typed and matched
+          against the catalog's cards by meaning, not by text.
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarAssets'
+          description: ''
+        '400':
+          description: Missing or empty text, or a limit out of range.
+        '502':
+          description: The embedding service refused the question.
+        '503':
+          description: The embedding service is unreachable, or no URL is set for
+            it.
   /api/catalog/datasets:
     get:
       operationId: catalog_dataset_list
@@ -282,8 +452,8 @@ paths:
         The datasets holding matching assets, and how many of each type.
 
         The first step of browsing by dataset, on both pages: pick one here, then
-        list its assets with `dataset=` on the asset list, sending the same place
-        and window so the count shown here is the count found there.
+        list its assets with `dataset=` on the asset list, sending the same place,
+        coverage and window so the count shown here is the count found there.
       summary: Datasets in the catalog
       parameters:
       - in: query
@@ -301,6 +471,20 @@ paths:
           minLength: 1
         description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
           SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: coverage
+        schema:
+          enum:
+          - asset
+          - dataset
+          type: string
+          default: asset
+          minLength: 1
+        description: |-
+          What the place is compared with. `asset`: each asset's own coverage. `dataset`: its dataset's, the union of the coverage of the dataset's active assets, so every asset of a dataset that overlaps the place is included, those with no coverage of their own too. An asset with no dataset is compared by its own. Only matters with a place.
+
+          * `asset` - asset
+          * `dataset` - dataset
       - in: query
         name: ingested_after
         schema:
@@ -352,6 +536,240 @@ paths:
         '400':
           description: A filter that cannot be read, half a point, or more than one
             place.
+  /api/catalog/passages:
+    get:
+      operationId: catalog_passages
+      description: |-
+        The documents whose passages best answer a question (docs/adr/020).
+
+        The Assets page's Semantic search. The question is embedded by the data
+        platform's document service, the catalog names the documents in scope —
+        narrowed by place, window and dataset like any browse — and the chunk
+        index ranks their passages. Deep, where `assets/similar` is shallow.
+      summary: Passages answering a question
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this drawn polygon:
+          WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself.'
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat,
+          SRID 4326. Not sent with a point or an area.'
+      - in: query
+        name: coverage
+        schema:
+          enum:
+          - asset
+          - dataset
+          type: string
+          default: asset
+          minLength: 1
+        description: |-
+          What the place is compared with. `asset`: each asset's own coverage. `dataset`: its dataset's, the union of the coverage of the dataset's active assets, so every asset of a dataset that overlaps the place is included, those with no coverage of their own too. An asset with no dataset is compared by its own. Only matters with a place.
+
+          * `asset` - asset
+          * `dataset` - dataset
+      - in: query
+        name: dataset
+        schema:
+          type: string
+          maxLength: 200
+        description: Only documents in this dataset, matched exactly. Omitted means
+          every dataset.
+      - in: query
+        name: ingested_after
+        schema:
+          type: string
+          format: date-time
+        description: Ingested at or after this moment.
+      - in: query
+        name: ingested_before
+        schema:
+          type: string
+          format: date-time
+        description: Ingested strictly before this moment.
+      - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        description: Latitude of the point, WGS 84. Sent with `lon`.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 10
+        description: The most documents to return.
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        description: 'Restrict to assets covering this point: longitude, WGS 84. Sent
+          with `lat`.'
+      - in: query
+        name: passages
+        schema:
+          type: integer
+          maximum: 10
+          minimum: 1
+          default: 3
+        description: The most passages per document.
+      - in: query
+        name: q
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description: What you are looking for, in words. Embedded as typed and matched
+          against the documents' passages by meaning, not by text.
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Passages'
+          description: ''
+        '400':
+          description: Missing or empty text, a limit out of range, or a bad place.
+        '502':
+          description: The embedding service refused the question, or the index failed.
+        '503':
+          description: The embedding service is unreachable or not configured, or
+            the index could not be reached.
+  /api/chat/sessions:
+    get:
+      operationId: chat_session_list
+      summary: The signed-in user's chat sessions, newest first
+      tags:
+      - chat
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionList'
+          description: ''
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
+  /api/chat/sessions/{session_id}:
+    get:
+      operationId: chat_session_retrieve
+      summary: One chat session with every question and answer, oldest first
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionDetail'
+          description: ''
+        '404':
+          description: The signed-in user has no such session.
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
+    delete:
+      operationId: chat_session_delete
+      summary: Delete one chat session
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '404':
+          description: The signed-in user has no such session.
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
+  /api/chat/sessions/{session_id}/turns:
+    post:
+      operationId: chat_turn_create
+      description: An unknown session id starts a new session, so the client names
+        a new session by choosing a fresh UUID.
+      summary: Ask one question in a session, and stream the answer
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskTurnRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatTurnEvent'
+          description: Server-sent events. Each `data:` line is one ChatTurnEvent
+            as JSON. The last is `done` for a whole answer or `error` for one that
+            stopped part-way; `step`, `text` and `reference` come before it, in any
+            number.
+        '400':
+          description: The question or the map context is not valid.
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
   /api/health/:
     get:
       operationId: health_retrieve
@@ -756,6 +1174,54 @@ components:
       - key
       - name
       - prefix
+    AskContextRequest:
+      type: object
+      description: |-
+        The map's state when the question was asked, as data rather than prose.
+
+        Every field is optional. The agent reads it as what "here" means: the
+        model picks a scope by name and the agent's tools take the geometry from
+        here, so the model never copies coordinates (docs/adr/023).
+      properties:
+        viewport:
+          type: array
+          items:
+            type: number
+            format: double
+          description: 'What the map shows: [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326.'
+          maxItems: 4
+          minItems: 4
+        point:
+          type: array
+          items:
+            type: number
+            format: double
+          description: 'A clicked point: [lon, lat], SRID 4326.'
+          maxItems: 2
+          minItems: 2
+        area:
+          type: string
+          minLength: 1
+          description: 'A drawn polygon as WKT, POLYGON((lon lat, lon lat, ...)),
+            SRID 4326. Checked as the catalog checks it: one ring, closed, never crossing
+            itself.'
+        asset_id:
+          type: string
+          format: uuid
+          description: The asset selected in the map's panel.
+    AskTurnRequestRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: The question, in any language.
+          maxLength: 4000
+        context:
+          $ref: '#/components/schemas/AskContextRequest'
+      required:
+      - prompt
     AssetData:
       type: object
       description: |-
@@ -881,8 +1347,9 @@ components:
         name:
           type: string
           readOnly: true
-          description: Derived from the asset's source path, extension removed. The
-            catalog has no name column (docs/adr/010).
+          description: Derived from the asset's source path, extension removed — the
+            catalog has no name column (docs/adr/010). A document is named after its
+            PDF instead, extension kept (docs/adr/027).
         data_type:
           type: string
           readOnly: true
@@ -940,6 +1407,12 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+        document:
+          allOf:
+          - $ref: '#/components/schemas/Document'
+          readOnly: true
+          nullable: true
+          description: Set for a document; null for every other data type.
       required:
       - asset_id
       - bbox
@@ -947,6 +1420,7 @@ components:
       - data_type
       - dataset
       - dataset_label
+      - document
       - format
       - ingested_at
       - name
@@ -968,6 +1442,337 @@ components:
       required:
       - current_password
       - new_password
+    ChatDoneEvent:
+      type: object
+      description: The whole answer, checked by the agent. The last event of a whole
+        answer.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatDoneEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `done` - done
+        text:
+          type: string
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatReference'
+      required:
+      - event
+      - references
+      - text
+    ChatDoneEventEventEnum:
+      enum:
+      - done
+      type: string
+      description: '* `done` - done'
+    ChatErrorEvent:
+      type: object
+      description: |-
+        The answer stopped part-way. The last event of an incomplete answer.
+
+        What streamed before it stays on screen, marked incomplete; it is never
+        shown as a whole answer. The session stays usable for the next question.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatErrorEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `error` - error
+        message:
+          type: string
+        incomplete:
+          type: boolean
+      required:
+      - event
+      - incomplete
+      - message
+    ChatErrorEventEventEnum:
+      enum:
+      - error
+      type: string
+      description: '* `error` - error'
+    ChatFilter:
+      type: object
+      description: |-
+        A simple attribute filter: one column, one operator, one value (docs/adr/024).
+
+        Not free SQL and not group-by. The backend binds the value as a parameter
+        wherever it applies one.
+      properties:
+        column:
+          type: string
+          description: A column the asset has.
+        op:
+          $ref: '#/components/schemas/ChatFilterOpEnum'
+        value:
+          description: A string or a number; a list of them for `in`.
+      required:
+      - column
+      - op
+      - value
+    ChatFilterOpEnum:
+      enum:
+      - equals
+      - contains
+      - in
+      - <
+      - '>'
+      type: string
+      description: |-
+        * `equals` - equals
+        * `contains` - contains
+        * `in` - in
+        * `<` - <
+        * `>` - >
+    ChatReference:
+      type: object
+      description: |-
+        Something an answer points to besides its text.
+
+        It carries only what the SPA needs to show it through this backend's
+        existing endpoints — never features, pixels or PDF bytes (docs/adr/024).
+        Which fields are set depends on `kind`:
+
+        - `asset`: `asset_id` — an asset the answer names.
+        - `layer`: `asset_id`, `area` or `bbox`, `filter`, `total` — vector
+          features to draw from `/api/map/assets/{id}/data`.
+        - `passage`: `asset_id`, `chunk_id`, `page` — a passage of a document.
+        - `raster`: `asset_id`, `area` or `bbox`, `stats` — figures read from a
+          raster over an area.
+        - `frame`: `bbox` — where the map should look.
+      properties:
+        kind:
+          $ref: '#/components/schemas/ChatReferenceKindEnum'
+        asset_id:
+          type: string
+          format: uuid
+          description: Every kind but `frame`.
+        area:
+          type: string
+          nullable: true
+          description: The polygon it was read for, as WKT, when it was a drawn area.
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          nullable: true
+          description: '[min_lon, min_lat, max_lon, max_lat], SRID 4326.'
+          maxItems: 4
+          minItems: 4
+        filter:
+          allOf:
+          - $ref: '#/components/schemas/ChatFilter'
+          nullable: true
+        total:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: A layer's exact feature count inside its area, filter applied.
+        chunk_id:
+          type: string
+          description: A passage's id in the chunk index.
+        page:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: A passage's first page, counted from 1.
+        stats:
+          nullable: true
+          description: 'A raster''s figures as the answer used them: per band, or
+            per class.'
+      required:
+      - kind
+    ChatReferenceEvent:
+      type: object
+      description: Something the answer points to, as soon as a lookup found it.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatReferenceEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `reference` - reference
+        reference:
+          $ref: '#/components/schemas/ChatReference'
+      required:
+      - event
+      - reference
+    ChatReferenceEventEventEnum:
+      enum:
+      - reference
+      type: string
+      description: '* `reference` - reference'
+    ChatReferenceKindEnum:
+      enum:
+      - asset
+      - layer
+      - passage
+      - raster
+      - frame
+      type: string
+      description: |-
+        * `asset` - asset
+        * `layer` - layer
+        * `passage` - passage
+        * `raster` - raster
+        * `frame` - frame
+    ChatSession:
+      type: object
+      description: One session, as the session list shows it.
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          description: The session's first question, as the agent stored it.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - session_id
+      - title
+      - updated_at
+    ChatSessionDetail:
+      type: object
+      description: One session with every turn, oldest first.
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          description: The session's first question, as the agent stored it.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        turns:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatTurn'
+      required:
+      - created_at
+      - session_id
+      - title
+      - turns
+      - updated_at
+    ChatSessionList:
+      type: object
+      description: The signed-in user's sessions, newest first.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatSession'
+      required:
+      - results
+    ChatStepEvent:
+      type: object
+      description: The agent started or finished looking something up. Holds no data.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatStepEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `step` - step
+        tool:
+          type: string
+        status:
+          $ref: '#/components/schemas/ChatStepStatusEnum'
+        note:
+          type: string
+      required:
+      - event
+      - status
+      - tool
+    ChatStepEventEventEnum:
+      enum:
+      - step
+      type: string
+      description: '* `step` - step'
+    ChatStepStatusEnum:
+      enum:
+      - started
+      - finished
+      - failed
+      type: string
+      description: |-
+        * `started` - started
+        * `finished` - finished
+        * `failed` - failed
+    ChatTextEvent:
+      type: object
+      description: A piece of the answer's text, to append to what came before.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatTextEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `text` - text
+        delta:
+          type: string
+      required:
+      - delta
+      - event
+    ChatTextEventEventEnum:
+      enum:
+      - text
+      type: string
+      description: '* `text` - text'
+    ChatTurn:
+      type: object
+      description: One question and its answer, as the session stored them.
+      properties:
+        prompt:
+          type: string
+        text:
+          type: string
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatReference'
+        incomplete:
+          type: boolean
+          default: false
+          description: True when the answer stopped part-way.
+      required:
+      - prompt
+      - references
+      - text
+    ChatTurnEvent:
+      oneOf:
+      - $ref: '#/components/schemas/ChatTextEvent'
+      - $ref: '#/components/schemas/ChatStepEvent'
+      - $ref: '#/components/schemas/ChatReferenceEvent'
+      - $ref: '#/components/schemas/ChatDoneEvent'
+      - $ref: '#/components/schemas/ChatErrorEvent'
+      discriminator:
+        propertyName: event
+        mapping:
+          text: '#/components/schemas/ChatTextEvent'
+          step: '#/components/schemas/ChatStepEvent'
+          reference: '#/components/schemas/ChatReferenceEvent'
+          done: '#/components/schemas/ChatDoneEvent'
+          error: '#/components/schemas/ChatErrorEvent'
     DataTypeCount:
       type: object
       description: |-
@@ -1023,6 +1828,134 @@ components:
           readOnly: true
       required:
       - results
+    Document:
+      type: object
+      description: What a document carries beyond the columns every asset shares.
+      properties:
+        title:
+          type: string
+          readOnly: true
+          nullable: true
+          description: The title the parser read from the PDF. Often missing, or a
+            heading.
+        pages:
+          type: integer
+          readOnly: true
+          nullable: true
+        pdf:
+          type: boolean
+          readOnly: true
+          description: Whether the catalog records the PDF the document was parsed
+            from, and so whether /api/catalog/assets/{id}/pdf can serve it.
+      required:
+      - pages
+      - pdf
+      - title
+    DocumentPassages:
+      type: object
+      description: A list row for a document, plus the passages of it that matched.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed — the
+            catalog has no name column (docs/adr/010). A document is named after its
+            PDF instead, extension kept (docs/adr/027).
+        data_type:
+          type: string
+          readOnly: true
+        format:
+          type: string
+          readOnly: true
+          nullable: true
+        dataset:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name as the catalog holds it: a folder of the
+            raw bucket.'
+        dataset_label:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name made readable: spaced and in sentence
+            case.'
+        topic_path:
+          type: string
+          readOnly: true
+          nullable: true
+        bytes:
+          type: integer
+          readOnly: true
+          nullable: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The asset's coverage as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326. Null when the asset has no coverage.
+          maxItems: 4
+          minItems: 4
+        summary:
+          type: string
+          readOnly: true
+          nullable: true
+        time_start:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        time_end:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ingested_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        document:
+          allOf:
+          - $ref: '#/components/schemas/Document'
+          readOnly: true
+          nullable: true
+          description: Set for a document; null for every other data type.
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: The best passage's score. Documents come in this order.
+        passages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Passage'
+          readOnly: true
+      required:
+      - asset_id
+      - bbox
+      - bytes
+      - data_type
+      - dataset
+      - dataset_label
+      - document
+      - format
+      - ingested_at
+      - name
+      - passages
+      - score
+      - summary
+      - time_end
+      - time_start
+      - topic_path
     Health:
       type: object
       properties:
@@ -1152,6 +2085,79 @@ components:
       required:
       - role
       - username
+    Passage:
+      type: object
+      description: One passage of a document that matched the question.
+      properties:
+        chunk_id:
+          type: string
+          readOnly: true
+          description: The passage's id in the chunk index; what the page image takes.
+        text:
+          type: string
+          readOnly: true
+        heading_path:
+          type: array
+          items:
+            type: string
+          readOnly: true
+          description: The section headings above the passage, outermost first. Empty
+            when none.
+        page_start:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The page the passage starts on, as a reader counts them, from
+            1 — the number `/pages/{page}.png` and a PDF viewer's `#page=` take. The
+            chunk index stores pages from 0. Null when the index records no page.
+        page_end:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The page it ends on, from 1.
+        pages_with_boxes:
+          type: array
+          items:
+            type: integer
+          readOnly: true
+          description: The pages, from 1, on which the passage can be drawn.
+        chunk_type:
+          type: string
+          readOnly: true
+          description: 'What the parser read: text, table, list, chart, …'
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: 'Cosine similarity to the question: 1 is identical. Rows come
+            best first.'
+      required:
+      - chunk_id
+      - chunk_type
+      - heading_path
+      - page_end
+      - page_start
+      - pages_with_boxes
+      - score
+      - text
+    Passages:
+      type: object
+      description: The documents whose passages best answer a question, best first.
+      properties:
+        embedder:
+          type: string
+          readOnly: true
+          description: The model that embedded the question. Only documents whose
+            passages were embedded by the same model are searched.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentPassages'
+          readOnly: true
+      required:
+      - embedder
+      - results
     Place:
       type: object
       description: One candidate place. Nothing here names a vendor.
@@ -1512,6 +2518,134 @@ components:
       required:
       - key
       - value
+    SimilarAsset:
+      type: object
+      description: A list row, plus how well it matched and where its dataset is.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Derived from the asset's source path, extension removed — the
+            catalog has no name column (docs/adr/010). A document is named after its
+            PDF instead, extension kept (docs/adr/027).
+        data_type:
+          type: string
+          readOnly: true
+        format:
+          type: string
+          readOnly: true
+          nullable: true
+        dataset:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name as the catalog holds it: a folder of the
+            raw bucket.'
+        dataset_label:
+          type: string
+          readOnly: true
+          nullable: true
+          description: 'The dataset''s name made readable: spaced and in sentence
+            case.'
+        topic_path:
+          type: string
+          readOnly: true
+          nullable: true
+        bytes:
+          type: integer
+          readOnly: true
+          nullable: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The asset's coverage as [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326. Null when the asset has no coverage.
+          maxItems: 4
+          minItems: 4
+        summary:
+          type: string
+          readOnly: true
+          nullable: true
+        time_start:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        time_end:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ingested_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        document:
+          allOf:
+          - $ref: '#/components/schemas/Document'
+          readOnly: true
+          nullable: true
+          description: Set for a document; null for every other data type.
+        score:
+          type: number
+          format: double
+          readOnly: true
+          description: 'Cosine similarity between the question and the asset''s card:
+            1 is identical. Bigger is better, and rows already come in that order.'
+        dataset_bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          readOnly: true
+          nullable: true
+          description: The envelope of every active asset in this asset's dataset,
+            as [min_lon, min_lat, max_lon, max_lat]. Null when none of them has coverage.
+          maxItems: 4
+          minItems: 4
+      required:
+      - asset_id
+      - bbox
+      - bytes
+      - data_type
+      - dataset
+      - dataset_bbox
+      - dataset_label
+      - document
+      - format
+      - ingested_at
+      - name
+      - score
+      - summary
+      - time_end
+      - time_start
+      - topic_path
+    SimilarAssets:
+      type: object
+      description: The closest matches to a question, best first.
+      properties:
+        embedder:
+          type: string
+          readOnly: true
+          description: The model that embedded the question. Only the cards made by
+            the same model are searched.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SimilarAsset'
+          readOnly: true
+      required:
+      - embedder
+      - results
     Trigger:
       type: object
       description: |-

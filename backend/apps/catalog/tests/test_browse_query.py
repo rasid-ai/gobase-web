@@ -111,6 +111,121 @@ def test_the_search_text_itself_never_leaves_the_server():
     assert "search" not in kb._list_item(_row(search="anything"))
 
 
+class TestDocuments:
+    """A document is the one asset not named after its source path (docs/adr/027)."""
+
+    def test_every_catalog_read_joins_the_document_row(self):
+        # LEFT, so every other modality is untouched by the join.
+        assert "LEFT JOIN doc_documents doc" in kb._CATALOG_HEAD
+        assert "LEFT JOIN doc_documents doc" in kb._ASSET
+
+    def test_a_document_is_named_after_its_pdf_with_the_extension_kept(self):
+        """Its source path is the parsed bundle; the PDF is what a person recognises."""
+        assert kb._NAME.startswith("COALESCE(split_part(doc.pdf_uri, '/', -1)")
+
+    def test_a_document_with_no_recorded_pdf_falls_back_to_the_bundle_stem(self):
+        # `<stem>.bundle.zip` loses `.zip` to the derived name and `.bundle` here.
+        assert r"'\.bundle$'" in kb._NAME
+
+    def test_the_pdf_name_and_the_title_are_searchable(self):
+        assert "split_part(doc.pdf_uri, '/', -1)" in kb._SEARCH_TEXT
+        assert "doc.title" in kb._SEARCH_TEXT
+
+    def test_any_other_asset_carries_no_document(self):
+        assert kb._list_item(_row())["document"] is None
+
+    def test_a_document_row_carries_its_title_pages_and_whether_its_pdf_is_known(self):
+        row = _row(
+            modality="document",
+            document_title="Activity in 2024",
+            document_pages=8,
+            document_pdf=True,
+        )
+        assert kb._list_item(row)["document"] == {
+            "title": "Activity in 2024",
+            "pages": 8,
+            "pdf": True,
+        }
+
+    def test_the_pdf_read_names_the_modality_and_the_status(self):
+        assert "modality = 'document'" in kb._DOCUMENT_PDF
+        assert "status = 'active'" in kb._DOCUMENT_PDF
+
+    def test_a_document_whose_pdf_was_never_recorded_has_nothing_to_serve(self, monkeypatch):
+        """A bundle loaded without its source stamp: a 404, not a read of a null path."""
+        monkeypatch.setattr(
+            kb,
+            "_rows",
+            lambda sql, params: [{"pdf_uri": None, "content_hash": "abc", "filename": None}],
+        )
+        assert kb.document_pdf("cd8173bb-65ef-4bab-8bec-2be34d7157b9") is None
+
+    def test_the_pdf_read_hands_back_the_path_the_hash_and_the_filename(self, monkeypatch):
+        found = {
+            "pdf_uri": "s3://geobase-bronze/raw/airports/plan.pdf",
+            "content_hash": "abc",
+            "filename": "plan.pdf",
+        }
+        monkeypatch.setattr(kb, "_rows", lambda sql, params: [found])
+        assert kb.document_pdf("cd8173bb-65ef-4bab-8bec-2be34d7157b9") == found
+
+
+class TestSimilar:
+    """The card search behind the map's Semantic mode (docs/adr/018)."""
+
+    def test_a_vector_binds_in_pgvectors_text_form(self):
+        # Bound as text and cast in SQL, the way the data platform does it, so
+        # no pgvector adapter is needed on the driver.
+        assert kb._vector_literal([0.5, -1.0, 2]) == "[0.5,-1.0,2.0]"
+
+    def test_the_search_binds_the_vector_then_the_model_then_the_limit(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            kb, "_rows", lambda sql, params: calls.append((sql, list(params))) or []
+        )
+
+        kb.similar_assets([0.5, 0.25], "BAAI/bge-small-en-v1.5", 7)
+
+        ((sql, params),) = calls
+        assert params == ["[0.5,0.25]", "BAAI/bge-small-en-v1.5", 7]
+        # Only the cards of the model that embedded the question are ranked.
+        assert "card.embedder_id = %s" in sql
+        assert "card.vector <=> %s::vector" in sql
+        # Off the browse CTE, so superseded rows are already out.
+        assert "WHERE status = 'active'" in sql
+        assert "ORDER BY score DESC, catalog.asset_id" in sql
+        # Meaning only: no place narrows it.
+        assert "ST_MakeEnvelope" not in sql
+        assert "ST_MakePoint" not in sql
+
+    def test_a_match_is_a_list_row_plus_its_score_and_its_datasets_box(self):
+        row = _row(
+            score=0.7071,
+            dataset_min_lon=35.1,
+            dataset_min_lat=33.0,
+            dataset_max_lon=36.6,
+            dataset_max_lat=34.7,
+        )
+
+        item = kb._similar_item(row)
+
+        assert item["score"] == 0.7071
+        assert item["dataset_bbox"] == [35.1, 33.0, 36.6, 34.7]
+        assert item["name"] == "gis_osm_boundaries_07_1"
+        assert item["document"] is None
+        assert "source_uri" not in item
+
+    def test_a_dataset_with_no_coverage_has_no_box(self):
+        row = _row(
+            score=0.5,
+            dataset_min_lon=None,
+            dataset_min_lat=None,
+            dataset_max_lon=None,
+            dataset_max_lat=None,
+        )
+        assert kb._similar_item(row)["dataset_bbox"] is None
+
+
 def _row(**overrides):
     return {
         "asset_id": "cd8173bb-65ef-4bab-8bec-2be34d7157b9",
@@ -209,6 +324,36 @@ class TestPlace:
         page_params = run[0][1]
         assert page_params == [35.4, 33.8, 35.6, 34.0, r"%osm%", 12, 24]
 
+    def test_by_dataset_the_place_is_compared_with_the_dataset_coverage(self):
+        sql, params = kb._catalog([35.4, 33.8, 35.6, 34.0], coverage="dataset")
+
+        # A dataset covers what any of its active assets covers; an asset with
+        # no dataset has only its own coverage to go by (docs/adr/019).
+        assert "assets.dataset IN (SELECT covering.dataset FROM assets covering" in sql
+        assert "covering.status = 'active'" in sql
+        assert "ST_Intersects(covering.extent, ST_MakeEnvelope(%s, %s, %s, %s, 4326))" in sql
+        assert "assets.dataset IS NULL AND ST_Intersects(extent, ST_MakeEnvelope(" in sql
+        # The place appears twice, so it binds twice, in the same order.
+        assert params == [35.4, 33.8, 35.6, 34.0, 35.4, 33.8, 35.6, 34.0]
+
+    def test_by_asset_is_the_default(self):
+        assert kb._catalog(point=(35.5, 33.9)) == kb._catalog(point=(35.5, 33.9), coverage="asset")
+        sql, _ = kb._catalog(point=(35.5, 33.9))
+        assert "covering" not in sql
+
+    def test_without_a_place_the_coverage_changes_nothing(self):
+        assert kb._catalog(coverage="dataset") == kb._catalog()
+
+    def test_an_unknown_coverage_never_reaches_sql(self):
+        with pytest.raises(ValueError):
+            kb._catalog([35.4, 33.8, 35.6, 34.0], coverage="topic")
+
+    def test_by_dataset_both_places_bind_before_the_other_filters(self, run):
+        kb.asset_list(point=(35.5, 33.9), coverage="dataset", q="osm", limit=12, offset=0)
+
+        assert run[0][1] == [35.5, 33.9, 35.5, 33.9, r"%osm%", 12, 0]
+        assert all("covering" in sql for sql, _ in run)
+
     def test_the_dataset_narrows_the_counts_too(self, run):
         # Unlike the data type selection, which the counts ignore on purpose:
         # inside a dataset, the counts describe that dataset.
@@ -218,6 +363,68 @@ class TestPlace:
         assert page[1][:3] == [AREA, ["vector"], "boundaries"]
         assert counts[1] == [AREA, "boundaries"]
         assert "modality = ANY" not in counts[0]
+
+
+class TestChunkedDocuments:
+    """The documents a deep search may look inside (docs/adr/020)."""
+
+    @pytest.fixture
+    def run(self, monkeypatch):
+        """Records the one read and answers it with no rows.
+
+        Not the module's `run`: that one answers a row shaped for the count
+        reads, and this read selects list rows.
+        """
+        calls = []
+
+        def fake(sql, params):
+            calls.append((sql, list(params)))
+            return []
+
+        monkeypatch.setattr(kb, "_rows", fake)
+        return calls
+
+    def test_only_documents_with_a_table_made_by_the_question_s_model(self, run):
+        kb.chunked_documents(embedder_id="BAAI/bge-small-en-v1.5")
+
+        ((sql, params),) = run
+        assert "JOIN doc_documents doc ON doc.asset_id = catalog.asset_id" in sql
+        assert "doc.chunks_uri IS NOT NULL AND doc.embedder_id = %s" in sql
+        assert "ORDER BY ingested_at DESC, catalog.asset_id LIMIT %s" in sql
+        assert params == ["BAAI/bge-small-en-v1.5", kb.SHORTLIST]
+
+    def test_the_place_binds_first_then_the_model_then_the_rest(self, run):
+        kb.chunked_documents(
+            embedder_id="m",
+            bbox=[35.4, 33.8, 35.6, 34.0],
+            coverage="dataset",
+            dataset="airports",
+            ingested_after="A",
+            limit=7,
+        )
+
+        ((sql, params),) = run
+        assert "covering" in sql
+        # The place twice (by dataset), the model, then the window and the
+        # dataset as `_where` orders them, then the limit.
+        assert params == [35.4, 33.8, 35.6, 34.0, 35.4, 33.8, 35.6, 34.0, "m", "airports", "A", 7]
+        # `_where` opens with WHERE; here it continues the one already open.
+        assert "doc.embedder_id = %s\n AND dataset = %s AND ingested_at >= %s" in sql
+
+    def test_a_row_is_a_list_row_plus_its_table(self, monkeypatch):
+        monkeypatch.setattr(
+            kb, "_rows", lambda sql, params: [_row(chunks_uri="s3://silver/x.lance")]
+        )
+
+        (document,) = kb.chunked_documents(embedder_id="m")
+
+        assert document["chunks_uri"] == "s3://silver/x.lance"
+        assert document["name"] == "gis_osm_boundaries_07_1"
+        assert "search" not in document
+
+
+def test_the_pdf_read_carries_the_page_count_and_the_chunk_table():
+    assert "doc.pages, doc.chunks_uri" in kb._DOCUMENT_PDF
 
 
 class TestDatasetList:
@@ -278,6 +485,13 @@ class TestDatasetList:
 
         ((_, params),) = grouped
         assert params == [35.5, 33.9, "A", "%road%", "%road%"]
+
+    def test_datasets_can_be_found_by_their_own_coverage(self, grouped):
+        kb.dataset_list(bbox=[35.4, 33.8, 35.6, 34.0], coverage="dataset")
+
+        ((sql, params),) = grouped
+        assert "covering" in sql
+        assert params == [35.4, 33.8, 35.6, 34.0, 35.4, 33.8, 35.6, 34.0]
 
     def test_datasets_are_ordered_by_what_people_read(self, grouped):
         kb.dataset_list()

@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from rest_framework import serializers
 
-from .kb import SORTS
+from .kb import COVERAGES, SORTS
 
 
 class BboxField(serializers.CharField):
@@ -229,8 +229,9 @@ class CatalogScopeSerializer(serializers.Serializer):
     has to be the number of assets you then find inside it (docs/adr/016).
 
     A place is at most one of three: a searched place's `bbox`, a clicked
-    point, or a drawn `area`. The Assets page sends the first and the map's
-    panel the other two. All three are optional to the contract and at most one
+    point, or a drawn `area`. The Assets page sends the first, compared with
+    each dataset's coverage, and the map's panel the other two, compared with
+    each asset's own (docs/adr/019). All three are optional to the contract and at most one
     is accepted here, because OpenAPI has no plain way to say "one of these"
     that the generated client would honour.
     """
@@ -262,6 +263,17 @@ class CatalogScopeSerializer(serializers.Serializer):
             "crossing itself."
         ),
     )
+    coverage = serializers.ChoiceField(
+        choices=COVERAGES,
+        default="asset",
+        help_text=(
+            "What the place is compared with. `asset`: each asset's own coverage. "
+            "`dataset`: its dataset's, the union of the coverage of the dataset's "
+            "active assets, so every asset of a dataset that overlaps the place is "
+            "included, those with no coverage of their own too. An asset with no "
+            "dataset is compared by its own. Only matters with a place."
+        ),
+    )
     ingested_after = serializers.DateTimeField(
         required=False, help_text="Ingested at or after this moment."
     )
@@ -278,12 +290,13 @@ class CatalogScopeSerializer(serializers.Serializer):
         return attrs
 
     def place(self) -> dict:
-        """The validated place as `kb` keyword arguments: at most one of them set."""
+        """The validated place as `kb` keyword arguments, and what it is compared with."""
         data = self.validated_data
         return {
             "bbox": data.get("bbox"),
             "point": (data["lon"], data["lat"]) if "lon" in data else None,
             "area": data["area"].wkt if "area" in data else None,
+            "coverage": data["coverage"],
         }
 
 
@@ -325,6 +338,24 @@ class AssetListQuerySerializer(CatalogScopeSerializer):
     offset = serializers.IntegerField(default=0, min_value=0)
 
 
+class DocumentSerializer(serializers.Serializer):
+    """What a document carries beyond the columns every asset shares."""
+
+    title = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The title the parser read from the PDF. Often missing, or a heading.",
+    )
+    pages = serializers.IntegerField(read_only=True, allow_null=True)
+    pdf = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether the catalog records the PDF the document was parsed from, "
+            "and so whether /api/catalog/assets/{id}/pdf can serve it."
+        ),
+    )
+
+
 class AssetListItemSerializer(serializers.Serializer):
     """One asset as the catalog browse list shows it.
 
@@ -337,8 +368,9 @@ class AssetListItemSerializer(serializers.Serializer):
     name = serializers.CharField(
         read_only=True,
         help_text=(
-            "Derived from the asset's source path, extension removed. The "
-            "catalog has no name column (docs/adr/010)."
+            "Derived from the asset's source path, extension removed — the "
+            "catalog has no name column (docs/adr/010). A document is named "
+            "after its PDF instead, extension kept (docs/adr/027)."
         ),
     )
     data_type = serializers.CharField(read_only=True)
@@ -370,6 +402,11 @@ class AssetListItemSerializer(serializers.Serializer):
     time_start = serializers.DateTimeField(read_only=True, allow_null=True)
     time_end = serializers.DateTimeField(read_only=True, allow_null=True)
     ingested_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    document = DocumentSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Set for a document; null for every other data type.",
+    )
 
 
 class DataTypeCountSerializer(serializers.Serializer):
@@ -432,3 +469,161 @@ class DatasetListSerializer(serializers.Serializer):
     """Every dataset holding at least one matching asset, ordered by label."""
 
     results = DatasetSerializer(many=True, read_only=True)
+
+
+class SimilarAssetsQuerySerializer(serializers.Serializer):
+    """A question or a sentence, and how many matches to return."""
+
+    q = serializers.CharField(
+        min_length=1,
+        max_length=500,
+        trim_whitespace=True,
+        help_text=(
+            "What you are looking for, in words. Embedded as typed and matched "
+            "against the catalog's cards by meaning, not by text."
+        ),
+    )
+    limit = serializers.IntegerField(default=10, min_value=1, max_value=50)
+
+
+class SimilarAssetSerializer(AssetListItemSerializer):
+    """A list row, plus how well it matched and where its dataset is."""
+
+    score = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Cosine similarity between the question and the asset's card: 1 is "
+            "identical. Bigger is better, and rows already come in that order."
+        ),
+    )
+    dataset_bbox = serializers.ListField(
+        read_only=True,
+        child=serializers.FloatField(),
+        allow_null=True,
+        min_length=4,
+        max_length=4,
+        help_text=(
+            "The envelope of every active asset in this asset's dataset, as "
+            "[min_lon, min_lat, max_lon, max_lat]. Null when none of them has coverage."
+        ),
+    )
+
+
+class SimilarAssetsSerializer(serializers.Serializer):
+    """The closest matches to a question, best first."""
+
+    embedder = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The model that embedded the question. Only the cards made by the "
+            "same model are searched."
+        ),
+    )
+    results = SimilarAssetSerializer(many=True, read_only=True)
+
+
+class PassagesQuerySerializer(CatalogScopeSerializer):
+    """A question, and how much of the catalog to answer it from (docs/adr/020).
+
+    The place, the window and the dataset narrow which documents are searched.
+    No data type: only documents have passages. No sort or offset: the answer
+    is a ranked list, not a page.
+    """
+
+    q = serializers.CharField(
+        min_length=1,
+        max_length=500,
+        trim_whitespace=True,
+        help_text=(
+            "What you are looking for, in words. Embedded as typed and matched "
+            "against the documents' passages by meaning, not by text."
+        ),
+    )
+    dataset = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Only documents in this dataset, matched exactly. Omitted means every dataset.",
+    )
+    limit = serializers.IntegerField(
+        default=10, min_value=1, max_value=50, help_text="The most documents to return."
+    )
+    passages = serializers.IntegerField(
+        default=3, min_value=1, max_value=10, help_text="The most passages per document."
+    )
+
+
+class PassageSerializer(serializers.Serializer):
+    """One passage of a document that matched the question."""
+
+    chunk_id = serializers.CharField(
+        read_only=True, help_text="The passage's id in the chunk index; what the page image takes."
+    )
+    text = serializers.CharField(read_only=True)
+    heading_path = serializers.ListField(
+        read_only=True,
+        child=serializers.CharField(),
+        help_text="The section headings above the passage, outermost first. Empty when none.",
+    )
+    page_start = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The page the passage starts on, as a reader counts them, from 1 — the "
+            "number `/pages/{page}.png` and a PDF viewer's `#page=` take. The chunk "
+            "index stores pages from 0. Null when the index records no page."
+        ),
+    )
+    page_end = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="The page it ends on, from 1."
+    )
+    pages_with_boxes = serializers.ListField(
+        read_only=True,
+        child=serializers.IntegerField(),
+        help_text="The pages, from 1, on which the passage can be drawn.",
+    )
+    chunk_type = serializers.CharField(
+        read_only=True, help_text="What the parser read: text, table, list, chart, …"
+    )
+    score = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Cosine similarity to the question: 1 is identical. Rows come best first.",
+    )
+
+
+class DocumentPassagesSerializer(AssetListItemSerializer):
+    """A list row for a document, plus the passages of it that matched."""
+
+    score = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="The best passage's score. Documents come in this order.",
+    )
+    passages = PassageSerializer(many=True, read_only=True)
+
+
+class PassagesSerializer(serializers.Serializer):
+    """The documents whose passages best answer a question, best first."""
+
+    embedder = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The model that embedded the question. Only documents whose passages "
+            "were embedded by the same model are searched."
+        ),
+    )
+    results = DocumentPassagesSerializer(many=True, read_only=True)
+
+
+class DocumentPageQuerySerializer(serializers.Serializer):
+    """Which passage, if any, to draw on the page."""
+
+    chunk = serializers.RegexField(
+        r"^[A-Za-z0-9._:-]{1,128}$",
+        required=False,
+        help_text=(
+            "A passage's `chunk_id`: its boxes are drawn on the page. Omitted "
+            "renders the plain page."
+        ),
+    )

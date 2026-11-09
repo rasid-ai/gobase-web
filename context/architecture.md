@@ -17,7 +17,7 @@ composes a query, calls a model, or touches a store directly.
 | Database | Owner | Portal access | Contents |
 |---|---|---|---|
 | `kb` | data platform repo | **read-only role** | STAC metadata, document chunks, pgvector embeddings, dataset cards, asset catalog |
-| `portal` | this repo | read-write | users/profiles, chat sessions and messages, saved areas, citations |
+| `portal` | this repo | read-write | users/profiles, saved areas. Nothing about chat: sessions live in the Ask agent's bucket (docs/adr/025) |
 
 Migrations for `portal` run via Django's migration system; `kb` migrations
 belong to the platform repo and are never run from here. See docs/adr/001.
@@ -31,14 +31,16 @@ belong to the platform repo and are never run from here. See docs/adr/001.
   backend never reads Dagster's internal database, so the platform repo can
   upgrade Dagster freely.
 
-**Q&A engine:** what is settled regardless of engine choice: answers are
-composed **server-side** across sources (documents, tabular, imagery
-metadata); every data access is read-only and SQL is SELECT-only; a
-drawn-area geometry scopes retrieval by PostGIS geometry; answers **stream** to
-the SPA via SSE; citations reference asset UUIDs and persist with the
-message in `portal`, along with the tool/query trace. **The engine itself
-— LLM provider and agent/orchestration design — is still undecided**, and
-gets its own ADR before the chat app is built.
+**Q&A engine:** `gobase-agent`, a separate service in its own repo and
+deployed alone: one Strands agent with nine read-only tools (docs/adr/023).
+It runs the model; this backend does not. This backend is its only caller:
+`apps/chat` is a gateway that checks who is asking, forwards the question and
+the map's context with the user's id and `AGENT_SERVICE_TOKEN`, and relays
+the answer to the SPA as SSE from an **async view**. Every tool is an HTTP
+GET back to this backend, so this backend stays the one reader of the
+knowledge base (docs/adr/024). Chat history lives in the agent's own bucket,
+one prefix per user, and `portal` stores none of it (docs/adr/025). The
+contract is in context/integrations/agent.md.
 
 **Auth:** JWT via `djangorestframework-simplejwt` (access token in memory,
 refresh token in an httpOnly Secure cookie, fetch interceptor refreshes on
@@ -131,8 +133,9 @@ geo-portal/
     config/                # settings, urls, asgi (SSE requires ASGI serving)
     apps/
       accounts/            # JWT auth, UserProfile (admin|viewer)
-      catalog/             # kb.py (the kb schema reader) + browse endpoint
-      chat/                # sessions, messages, agent loop, SSE streaming
+      catalog/             # kb.py (the kb schema reader) + browse endpoints;
+                           # chunks.py (LanceDB), pages.py (pdfium), passages.py
+      chat/                # the Ask gateway: relays to gobase-agent (no model, no store)
       map/                 # footprint/coverage + asset metadata endpoints
       runs/                # Dagster GraphQL client, run list/detail
     openapi.yaml           # exported schema (the contract), committed in CI
@@ -141,7 +144,7 @@ geo-portal/
     src/
       api/                 # Orval-generated client + TanStack Query hooks
       app/                 # shell, routing, providers
-      features/            # workspace/ (map+chat)  catalog/ (assets)  runs/
+      features/            # workspace/ (map)  ask/ (chat)  catalog/ (assets)  runs/
       components/ui/       # shadcn/ui primitives
       lib/
     Dockerfile
@@ -160,7 +163,9 @@ geo-portal/
   is owned by the data platform repo. This backend **reads it and never
   writes it** — enforced by the read-only Postgres role and read-only S3
   credentials, not by convention.
-- Backend owns all portal state, all query composition, and all LLM calls.
+- Backend owns all portal state and all query composition. The Ask agent
+  (`gobase-agent`) owns the model calls, and this backend is its only caller
+  (docs/adr/023).
 - Frontend is a pure consumer of the API. It never talks to S3, DuckDB,
   Dagster, or the LLM, and computes nothing beyond display.
 - Dagster is reached only through its GraphQL API. Reads are open to both
@@ -170,17 +175,23 @@ geo-portal/
 
 ## Data flow
 
-1. **Ask:** user message → `POST /api/chat/sessions/{id}/messages/` → agent
-   loop calls tools (pgvector / DuckDB / STAC) → tokens stream back via SSE
-   → completed message + tool trace + citations persist in `portal`.
+1. **Ask:** a question and the map's context → `POST
+   /api/chat/sessions/{id}/turns` → the backend checks the user and the
+   context, and opens `POST /v1/users/{user_id}/sessions/{id}/turns` on the
+   agent → the agent's tools call this backend's catalog endpoints → events
+   (`text`, `reference`, `done` or `error`) stream back through the relay,
+   each checked against the contract → the agent saves the turn and its
+   references in its bucket. Sessions are listed, read and deleted through
+   `/api/chat/sessions` the same way (context/integrations/agent.md).
 2. **Map:** a click, a coordinate or place typed into the search box, or a
    drawn area → `GET /api/catalog/datasets?lon=&lat=` (or `?area=`) → the
    datasets there; opening one → `GET /api/catalog/assets?lon=&lat=&dataset=`
    → its assets there; selecting one → `GET /api/map/assets/{id}` for its
    metadata and footprint. The map asks the catalog the same question the
    Assets page does, with a point or a polygon for a place (docs/adr/016).
-   A question scoped to a drawn area runs flow 1 with the geometry
-   attached; any vector layer in the answer returns as GeoJSON.
+   A question asked with an area drawn runs flow 1 with the polygon in its
+   context; a layer in the answer is a reference the map draws from
+   `/api/map/assets/{id}/data`, never GeoJSON in the answer (docs/adr/024).
 3. **Assets:** filters → `GET /api/catalog/datasets` (from `kb`) → the
    datasets, each with its counts; opening one, or browsing every asset →
    `GET /api/catalog/assets` → one page of rows, the total behind it, and a
@@ -191,8 +202,10 @@ geo-portal/
    (docs/adr/010). Following an asset goes to `/map?asset=<id>`, and the
    map then reads `GET /api/map/assets/{id}` for the footprint.
    `bbox=minLon,minLat,maxLon,maxLat` narrows the page, the total and the
-   type counts together to assets whose coverage overlaps that area — the
-   one place a bbox is an input rather than an output (docs/adr/011).
+   type counts together — the one place a bbox is an input rather than an
+   output (docs/adr/011). The page sends it with `coverage=dataset`, so it
+   matches the assets of every dataset whose coverage overlaps that area;
+   the map's point and drawn area keep each asset's own (docs/adr/019).
 4. **Runs:** `GET /api/runs/` → backend queries Dagster GraphQL →
    normalized JSON → TanStack Table. `GET /api/runs/{id}` adds the
    per-step breakdown from Dagster's `stepStats`, and `GET
@@ -206,6 +219,15 @@ geo-portal/
    and a bbox. The only third-party call the backend makes, and the only
    one the frontend is not allowed to make itself. Nothing is stored or
    cached (docs/adr/011, context/integrations/esri.md).
+6. **Semantic search:** a typed question → `GET
+   /api/catalog/assets/similar?q=` → the backend has GoDoc's RAG server
+   (the data platform's document service, `POST /rag/embed`) embed it with
+   the model that embedded the catalog's cards → a cosine search over
+   `doc_cards` in `kb`, filtered to that model → the closest assets as
+   list rows with a score and their dataset's extent. Cards only, never the
+   chunk index; meaning only, no place. Unreachable is 503, refused is 502,
+   and a blank `GODOC_URL` is 503 before any call (docs/adr/018,
+   context/integrations/godoc.md).
 
 ## Invariants (the AI must never violate)
 
@@ -219,8 +241,18 @@ geo-portal/
   uncited factual claim about the data is a bug.
 - Secrets are referred to by name (`DATABASE_URL`), never by value, in
   logs, prompts, or diary entries. Chat content is internal data: it stays
-  in `portal`, never in application logs.
+  in the agent's sessions bucket, never in application logs.
 - Never hardcode hex values or raw Tailwind color classes — design tokens
   only.
 - Do not invent endpoints, tables, or tools beyond this document and the
   specs; if something needed is missing, stop and ask.
+7. **Deep search:** a question on the Assets page → `GET
+   /api/catalog/passages?q=` → the backend embeds it through GoDoc, asks
+   `kb` for the documents in scope (the browse CTE joined to
+   `doc_documents`, filtered on the model's `embedder_id`), then the
+   chunk index on silver (LanceDB, `apps/catalog/chunks.py`) for the
+   nearest passages among them → documents with their passages, pages from
+   1 (docs/adr/020). Opening a passage → `GET
+   /api/catalog/assets/{id}/pages/{page}.png?chunk=` → the PDF read from
+   bronze and one page rendered with the passage's boxes drawn
+   (`apps/catalog/pages.py`); Open PDF at the page appends `#page=N`.

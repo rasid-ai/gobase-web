@@ -21,6 +21,11 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${rounded} ${units[unit]}`
 }
 
+/** A document's length, where the catalog holds no size for it. */
+export function formatPages(pages: number): string {
+  return pages === 1 ? '1 page' : `${pages} pages`
+}
+
 /**
  * An ingestion date as data chrome: dotted, fixed width, mono.
  *

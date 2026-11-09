@@ -28,7 +28,13 @@ services:
       context: ./backend
     # entrypoint.sh runs migrate for dev and prod identically; this overrides
     # only the command it execs afterwards.
-    command: python manage.py runserver 0.0.0.0:8000
+    #
+    # uvicorn, not runserver: runserver is WSGI, and WSGI cannot stream. Ask's
+    # answer relay (apps/chat) is an async view whose stream WSGI would hold
+    # back until the whole answer was done. Prod runs uvicorn workers too
+    # (backend/Dockerfile), so this is closer to what ships. `--reload` gives
+    # back runserver's auto-reload.
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --reload
     env_file: ./backend/.env
     environment:
       # Overrides whatever .env says: inside this container `localhost` means
@@ -40,6 +46,12 @@ services:
       # reached through its published port on the host rather than by joining
       # its network — one less thing for this compose file to own.
       LAKE_S3_ENDPOINT: host.docker.internal:9000
+      # And for GoDoc's RAG server, which runs on the host too
+      # (context/integrations/godoc.md).
+      GODOC_URL: http://host.docker.internal:8003
+      # AGENT_URL is left to .env: the Ask agent (gobase-agent) is deployed
+      # alone, with its own compose file, so its address is whatever that
+      # stack publishes — host.docker.internal:<its port> when it runs here.
       DJANGO_DEBUG: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"

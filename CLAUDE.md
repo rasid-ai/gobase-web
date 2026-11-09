@@ -45,8 +45,8 @@ Changing any of these is a decision worth an ADR.
   `frontend/src/styles/tokens.css` is data, not source: never reformat it
   (formatters flatten the trailing zeros that document the tonal ladder).
 - Secrets by name (`DATABASE_URL`), never by value — in code, logs,
-  prompts, and diary entries. Chat content stays in `portal`, never in
-  application logs.
+  prompts, and diary entries. Chat content stays in the Ask agent's
+  sessions bucket, never in application logs. See docs/adr/025.
 - Do not invent endpoints, tables, or tools; if something needed is
   missing, stop and ask.
 
