@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "apps.accounts",
     "apps.catalog",
+    "apps.chat",
     "apps.map",
     "apps.places",
     "apps.runs",
@@ -192,6 +193,15 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": "/api",
+    # Named, so that a new field called `kind` or `status` elsewhere never
+    # renames an enum the generated client already exports.
+    "ENUM_NAME_OVERRIDES": {
+        # A run's trigger kind (apps/runs), named before the chat's `kind` came.
+        "KindEnum": ["schedule", "sensor", "manual"],
+        "ChatReferenceKindEnum": "apps.chat.serializers.REFERENCE_KINDS",
+        "ChatFilterOpEnum": "apps.chat.serializers.FILTER_OPERATORS",
+        "ChatStepStatusEnum": "apps.chat.serializers.STEP_STATUSES",
+    },
 }
 
 # Dagster — the pipeline orchestrator. Reached only over its GraphQL API, and
@@ -230,6 +240,22 @@ ESRI_MAX_CANDIDATES = int(env("ESRI_MAX_CANDIDATES", "5"))
 # semantic search is unavailable, so the portal runs without the service.
 GODOC_URL = env("GODOC_URL", "")
 GODOC_TIMEOUT_SECONDS = float(env("GODOC_TIMEOUT_SECONDS", "10"))
+
+# The Ask agent — `gobase-agent`, a separate service deployed alone, which
+# runs the model and the tools (docs/adr/021). This backend is its only
+# caller: apps/chat/agent.py is the only module that speaks to it, and
+# context/integrations/agent.md has the contract. A blank URL is meaningful
+# rather than missing: every chat endpoint answers 503 before any call and the
+# map says Ask is unavailable, so the portal runs without the agent.
+AGENT_URL = env("AGENT_URL", "")
+# What the agent requires from its one caller, sent as a bearer token.
+AGENT_SERVICE_TOKEN = env("AGENT_SERVICE_TOKEN", "")
+# Connecting, and the whole of a short call (list, read, delete a session).
+AGENT_TIMEOUT_SECONDS = float(env("AGENT_TIMEOUT_SECONDS", "10"))
+# The longest silence allowed between two events of a streamed answer. Not a
+# limit on the whole answer: the agent bounds that itself, and a long answer
+# that keeps sending is fine.
+AGENT_STREAM_TIMEOUT_SECONDS = float(env("AGENT_STREAM_TIMEOUT_SECONDS", "120"))
 
 # --- the lake (S3-compatible object storage) --------------------------------
 # The silver bucket holds the GeoParquet the Map reads through DuckDB (GP-4).

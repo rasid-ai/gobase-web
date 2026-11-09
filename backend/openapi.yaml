@@ -614,6 +614,115 @@ paths:
         '503':
           description: The embedding service is unreachable or not configured, or
             the index could not be reached.
+  /api/chat/sessions:
+    get:
+      operationId: chat_session_list
+      summary: The signed-in user's chat sessions, newest first
+      tags:
+      - chat
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionList'
+          description: ''
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
+  /api/chat/sessions/{session_id}:
+    get:
+      operationId: chat_session_retrieve
+      summary: One chat session with every question and answer, oldest first
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionDetail'
+          description: ''
+        '404':
+          description: The signed-in user has no such session.
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
+    delete:
+      operationId: chat_session_delete
+      summary: Delete one chat session
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '404':
+          description: The signed-in user has no such session.
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
+  /api/chat/sessions/{session_id}/turns:
+    post:
+      operationId: chat_turn_create
+      description: An unknown session id starts a new session, so the client names
+        a new session by choosing a fresh UUID.
+      summary: Ask one question in a session, and stream the answer
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - chat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskTurnRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatTurnEvent'
+          description: Server-sent events. Each `data:` line is one ChatTurnEvent
+            as JSON. The last is `done` for a whole answer or `error` for one that
+            stopped part-way; `step`, `text` and `reference` come before it, in any
+            number.
+        '400':
+          description: The question or the map context is not valid.
+        '502':
+          description: The agent refused, or answered outside the contract.
+        '503':
+          description: The agent is unreachable, or no AGENT_URL is set.
   /api/health/:
     get:
       operationId: health_retrieve
@@ -923,6 +1032,54 @@ components:
           readOnly: true
       required:
       - access
+    AskContextRequest:
+      type: object
+      description: |-
+        The map's state when the question was asked, as data rather than prose.
+
+        Every field is optional. The agent reads it as what "here" means: the
+        model picks a scope by name and the agent's tools take the geometry from
+        here, so the model never copies coordinates (docs/adr/021).
+      properties:
+        viewport:
+          type: array
+          items:
+            type: number
+            format: double
+          description: 'What the map shows: [min_lon, min_lat, max_lon, max_lat],
+            SRID 4326.'
+          maxItems: 4
+          minItems: 4
+        point:
+          type: array
+          items:
+            type: number
+            format: double
+          description: 'A clicked point: [lon, lat], SRID 4326.'
+          maxItems: 2
+          minItems: 2
+        area:
+          type: string
+          minLength: 1
+          description: 'A drawn polygon as WKT, POLYGON((lon lat, lon lat, ...)),
+            SRID 4326. Checked as the catalog checks it: one ring, closed, never crossing
+            itself.'
+        asset_id:
+          type: string
+          format: uuid
+          description: The asset selected in the map's panel.
+    AskTurnRequestRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: The question, in any language.
+          maxLength: 4000
+        context:
+          $ref: '#/components/schemas/AskContextRequest'
+      required:
+      - prompt
     AssetData:
       type: object
       description: |-
@@ -1143,6 +1300,337 @@ components:
       required:
       - current_password
       - new_password
+    ChatDoneEvent:
+      type: object
+      description: The whole answer, checked by the agent. The last event of a whole
+        answer.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatDoneEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `done` - done
+        text:
+          type: string
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatReference'
+      required:
+      - event
+      - references
+      - text
+    ChatDoneEventEventEnum:
+      enum:
+      - done
+      type: string
+      description: '* `done` - done'
+    ChatErrorEvent:
+      type: object
+      description: |-
+        The answer stopped part-way. The last event of an incomplete answer.
+
+        What streamed before it stays on screen, marked incomplete; it is never
+        shown as a whole answer. The session stays usable for the next question.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatErrorEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `error` - error
+        message:
+          type: string
+        incomplete:
+          type: boolean
+      required:
+      - event
+      - incomplete
+      - message
+    ChatErrorEventEventEnum:
+      enum:
+      - error
+      type: string
+      description: '* `error` - error'
+    ChatFilter:
+      type: object
+      description: |-
+        A simple attribute filter: one column, one operator, one value (docs/adr/022).
+
+        Not free SQL and not group-by. The backend binds the value as a parameter
+        wherever it applies one.
+      properties:
+        column:
+          type: string
+          description: A column the asset has.
+        op:
+          $ref: '#/components/schemas/ChatFilterOpEnum'
+        value:
+          description: A string or a number; a list of them for `in`.
+      required:
+      - column
+      - op
+      - value
+    ChatFilterOpEnum:
+      enum:
+      - equals
+      - contains
+      - in
+      - <
+      - '>'
+      type: string
+      description: |-
+        * `equals` - equals
+        * `contains` - contains
+        * `in` - in
+        * `<` - <
+        * `>` - >
+    ChatReference:
+      type: object
+      description: |-
+        Something an answer points to besides its text.
+
+        It carries only what the SPA needs to show it through this backend's
+        existing endpoints — never features, pixels or PDF bytes (docs/adr/022).
+        Which fields are set depends on `kind`:
+
+        - `asset`: `asset_id` — an asset the answer names.
+        - `layer`: `asset_id`, `area` or `bbox`, `filter`, `total` — vector
+          features to draw from `/api/map/assets/{id}/data`.
+        - `passage`: `asset_id`, `chunk_id`, `page` — a passage of a document.
+        - `raster`: `asset_id`, `area` or `bbox`, `stats` — figures read from a
+          raster over an area.
+        - `frame`: `bbox` — where the map should look.
+      properties:
+        kind:
+          $ref: '#/components/schemas/ChatReferenceKindEnum'
+        asset_id:
+          type: string
+          format: uuid
+          description: Every kind but `frame`.
+        area:
+          type: string
+          nullable: true
+          description: The polygon it was read for, as WKT, when it was a drawn area.
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          nullable: true
+          description: '[min_lon, min_lat, max_lon, max_lat], SRID 4326.'
+          maxItems: 4
+          minItems: 4
+        filter:
+          allOf:
+          - $ref: '#/components/schemas/ChatFilter'
+          nullable: true
+        total:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: A layer's exact feature count inside its area, filter applied.
+        chunk_id:
+          type: string
+          description: A passage's id in the chunk index.
+        page:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: A passage's first page, counted from 1.
+        stats:
+          nullable: true
+          description: 'A raster''s figures as the answer used them: per band, or
+            per class.'
+      required:
+      - kind
+    ChatReferenceEvent:
+      type: object
+      description: Something the answer points to, as soon as a lookup found it.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatReferenceEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `reference` - reference
+        reference:
+          $ref: '#/components/schemas/ChatReference'
+      required:
+      - event
+      - reference
+    ChatReferenceEventEventEnum:
+      enum:
+      - reference
+      type: string
+      description: '* `reference` - reference'
+    ChatReferenceKindEnum:
+      enum:
+      - asset
+      - layer
+      - passage
+      - raster
+      - frame
+      type: string
+      description: |-
+        * `asset` - asset
+        * `layer` - layer
+        * `passage` - passage
+        * `raster` - raster
+        * `frame` - frame
+    ChatSession:
+      type: object
+      description: One session, as the session list shows it.
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          description: The session's first question, as the agent stored it.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - session_id
+      - title
+      - updated_at
+    ChatSessionDetail:
+      type: object
+      description: One session with every turn, oldest first.
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          description: The session's first question, as the agent stored it.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        turns:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatTurn'
+      required:
+      - created_at
+      - session_id
+      - title
+      - turns
+      - updated_at
+    ChatSessionList:
+      type: object
+      description: The signed-in user's sessions, newest first.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatSession'
+      required:
+      - results
+    ChatStepEvent:
+      type: object
+      description: The agent started or finished looking something up. Holds no data.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatStepEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `step` - step
+        tool:
+          type: string
+        status:
+          $ref: '#/components/schemas/ChatStepStatusEnum'
+        note:
+          type: string
+      required:
+      - event
+      - status
+      - tool
+    ChatStepEventEventEnum:
+      enum:
+      - step
+      type: string
+      description: '* `step` - step'
+    ChatStepStatusEnum:
+      enum:
+      - started
+      - finished
+      - failed
+      type: string
+      description: |-
+        * `started` - started
+        * `finished` - finished
+        * `failed` - failed
+    ChatTextEvent:
+      type: object
+      description: A piece of the answer's text, to append to what came before.
+      properties:
+        event:
+          allOf:
+          - $ref: '#/components/schemas/ChatTextEventEventEnum'
+          description: |-
+            What this event is.
+
+            * `text` - text
+        delta:
+          type: string
+      required:
+      - delta
+      - event
+    ChatTextEventEventEnum:
+      enum:
+      - text
+      type: string
+      description: '* `text` - text'
+    ChatTurn:
+      type: object
+      description: One question and its answer, as the session stored them.
+      properties:
+        prompt:
+          type: string
+        text:
+          type: string
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatReference'
+        incomplete:
+          type: boolean
+          default: false
+          description: True when the answer stopped part-way.
+      required:
+      - prompt
+      - references
+      - text
+    ChatTurnEvent:
+      oneOf:
+      - $ref: '#/components/schemas/ChatTextEvent'
+      - $ref: '#/components/schemas/ChatStepEvent'
+      - $ref: '#/components/schemas/ChatReferenceEvent'
+      - $ref: '#/components/schemas/ChatDoneEvent'
+      - $ref: '#/components/schemas/ChatErrorEvent'
+      discriminator:
+        propertyName: event
+        mapping:
+          text: '#/components/schemas/ChatTextEvent'
+          step: '#/components/schemas/ChatStepEvent'
+          reference: '#/components/schemas/ChatReferenceEvent'
+          done: '#/components/schemas/ChatDoneEvent'
+          error: '#/components/schemas/ChatErrorEvent'
     DataTypeCount:
       type: object
       description: |-
