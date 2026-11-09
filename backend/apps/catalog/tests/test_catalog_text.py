@@ -65,7 +65,7 @@ def _name(source_uri, pdf_uri):
     [
         ("s3://silver/vector/b/roads.parquet", None, "roads"),
         ("s3://silver/raster/l/lulc_2019.tif", None, "lulc_2019"),
-        # A document is named after its PDF, extension kept (docs/adr/017).
+        # A document is named after its PDF, extension kept (docs/adr/027).
         (
             "s3://silver/documents/airports/plan.bundle.zip",
             "s3://bronze/raw/airports/Airport Plan.pdf",
@@ -94,7 +94,7 @@ def _format(format, pdf_uri):
     ("format", "pdf_uri", "shown"),
     [
         ("geoparquet", None, "geoparquet"),
-        # A document's format is its file's, not the parser's (docs/adr/017).
+        # A document's format is its file's, not the parser's (docs/adr/027).
         ("mineru", "s3://bronze/raw/airports/Airport Plan.PDF", "pdf"),
         # No PDF recorded, or a name with no extension: the column as it is.
         ("mineru", None, "mineru"),

@@ -2,13 +2,13 @@
 
 The chat renders inside the Atlas page (`/map`) as a docked panel on the
 right; layout is in context/ui-rules.md. The engine is `gobase-agent`, a
-separate service this backend calls (docs/adr/021); the backend's `apps/chat`
+separate service this backend calls (docs/adr/023); the backend's `apps/chat`
 is a gateway to it and runs no model. The contract is in
 context/integrations/agent.md.
 
 **Built (2026-11-09):** the gateway and the panel, tested against a faked
 agent and checked live against a stub. **Not built:** the agent itself, and
-the backend endpoints its tools need (docs/adr/022). So Ask answers nothing
+the backend endpoints its tools need (docs/adr/024). So Ask answers nothing
 yet in any deployed portal; with no `AGENT_URL` the panel says Ask is
 unavailable.
 
@@ -69,14 +69,14 @@ Restricting retrieval to that area is the agent's job, through the backend
 endpoints its tools call. **Known gap:** a layer from an answer is drawn
 through the same layer store as the asset pane's Draw, so it follows the
 current drawn area or view, not the area and filter the answer counted.
-`/data` has no attribute filter yet (docs/adr/022), so until it does, a
+`/data` has no attribute filter yet (docs/adr/024), so until it does, a
 filtered layer draws more than the answer counted.
 
 ## Sessions
 
 Sessions are private to their owner: the agent keeps each user's under that
 user's prefix in its bucket, and the backend always names the caller
-(docs/adr/023). `portal` stores nothing about chat.
+(docs/adr/025). `portal` stores nothing about chat.
 
 The history button lists the user's sessions, newest first, with their day
 ("today", "Oct 31") and a delete button. Opening one reads it back with every

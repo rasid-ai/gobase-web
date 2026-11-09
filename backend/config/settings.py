@@ -242,7 +242,7 @@ GODOC_URL = env("GODOC_URL", "")
 GODOC_TIMEOUT_SECONDS = float(env("GODOC_TIMEOUT_SECONDS", "10"))
 
 # The Ask agent — `gobase-agent`, a separate service deployed alone, which
-# runs the model and the tools (docs/adr/021). This backend is its only
+# runs the model and the tools (docs/adr/023). This backend is its only
 # caller: apps/chat/agent.py is the only module that speaks to it, and
 # context/integrations/agent.md has the contract. A blank URL is meaningful
 # rather than missing: every chat endpoint answers 503 before any call and the

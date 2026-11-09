@@ -370,7 +370,7 @@ class AssetListItemSerializer(serializers.Serializer):
         help_text=(
             "Derived from the asset's source path, extension removed — the "
             "catalog has no name column (docs/adr/010). A document is named "
-            "after its PDF instead, extension kept (docs/adr/017)."
+            "after its PDF instead, extension kept (docs/adr/027)."
         ),
     )
     data_type = serializers.CharField(read_only=True)

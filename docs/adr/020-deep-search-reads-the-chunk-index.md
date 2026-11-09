@@ -1,7 +1,7 @@
 # ADR-020: Deep search reads the chunk index, and shows the page it matched on
 
 **Status:** Accepted · 2026-10-27
-**Builds on:** docs/adr/017 (the PDF served whole from bronze), docs/adr/018
+**Builds on:** docs/adr/027 (the PDF served whole from bronze), docs/adr/018
 (the shallow search over cards), docs/adr/019 (one search kind at a time)
 
 ## Context
@@ -65,7 +65,7 @@ never leave the server. The score is in the contract and not on the screen
 ### The page is rendered on the server, with the passage drawn on it
 
 **`GET /api/catalog/assets/{id}/pages/{page}.png?chunk=`** reads the PDF from
-bronze through the lake (ADR-017), renders that page with pypdfium2 and draws
+bronze through the lake (ADR-027), renders that page with pypdfium2 and draws
 the passage's boxes with Pillow: `apps/catalog/pages.py`, the only module
 that imports either. The highlight is the brand emerald, written into the
 module because a design token cannot reach an image drawn on the server.

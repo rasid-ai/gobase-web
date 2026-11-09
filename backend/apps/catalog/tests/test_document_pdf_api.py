@@ -103,7 +103,7 @@ def test_a_revalidation_of_a_vanished_document_is_a_404_not_a_304(as_viewer, mon
 
 
 def test_a_pdf_the_lake_no_longer_holds_is_a_502(as_viewer, tmp_path, monkeypatch):
-    """The catalog's path can go stale after a move in bronze (docs/adr/017)."""
+    """The catalog's path can go stale after a move in bronze (docs/adr/027)."""
     monkeypatch.setattr(
         kb,
         "document_pdf",

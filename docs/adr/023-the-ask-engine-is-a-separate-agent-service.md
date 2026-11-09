@@ -1,4 +1,4 @@
-# ADR-021: The Ask engine is a separate agent service, and the backend is its only caller
+# ADR-023: The Ask engine is a separate agent service, and the backend is its only caller
 
 **Status:** Accepted · 2026-11-08
 
@@ -41,7 +41,7 @@ The agent's own design is recorded in the `gobase-agent` repo
   agent loop and calls no model. The relay is an **async view**: a sync view
   would hold a worker thread for the whole answer, while the agent's tool
   calls come back into this same backend and need workers of their own
-  (docs/adr/022).
+  (docs/adr/024).
 
 ## Rejected
 

@@ -404,7 +404,7 @@ class TestSecretStatement:
 
 
 class TestReadBlob:
-    """One object, whole, as bytes — for a document's PDF (docs/adr/017)."""
+    """One object, whole, as bytes — for a document's PDF (docs/adr/027)."""
 
     def test_hands_back_the_bytes_exactly(self, tmp_path):
         path = tmp_path / "plan.pdf"

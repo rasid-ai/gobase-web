@@ -8,7 +8,7 @@
 import type { ChatFilterOpEnum } from './chatFilterOpEnum';
 
 /**
- * A simple attribute filter: one column, one operator, one value (docs/adr/022).
+ * A simple attribute filter: one column, one operator, one value (docs/adr/024).
  *
  * Not free SQL and not group-by. The backend binds the value as a parameter
  * wherever it applies one.

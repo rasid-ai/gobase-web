@@ -11,7 +11,7 @@
  *
  * Every field is optional. The agent reads it as what "here" means: the
  * model picks a scope by name and the agent's tools take the geometry from
- * here, so the model never copies coordinates (docs/adr/021).
+ * here, so the model never copies coordinates (docs/adr/023).
  */
 export interface AskContextRequest {
   /**

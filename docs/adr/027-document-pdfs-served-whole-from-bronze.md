@@ -1,4 +1,4 @@
-# ADR-017: A document is named after its PDF, and the PDF is served whole from bronze
+# ADR-027: A document is named after its PDF, and the PDF is served whole from bronze
 
 **Status:** Accepted · 2026-10-19
 

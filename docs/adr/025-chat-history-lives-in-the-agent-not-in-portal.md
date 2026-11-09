@@ -1,4 +1,4 @@
-# ADR-023: Chat history lives in the agent's sessions bucket, not in `portal`
+# ADR-025: Chat history lives in the agent's sessions bucket, not in `portal`
 
 **Status:** Accepted · 2026-11-08
 
@@ -30,7 +30,7 @@ platform's buckets.
   or layers. The chat app lists, reads and deletes a user's sessions
   through the agent's API, as that user.
 - **This backend still owns who the user is.** The agent trusts the user id
-  because only this backend holds `AGENT_SERVICE_TOKEN` (docs/adr/021).
+  because only this backend holds `AGENT_SERVICE_TOKEN` (docs/adr/023).
 
 ## Rejected
 
@@ -52,7 +52,7 @@ platform's buckets.
 - **Deleting a user's chat is deleting their prefix** in the agent's
   bucket. Deleting the Django user does not remove it on its own.
 - **A layer drawn from an answer is fetched from `/data`** with the asset,
-  area and filter the reference carries (docs/adr/022). No GeoJSON is
+  area and filter the reference carries (docs/adr/024). No GeoJSON is
   stored anywhere for it.
 
 ## Revisit when

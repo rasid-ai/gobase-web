@@ -3,7 +3,7 @@
 The answer side does two jobs. It is the schema in `openapi.yaml`, which the
 SPA's types are generated from, and it is the check on what the agent sent:
 the relay passes an event on only after it fits one of these shapes, so the
-SPA never receives a field the contract does not name (docs/adr/021).
+SPA never receives a field the contract does not name (docs/adr/023).
 context/integrations/agent.md maps each one onto the agent's own.
 
 Text fields that carry the answer keep their whitespace. DRF trims a
@@ -34,7 +34,7 @@ class AskContextSerializer(serializers.Serializer):
 
     Every field is optional. The agent reads it as what "here" means: the
     model picks a scope by name and the agent's tools take the geometry from
-    here, so the model never copies coordinates (docs/adr/021).
+    here, so the model never copies coordinates (docs/adr/023).
     """
 
     viewport = serializers.ListField(
@@ -102,7 +102,7 @@ class AskTurnRequestSerializer(serializers.Serializer):
 
 
 class ChatFilterSerializer(serializers.Serializer):
-    """A simple attribute filter: one column, one operator, one value (docs/adr/022).
+    """A simple attribute filter: one column, one operator, one value (docs/adr/024).
 
     Not free SQL and not group-by. The backend binds the value as a parameter
     wherever it applies one.
@@ -117,7 +117,7 @@ class ChatReferenceSerializer(serializers.Serializer):
     """Something an answer points to besides its text.
 
     It carries only what the SPA needs to show it through this backend's
-    existing endpoints — never features, pixels or PDF bytes (docs/adr/022).
+    existing endpoints — never features, pixels or PDF bytes (docs/adr/024).
     Which fields are set depends on `kind`:
 
     - `asset`: `asset_id` — an asset the answer names.

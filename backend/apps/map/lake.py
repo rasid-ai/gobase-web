@@ -4,7 +4,7 @@ Everything above this speaks GeoJSON — or, for a document's PDF, bytes. The
 lake is S3-compatible object storage holding GeoParquet written by the data
 platform; the catalog gives the URI and this module turns the file behind it
 into features (docs/adr/008). It also holds the PDFs the documents were parsed
-from, which `read_blob` hands over whole (docs/adr/017).
+from, which `read_blob` hands over whole (docs/adr/027).
 
 DuckDB rather than a Python GeoParquet reader: it pushes the area filter and
 the row cap down into the scan, so a file is never fully materialised to return
@@ -393,7 +393,7 @@ def read_vector_features(
 def read_blob(uri: str) -> bytes:
     """Read one object from the lake whole, as bytes.
 
-    For a document's PDF (docs/adr/017). The object comes back in memory in
+    For a document's PDF (docs/adr/027). The object comes back in memory in
     one piece — DuckDB's `read_blob` has no streaming form — which is right
     for the PDFs the catalog holds, hundreds of kilobytes each, and would not
     be for a multi-gigabyte object. A local path reads the same way, which is

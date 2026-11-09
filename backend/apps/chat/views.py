@@ -1,9 +1,9 @@
 """The chat gateway: the SPA's Ask endpoints, passed on to the agent.
 
-`apps/chat` runs no agent loop and calls no model (docs/adr/021). It checks who
+`apps/chat` runs no agent loop and calls no model (docs/adr/023). It checks who
 is asking, checks what they sent, and forwards it to `gobase-agent` with the
 user's id; then it relays the answer. It stores nothing: chat history lives in
-the agent's sessions bucket, and `portal` holds none of it (docs/adr/023).
+the agent's sessions bucket, and `portal` holds none of it (docs/adr/025).
 
 A failure is never a 500, because the portal itself is fine:
 
@@ -103,7 +103,7 @@ def _checked(serializer_class, payload: dict) -> dict:
 
 
 def _user_id(user) -> str:
-    """The id the agent keeps this user's sessions under (docs/adr/023)."""
+    """The id the agent keeps this user's sessions under (docs/adr/025)."""
     return str(user.pk)
 
 
@@ -157,7 +157,7 @@ class TurnView(APIView):
 
     DRF's views are synchronous, and the relay must not be: it waits on the
     agent for the whole answer, while the agent's own tool calls come back into
-    this backend and need workers of their own (docs/adr/021, docs/adr/022).
+    this backend and need workers of their own (docs/adr/023, docs/adr/024).
     `relay_turn` is a plain async Django view; it names this class as its
     `cls` so that drf-spectacular finds it and `openapi.yaml` carries it.
     """

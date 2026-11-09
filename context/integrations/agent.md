@@ -1,7 +1,7 @@
 # The Ask agent — `gobase-agent`
 
 The engine behind Ask: one Strands agent with nine read-only tools, run as a
-separate service in its own repo and deployed alone (docs/adr/021). It runs
+separate service in its own repo and deployed alone (docs/adr/023). It runs
 the model and the tools; this backend runs none of that. This backend is its
 only caller, and `apps/chat/agent.py` is the only module that speaks to it.
 
@@ -26,7 +26,7 @@ Built on 2026-11-09 against a stub agent. The real agent is not built yet.
 
 Every call names the signed-in user by their Django primary key
 (`str(user.pk)`), in the path. The agent keeps that user's sessions under
-`users/<user_id>/` in its own bucket (docs/adr/023), so the id is the privacy
+`users/<user_id>/` in its own bucket (docs/adr/025), so the id is the privacy
 boundary: the backend always sends the caller's own id, and never one from
 the request. The agent trusts it because only this backend holds the token.
 
@@ -92,7 +92,7 @@ One flat shape, `ChatReference`. `kind` says which fields are set:
 | `frame` | `bbox` |
 
 `filter` is `{column, op, value}`, with `op` one of `equals`, `contains`,
-`in`, `<`, `>` (docs/adr/022). `stats` is an open object: the figures the
+`in`, `<`, `>` (docs/adr/024). `stats` is an open object: the figures the
 answer used, per band or per class. The backend passes a reference on with
 only its kind's fields; it does not look the asset up.
 
@@ -150,7 +150,7 @@ status only.
   the agent's error text. Only exception types, statuses, and the names of
   fields that failed a check.
 - **Networking between the backend and the agent is not decided** (TLS,
-  firewall or VPN; docs/adr/021). The token travels in clear over plain
+  firewall or VPN; docs/adr/023). The token travels in clear over plain
   http until it is.
 
 ## Testing

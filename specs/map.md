@@ -271,7 +271,7 @@ A question asked in the Ask panel carries the map's state as data: the
 viewport, and the drawn area or the clicked point, and the selected asset
 (specs/ask.md). The line above the question box says which ("Asking about ·
 this area"). Restricting retrieval to the area is the agent's, through the
-catalog endpoints its tools call (docs/adr/022), and is not built.
+catalog endpoints its tools call (docs/adr/024), and is not built.
 
 Worth knowing when it is built: the features endpoint matches a drawn area
 exactly, but a window only by bounding box (docs/adr/012), so anything that
@@ -284,6 +284,6 @@ An answer carrying a vector layer renders it on the map, and the user can
 hide and re-show it without re-asking: its chip in the answer toggles it, and
 it is in the layers panel like any other (specs/ask.md). It is drawn through
 the same layer store as Draw, so it follows the drawn area or the view; the
-answer's own filter is not applied until `/data` takes one (docs/adr/022).
+answer's own filter is not applied until `/data` takes one (docs/adr/024).
 Not built: an answer referencing a raster asset displaying it as tiles
 over the basemap when the answer completes.

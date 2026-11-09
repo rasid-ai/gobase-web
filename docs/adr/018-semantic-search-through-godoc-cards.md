@@ -13,7 +13,7 @@ index (context/integrations/kb.md). Nothing in the portal read them.
 
 The user asked for a fourth mode: type a question or a sentence and see the
 assets closest to it in meaning, listed like the point and area results,
-each openable (the PDF, docs/adr/017) or locatable through its dataset. The
+each openable (the PDF, docs/adr/027) or locatable through its dataset. The
 "shallow" search — cards in Postgres only, never the LanceDB chunk index —
 and meaning only: no place narrows it yet. Documents today; videos, images
 and CAD files later, once the data platform gives them cards.
@@ -84,4 +84,4 @@ talks to a model service or to the knowledge base — the backend does
   automatically: it filters on whatever model the server names.
 - Not here: narrowing the matches to a place (the dataset's extent is the
   obvious handle), the chunk-level search for a passage, and opening a
-  PDF at the page a chunk is on (docs/adr/017).
+  PDF at the page a chunk is on (docs/adr/027).

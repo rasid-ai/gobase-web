@@ -116,7 +116,7 @@ class DocumentPdfView(APIView):
     wants to open is the PDF it was parsed from, which the data platform leaves
     in bronze and records in `doc_documents.pdf_uri`. The bytes come through
     here rather than through a link into the bucket because the browser never
-    talks to the lake (docs/adr/011, docs/adr/017).
+    talks to the lake (docs/adr/011, docs/adr/027).
 
     Served whole and uncompressed — a PDF is already compressed — with a strong
     ETag: `content_hash` is the PDF's own sha256, so a revalidation is a

@@ -1,9 +1,9 @@
 """The only module that speaks to the Ask agent, `gobase-agent`.
 
 The agent is a separate service deployed alone, and this backend is its only
-caller (docs/adr/021). Every call presents `AGENT_SERVICE_TOKEN` and names the
+caller (docs/adr/023). Every call presents `AGENT_SERVICE_TOKEN` and names the
 signed-in user, whose id is the prefix the agent keeps that user's sessions
-under (docs/adr/023). Everything above this module speaks in portal terms; the
+under (docs/adr/025). Everything above this module speaks in portal terms; the
 agent's paths, headers and status codes stay here.
 context/integrations/agent.md has the contract.
 

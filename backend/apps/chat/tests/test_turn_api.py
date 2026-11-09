@@ -1,4 +1,4 @@
-"""POST /api/chat/sessions/{id}/turns — one question, the answer streamed (docs/adr/021).
+"""POST /api/chat/sessions/{id}/turns — one question, the answer streamed (docs/adr/023).
 
 The view is async, so these tests go through Django's AsyncClient. Each one
 runs the request to the end and reads the whole stream, then asserts what the

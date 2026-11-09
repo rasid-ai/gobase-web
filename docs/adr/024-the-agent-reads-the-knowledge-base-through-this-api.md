@@ -1,4 +1,4 @@
-# ADR-022: The agent reads the knowledge base only through this backend's API
+# ADR-024: The agent reads the knowledge base only through this backend's API
 
 **Status:** Accepted · 2026-11-08
 
@@ -89,7 +89,7 @@ This backend's readers already hold the catalog's rules:
 - **`Week_12` must reach `dev` before the document tools work in a deployed
   portal.** `assets/similar`, `passages` and `pdf` exist only on `Week_12`.
 - **Agent traffic comes back into this backend while it relays the
-  agent's answer**, hence the async relay in docs/adr/021.
+  agent's answer**, hence the async relay in docs/adr/023.
 - **"Agent-issued SQL is SELECT-only" has nothing to guard in v1:** the
   agent issues no SQL. The rule stays for any later version that does.
 - **Raster reading needs `rasterio` (GDAL) in the backend image.** The data

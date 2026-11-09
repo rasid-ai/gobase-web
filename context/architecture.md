@@ -17,7 +17,7 @@ composes a query, calls a model, or touches a store directly.
 | Database | Owner | Portal access | Contents |
 |---|---|---|---|
 | `kb` | data platform repo | **read-only role** | STAC metadata, document chunks, pgvector embeddings, dataset cards, asset catalog |
-| `portal` | this repo | read-write | users/profiles, saved areas. Nothing about chat: sessions live in the Ask agent's bucket (docs/adr/023) |
+| `portal` | this repo | read-write | users/profiles, saved areas. Nothing about chat: sessions live in the Ask agent's bucket (docs/adr/025) |
 
 Migrations for `portal` run via Django's migration system; `kb` migrations
 belong to the platform repo and are never run from here. See docs/adr/001.
@@ -32,14 +32,14 @@ belong to the platform repo and are never run from here. See docs/adr/001.
   upgrade Dagster freely.
 
 **Q&A engine:** `gobase-agent`, a separate service in its own repo and
-deployed alone: one Strands agent with nine read-only tools (docs/adr/021).
+deployed alone: one Strands agent with nine read-only tools (docs/adr/023).
 It runs the model; this backend does not. This backend is its only caller:
 `apps/chat` is a gateway that checks who is asking, forwards the question and
 the map's context with the user's id and `AGENT_SERVICE_TOKEN`, and relays
 the answer to the SPA as SSE from an **async view**. Every tool is an HTTP
 GET back to this backend, so this backend stays the one reader of the
-knowledge base (docs/adr/022). Chat history lives in the agent's own bucket,
-one prefix per user, and `portal` stores none of it (docs/adr/023). The
+knowledge base (docs/adr/024). Chat history lives in the agent's own bucket,
+one prefix per user, and `portal` stores none of it (docs/adr/025). The
 contract is in context/integrations/agent.md.
 
 **Auth:** JWT via `djangorestframework-simplejwt` (access token in memory,
@@ -165,7 +165,7 @@ geo-portal/
   credentials, not by convention.
 - Backend owns all portal state and all query composition. The Ask agent
   (`gobase-agent`) owns the model calls, and this backend is its only caller
-  (docs/adr/021).
+  (docs/adr/023).
 - Frontend is a pure consumer of the API. It never talks to S3, DuckDB,
   Dagster, or the LLM, and computes nothing beyond display.
 - Dagster is reached only through its GraphQL API. Reads are open to both
@@ -191,7 +191,7 @@ geo-portal/
    Assets page does, with a point or a polygon for a place (docs/adr/016).
    A question asked with an area drawn runs flow 1 with the polygon in its
    context; a layer in the answer is a reference the map draws from
-   `/api/map/assets/{id}/data`, never GeoJSON in the answer (docs/adr/022).
+   `/api/map/assets/{id}/data`, never GeoJSON in the answer (docs/adr/024).
 3. **Assets:** filters → `GET /api/catalog/datasets` (from `kb`) → the
    datasets, each with its counts; opening one, or browsing every asset →
    `GET /api/catalog/assets` → one page of rows, the total behind it, and a

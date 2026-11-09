@@ -65,7 +65,7 @@ sorting by name uses.
 **A document is the exception.** Its source path is the parsed bundle the
 data platform wrote, and nobody recognises `plan.bundle`; the page names it
 after the PDF it was parsed from, extension kept — `Beirut airport - Case
-Study - TiSO.pdf` (docs/adr/017). The title the parser read is shown under
+Study - TiSO.pdf` (docs/adr/027). The title the parser read is shown under
 the name when there is one and it is not the name again. The catalog holds
 no size for a document, so the card shows its page count instead. Its
 format is its file's — `pdf` — not the parser that read it; the parser is
@@ -76,7 +76,7 @@ PDF's name and its title as well as the rest.
 
 A document card offers **Open PDF**. It opens the PDF in a new browser tab,
 in the browser's own viewer, fetched through the portal's API from the
-bronze bucket (docs/adr/017) — the browser never touches the bucket. While
+bronze bucket (docs/adr/027) — the browser never touches the bucket. While
 the file is fetched the button waits; if the file cannot be fetched the card
 says so in place, and the button is there to try again.
 

@@ -32,7 +32,7 @@ _DERIVED_NAME = r"regexp_replace(split_part(source_uri, '/', -1), '\.[^.]*$', ''
 # A document is the exception. Its `source_uri` is the parsed bundle in silver
 # (`<stem>.bundle.zip`), and the thing a person recognises is the PDF it was
 # parsed from, which `doc_documents.pdf_uri` names in bronze. So a document is
-# called after its PDF, extension kept (docs/adr/017). One whose PDF the
+# called after its PDF, extension kept (docs/adr/027). One whose PDF the
 # catalog does not record — a bundle loaded without its source stamp — falls
 # back to the bundle's stem, with the `.bundle` the derived name leaves behind
 # taken off too.
@@ -115,7 +115,7 @@ _VECTOR_SOURCE_URI = """
 
 # The PDF behind one document, in bronze: `pdf_uri` is a full s3:// URI too.
 # `content_hash` is the PDF's own sha256, which is what makes it a strong ETag
-# (docs/adr/017).
+# (docs/adr/027).
 _DOCUMENT_PDF = """
     SELECT doc.pdf_uri, content_hash, split_part(doc.pdf_uri, '/', -1) AS filename,
            doc.pages, doc.chunks_uri

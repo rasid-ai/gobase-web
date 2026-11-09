@@ -14,7 +14,7 @@ const CHIP =
 /**
  * The asset's name and data type, for a chip.
  *
- * A reference carries only an id (docs/adr/022), so the chip reads the
+ * A reference carries only an id (docs/adr/024), so the chip reads the
  * asset's detail — the same request the map's panel makes when the chip is
  * clicked, so that click is then answered from the cache. An id the catalog
  * does not have shows no chip: there is nothing true to say about it.

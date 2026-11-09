@@ -14,7 +14,7 @@ import { TurnRefused, askTurn } from './turnStream'
  *
  * It lives with the page, not the panel, so closing the panel neither stops
  * an answer nor forgets it — and an answer that ends while the panel is
- * closed lights the toggle's dot. The agent keeps the history (docs/adr/023);
+ * closed lights the toggle's dot. The agent keeps the history (docs/adr/025);
  * this holds only what is on screen, and reopening a session reads it back.
  */
 

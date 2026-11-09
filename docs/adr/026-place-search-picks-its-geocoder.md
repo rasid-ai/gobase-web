@@ -1,4 +1,4 @@
-# ADR-024: Place search picks its geocoder — Esri online, a local geocoder offline
+# ADR-026: Place search picks its geocoder — Esri online, a local geocoder offline
 
 **Status:** Accepted · 2026-11-08
 
@@ -17,7 +17,7 @@ map's own search box has the same offline gap.
 ## Decision
 
 - **The agent's `find_place` calls `GET /api/places/search`**, in both
-  modes. It does not geocode on its own (docs/adr/022).
+  modes. It does not geocode on its own (docs/adr/024).
 - **The backend chooses the geocoder by configuration:**
   - online, Esri, as today;
   - offline, a local geocoder. The pick is **Photon**, a light server

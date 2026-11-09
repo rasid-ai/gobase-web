@@ -1,4 +1,4 @@
-"""GET /api/chat/sessions, GET and DELETE /api/chat/sessions/{id} (docs/adr/023).
+"""GET /api/chat/sessions, GET and DELETE /api/chat/sessions/{id} (docs/adr/025).
 
 The portal stores nothing about chat: each call goes to the agent as the
 signed-in user, and what comes back is cut to the contract.

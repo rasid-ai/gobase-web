@@ -1,4 +1,4 @@
-/** Ask on the Atlas page: specs/ask.md, docs/adr/021 and docs/adr/023. */
+/** Ask on the Atlas page: specs/ask.md, docs/adr/023 and docs/adr/025. */
 
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'

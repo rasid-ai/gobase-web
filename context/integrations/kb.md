@@ -42,7 +42,7 @@ features resolve against.
 | `source_uri` | `text` | where it came from |
 | `topic_path` | `ltree` | hierarchical topic, e.g. `imagery` |
 | `modality` | `text` | **the "data type" of specs/map.md** — `vector`, `raster`, `unparsed`, `document` |
-| `format` | `text` | e.g. `cog`; for a document, the parser that read it (`mineru`). The portal shows a document's file format instead, `pdf` from `pdf_uri`, and keeps the parser in the detail as `parser` (docs/adr/017) |
+| `format` | `text` | e.g. `cog`; for a document, the parser that read it (`mineru`). The portal shows a document's file format instead, `pdf` from `pdf_uri`, and keeps the parser in the detail as `parser` (docs/adr/027) |
 | `sidecars` | `text[]` | |
 | `bytes` | `bigint` | |
 | `extent` | `geometry(GEOMETRY, 4326)` | **coverage / footprint** |
@@ -73,7 +73,7 @@ portal reads it with no fallback, so the two repos deploy together
   removed, computed in SQL so display, search and sorting agree
   (docs/adr/010). A document is the exception: its `source_uri` is the
   parsed bundle, so it is named after `doc_documents.pdf_uri` instead,
-  extension kept (docs/adr/017).
+  extension kept (docs/adr/027).
 - **"coverage" / "footprint"** → `extent`. One column, SRID 4326, generic
   `GEOMETRY` so it may hold more than polygons.
 - **asset UUID** (citations) → `asset_id`, a native `uuid`.
@@ -157,7 +157,7 @@ re-stamps the silver bundle but leaves `pdf_uri` until the next reindex, on
 purpose. The PDF endpoint then answers 502. The bundle object's
 `x-amz-meta-source-uri` is always current, if that ever matters.
 
-What the portal makes of it (docs/adr/017): a document is named after
+What the portal makes of it (docs/adr/027): a document is named after
 `pdf_uri`'s basename, extension kept; its bytes are served through
 `/api/catalog/assets/{id}/pdf`; `assets.bytes` is always 0 for a document,
 so the page shows `pages` instead; and `assets.content_hash` is the PDF's own

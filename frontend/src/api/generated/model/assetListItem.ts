@@ -16,7 +16,7 @@ import type { Document } from './document';
  */
 export interface AssetListItem {
   readonly asset_id: string;
-  /** Derived from the asset's source path, extension removed — the catalog has no name column (docs/adr/010). A document is named after its PDF instead, extension kept (docs/adr/017). */
+  /** Derived from the asset's source path, extension removed — the catalog has no name column (docs/adr/010). A document is named after its PDF instead, extension kept (docs/adr/027). */
   readonly name: string;
   readonly data_type: string;
   /** @nullable */

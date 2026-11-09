@@ -43,7 +43,7 @@ URIs to objects nothing is serving.
 There are two buckets, `geobase-silver` (GeoParquet, parsed bundles, the
 chunk index) and `geobase-bronze` (the raw files as synced in), and the one
 set of credentials covers both. Until 2026-10-19 the portal read silver only;
-a document's PDF is the first thing it reads from bronze (docs/adr/017), and
+a document's PDF is the first thing it reads from bronze (docs/adr/027), and
 since 2026-10-27 the page renderer reads it again, whole, to draw one page
 (docs/adr/020). The chunk index on silver is read by lancedb, not DuckDB,
 with the same credentials (context/integrations/lance.md).
@@ -208,7 +208,7 @@ values — so a check that only describes a file will not catch this.
 `read_blob(uri)` returns an object's bytes in one piece — `SELECT content
 FROM read_blob(?)` through the same connection and the same secret. It
 exists for a document's PDF, which the data platform leaves in bronze and
-names in `doc_documents.pdf_uri` (docs/adr/017). Whole, not streamed:
+names in `doc_documents.pdf_uri` (docs/adr/027). Whole, not streamed:
 DuckDB's `read_blob` has no streaming form, and a PDF is hundreds of
 kilobytes. A multi-gigabyte object would need another reader, and that is
 the point at which a streaming S3 client earns its place in requirements.

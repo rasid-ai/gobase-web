@@ -12,7 +12,7 @@ import type { ChatReferenceKindEnum } from './chatReferenceKindEnum';
  * Something an answer points to besides its text.
  *
  * It carries only what the SPA needs to show it through this backend's
- * existing endpoints — never features, pixels or PDF bytes (docs/adr/022).
+ * existing endpoints — never features, pixels or PDF bytes (docs/adr/024).
  * Which fields are set depends on `kind`:
  *
  * - `asset`: `asset_id` — an asset the answer names.

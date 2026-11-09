@@ -112,7 +112,7 @@ def test_the_search_text_itself_never_leaves_the_server():
 
 
 class TestDocuments:
-    """A document is the one asset not named after its source path (docs/adr/017)."""
+    """A document is the one asset not named after its source path (docs/adr/027)."""
 
     def test_every_catalog_read_joins_the_document_row(self):
         # LEFT, so every other modality is untouched by the join.
