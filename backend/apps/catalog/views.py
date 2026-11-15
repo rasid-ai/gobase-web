@@ -303,6 +303,7 @@ class PassagesView(APIView):
                 **query.place(),
                 ingested_after=asked.get("ingested_after"),
                 ingested_before=asked.get("ingested_before"),
+                asset_ids=[str(one) for one in asked.get("asset_id") or []] or None,
             )
         except chunks.ChunkStoreUnavailable as exc:
             logger.warning("Chunk index unreachable: %s", exc)

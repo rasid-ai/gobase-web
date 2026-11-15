@@ -551,6 +551,15 @@ class PassagesQuerySerializer(CatalogScopeSerializer):
     passages = serializers.IntegerField(
         default=3, min_value=1, max_value=10, help_text="The most passages per document."
     )
+    asset_id = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        max_length=10,
+        help_text=(
+            "Only these documents, within the other filters. Repeat the parameter "
+            "for several, up to 10 (docs/adr/031)."
+        ),
+    )
 
 
 class PassageTextSerializer(serializers.Serializer):

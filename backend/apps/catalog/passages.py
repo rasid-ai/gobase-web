@@ -26,8 +26,12 @@ def search(
     coverage: str = "asset",
     ingested_after=None,
     ingested_before=None,
+    asset_ids: list[str] | None = None,
 ) -> list[dict]:
     """Up to `limit` documents, each with up to `per_document` passages, best first.
+
+    `asset_ids` narrows the documents to those, within the other filters, so
+    a caller can search inside documents it has already found (docs/adr/031).
 
     A document ranks by its best passage. `limit * per_document` passages are
     asked for in all, so a document rich in close passages can crowd out
@@ -44,6 +48,9 @@ def search(
         ingested_before=ingested_before,
     )
     by_asset = {str(document["asset_id"]): document for document in documents}
+    if asset_ids is not None:
+        wanted = set(asset_ids)
+        by_asset = {key: value for key, value in by_asset.items() if key in wanted}
     if not by_asset:
         return []
 

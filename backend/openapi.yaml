@@ -600,6 +600,16 @@ paths:
           WKT, POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
           itself.'
       - in: query
+        name: asset_id
+        schema:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 10
+        description: Only these documents, within the other filters. Repeat the parameter
+          for several, up to 10 (docs/adr/031).
+      - in: query
         name: bbox
         schema:
           type: string

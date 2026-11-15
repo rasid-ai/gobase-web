@@ -14,6 +14,11 @@ export type CatalogPassagesParams = {
  */
 area?: string;
 /**
+ * Only these documents, within the other filters. Repeat the parameter for several, up to 10 (docs/adr/031).
+ * @maxItems 10
+ */
+asset_id?: string[];
+/**
  * Restrict to assets whose coverage overlaps this area: min_lon,min_lat,max_lon,max_lat, SRID 4326. Not sent with a point or an area.
  * @minLength 1
  */

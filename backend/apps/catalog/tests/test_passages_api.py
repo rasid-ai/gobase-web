@@ -148,6 +148,8 @@ def test_a_cleared_dataset_is_not_a_filter(as_viewer, configured, embedded, sear
         {"q": "x", "passages": "11"},
         {"q": "x", "lon": "35.5"},
         {"q": "x", "bbox": "35.4,33.8,35.6,34.1", "lon": "35.5", "lat": "33.9"},
+        {"q": "x", "asset_id": "not-a-uuid"},
+        {"q": "x", "asset_id": [f"00000000-0000-0000-0000-{i:012d}" for i in range(11)]},
     ],
     ids=[
         "no text",
@@ -160,6 +162,8 @@ def test_a_cleared_dataset_is_not_a_filter(as_viewer, configured, embedded, sear
         "too many passages",
         "half a point",
         "two places",
+        "a document id that is not one",
+        "too many documents",
     ],
 )
 def test_a_bad_parameter_is_refused_before_anything_is_called(
@@ -222,3 +226,14 @@ def test_nothing_close_is_an_empty_list_not_an_error(as_viewer, configured, embe
 
     assert response.status_code == 200
     assert response.data == {"embedder": MODEL, "results": []}
+
+
+def test_documents_by_id_reach_the_search(as_viewer, configured, embedded, searched):
+    first, second = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
+    as_viewer.get(URL, {"q": "runways", "asset_id": [first, second]})
+    assert searched["asset_ids"] == [first, second]
+
+
+def test_no_document_ids_is_no_filter(as_viewer, configured, embedded, searched):
+    as_viewer.get(URL, {"q": "runways"})
+    assert searched["asset_ids"] is None

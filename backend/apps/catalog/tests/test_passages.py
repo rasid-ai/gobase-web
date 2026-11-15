@@ -203,3 +203,16 @@ def test_documents_in_two_tables_are_searched_table_by_table(monkeypatch, index)
         (TABLE, ["doc-1"]),
         (other, ["doc-3"]),
     ]
+
+
+def test_document_ids_narrow_the_shortlist_within_the_scope(catalog, index):
+    passages.search(VECTOR, MODEL, limit=10, per_document=3, asset_ids=["doc-2", "doc-9"])
+
+    # doc-9 is not in scope, so asking for it does not let it in.
+    (call,) = index
+    assert call["asset_ids"] == ["doc-2"]
+
+
+def test_document_ids_outside_the_scope_search_nothing(catalog, index):
+    assert passages.search(VECTOR, MODEL, limit=10, per_document=3, asset_ids=["doc-9"]) == []
+    assert index == []

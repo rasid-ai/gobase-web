@@ -138,8 +138,14 @@ dark, against a stub agent on 2026-11-09.
 
 The agent's tools read the knowledge base through this backend
 (docs/adr/024). Four of them use endpoints the pages already use. Three
-endpoints exist for the agent's answers alone:
+endpoints exist for the agent's answers alone, and one parameter:
 
+- **Deep search inside chosen documents (built 2026-11-15).**
+  `GET /api/catalog/passages` takes `asset_id`, repeated, up to 10. It keeps
+  only those documents, within the other filters: an id outside the place or
+  dataset asked for is not let in. With none it searches every document as
+  before. The agent's `doc_passages` sends it when the model names
+  documents it has found (docs/adr/031).
 - **A passage by its id (built 2026-11-10).** `GET
   /api/catalog/assets/{asset_id}/passages/{chunk_id}` returns one passage of
   a document: `asset_id`, `chunk_id`, `text`, `heading_path`, `page_start`,
