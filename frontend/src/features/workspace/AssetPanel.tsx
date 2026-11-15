@@ -384,7 +384,7 @@ export function AssetRow({
   children?: ReactNode
 }) {
   const { layers } = useLayers()
-  const drawn = layers.find((layer) => layer.assetId === asset.asset_id)
+  const drawn = layers.find((layer) => layer.id === asset.asset_id)
   // Same asset, same area, same query key as the layer on the map: React Query
   // hands both this row and the map one answer, not two requests.
   const features = useAssetFeatures(asset.asset_id, Boolean(drawn?.visible))
@@ -520,7 +520,7 @@ export function AssetDetailPanel({
   const structured = entries.filter(([, value]) => isStructured(value))
 
   const { layers } = useLayers()
-  const drawn = layers.find((layer) => layer.assetId === detail.asset_id)
+  const drawn = layers.find((layer) => layer.id === detail.asset_id)
   const features = useAssetFeatures(detail.asset_id, Boolean(drawn?.visible))
   const loading = Boolean(drawn) && features.loading
 

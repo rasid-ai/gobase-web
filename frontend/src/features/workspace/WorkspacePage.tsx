@@ -16,7 +16,7 @@ import type { AskContextRequest, ChatReference, Place } from '@/api/generated/mo
 import { useToast } from '@/components/ui/toast'
 import { type AskScope, AskPanel } from '@/features/ask/AskPanel'
 import { AskToggle } from '@/features/ask/AskToggle'
-import { layerScope, layerScopeOf } from '@/features/ask/references'
+import { layerLabel, layerScopeOf } from '@/features/ask/references'
 import { useAsk } from '@/features/ask/useAsk'
 import type { Bbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
@@ -36,6 +36,7 @@ import {
   toFeatureCollection,
   useLayers,
 } from './layers'
+import { layerId } from './layerId'
 import { useMapTokens } from './mapTokens'
 import { useAssetFeatures } from './useAssetFeatures'
 import { viewportOf, windowFor } from './view'
@@ -436,10 +437,12 @@ function MapWorkspace() {
         .fetchQuery(getMapAssetDetailQueryOptions(assetId))
         .then((answer) => {
           if (answer.status === 200) {
+            const scope = layerScopeOf(reference)
             add({
+              id: layerId(assetId, scope),
               assetId,
-              label: `${answer.data.name} · ${layerScope(reference)}`,
-              scope: layerScopeOf(reference),
+              label: layerLabel(answer.data.name, reference),
+              scope,
             })
           }
         })
@@ -468,7 +471,7 @@ function MapWorkspace() {
           ) : null}
 
           {layers.map((layer) => (
-            <DrawnLayer key={layer.assetId} layer={layer} color={tokens.result} />
+            <DrawnLayer key={layer.id} layer={layer} color={tokens.result} />
           ))}
 
           {/*
@@ -650,21 +653,21 @@ function DrawnLayer({ layer, color }: { layer: ActiveLayer; color: string }) {
   // Only a shown layer reads. Hiding a layer is still a paint change and never
   // a fetch (docs/adr/008). Moving the map is a fetch, unless an area is drawn
   // — then the area is what is read, and moving changes nothing (docs/adr/014).
-  const { features } = useAssetFeatures(layer.assetId, layer.visible)
+  const { features } = useAssetFeatures(layer.assetId, layer.visible, layer.scope)
   const data = useMemo(() => toFeatureCollection(features), [features])
   const visibility = layer.visible ? 'visible' : 'none'
 
   return (
-    <Source id={`asset-${layer.assetId}`} type="geojson" data={data}>
+    <Source id={`asset-${layer.id}`} type="geojson" data={data}>
       <Layer
-        id={`asset-${layer.assetId}-fill`}
+        id={`asset-${layer.id}-fill`}
         type="fill"
         filter={['in', ['geometry-type'], ['literal', AREA_TYPES]]}
         layout={{ visibility }}
         paint={{ 'fill-color': color, 'fill-opacity': 0.25 }}
       />
       <Layer
-        id={`asset-${layer.assetId}-line`}
+        id={`asset-${layer.id}-line`}
         type="line"
         // Lines and polygon outlines share this layer, which is why areas are
         // in the list too.
@@ -673,7 +676,7 @@ function DrawnLayer({ layer, color }: { layer: ActiveLayer; color: string }) {
         paint={{ 'line-color': color, 'line-width': 1.5 }}
       />
       <Layer
-        id={`asset-${layer.assetId}-circle`}
+        id={`asset-${layer.id}-circle`}
         type="circle"
         filter={['in', ['geometry-type'], ['literal', POINT_TYPES]]}
         layout={{ visibility }}

@@ -2,6 +2,7 @@ import { useMapAssetDetail } from '@/api/generated/map/map'
 import type { ChatReference } from '@/api/generated/model'
 import { Skeleton } from '@/components/ui/skeleton'
 import { openDocumentPdf } from '@/features/catalog/openDocument'
+import { layerId } from '@/features/workspace/layerId'
 import { useLayers } from '@/features/workspace/layers'
 import { cn } from '@/lib/utils'
 
@@ -9,7 +10,7 @@ import {
   type Citation,
   type GroupedReferences,
   type Mark,
-  layerScope,
+  layerLabel,
   layerScopeOf,
 } from './references'
 
@@ -139,17 +140,17 @@ export function LayerChip({ reference }: { reference: ChatReference }) {
   if (loading) return <ChipSkeleton />
   if (!asset) return null
 
-  const layer = layers.find((one) => one.assetId === assetId)
+  const scope = layerScopeOf(reference)
+  const id = layerId(assetId, scope)
+  const layer = layers.find((one) => one.id === id)
   const shown = layer?.visible ?? false
-  const label = `${asset.name} · ${layerScope(reference)}`
+  const label = layerLabel(asset.name, reference)
 
   return (
     <button
       type="button"
       aria-pressed={shown}
-      onClick={() =>
-        layer ? toggle(assetId) : add({ assetId, label, scope: layerScopeOf(reference) })
-      }
+      onClick={() => (layer ? toggle(id) : add({ id, assetId, label, scope }))}
       className={cn(CHIP, !shown && 'border-dashed text-muted-foreground')}
       title={shown ? `Hide ${label}` : `Show ${label}`}
     >
@@ -219,7 +220,10 @@ export function OutputBox({ grouped }: { grouped: GroupedReferences }) {
       <div className="flex flex-col items-start gap-2">
         <h3 className={MICRO}>On the map · {layers.length}</h3>
         {layers.map((reference) => (
-          <LayerChip key={reference.asset_id} reference={reference} />
+          <LayerChip
+            key={layerId(reference.asset_id!, layerScopeOf(reference))}
+            reference={reference}
+          />
         ))}
       </div>
     </section>

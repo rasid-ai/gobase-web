@@ -82,12 +82,16 @@ export type AssetFeatures = {
  * Keyed on the scope, so panning back to a window already read, or redrawing
  * nothing, is a cache hit rather than another trip to the lake.
  */
-export function useAssetFeatures(assetId: string, enabled: boolean): AssetFeatures {
-  const { view, drawnArea, layers } = useLayers()
-  // An Ask answer's layer keeps the place and filter it was counted for. It is
-  // looked up here, by asset, for the same reason the view is: every caller
-  // then builds the same query key.
-  const own = layers.find((layer) => layer.assetId === assetId)?.scope
+export function useAssetFeatures(
+  assetId: string,
+  enabled: boolean,
+  own?: LayerScope,
+): AssetFeatures {
+  const { view, drawnArea } = useLayers()
+  // `own`: an Ask answer's layer, read for the place and filter it was counted
+  // for. The map and the layers panel pass the same layer's scope, so they
+  // build the same query key; the asset pane passes none, for the asset's own
+  // catalog layer.
   const scope = own || drawnArea ? 'area' : 'view'
   // Order matters: the generated client builds the query string in this
   // object's own order, and the tests key on the whole URL.

@@ -97,14 +97,16 @@ The layer keeps the reference's `area` (or `bbox`) and `filter`, and `/data`
 reads exactly those (docs/adr/028), so the map shows what the chip's count
 counted, not the whole asset in the current view. Moving the map or drawing
 an area doesn't change it. The chip reads "<asset> · answer's area", or
-"whole asset" when the answer had no place. Adding the same asset from the
-catalog replaces the layer and draws it for the view again.
+"whole asset" when the answer had no place, then the filter if there is one
+("poi · answer's area · amenity in hospital, clinic").
 
-**Known gaps in how an answer's layer is shown** (not built):
-
-- **One chip per asset.** An answer may carry several layers of one asset,
-  one per count ("2 schools and 7 hospitals"), all with the asset's handle.
-  The panel keeps the last one, so its chip shows that count only.
+**Several layers of one asset** (2026-11-15). An answer may count several
+things in one asset ("2 schools and 7 hospitals" from one points-of-interest
+file). Each place and filter is its own layer, with its own chip and count,
+and they sit side by side on the map. Each is also separate from the asset's
+own catalog layer. A layer's id is the asset's id for a catalog layer, and
+the asset's id plus a short hash of the place and filter for an answer's
+(`frontend/src/features/workspace/layerId.ts`).
 
 ## Sessions
 

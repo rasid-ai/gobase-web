@@ -321,7 +321,7 @@ describe('asking a question', () => {
     await askQuestion(user, panel)
 
     await waitFor(() => {
-      expect(document.querySelector(`[data-source="asset-${ROADS}"]`)).toBeTruthy()
+      expect(document.querySelector(`[data-source^="asset-${ROADS}~"]`)).toBeTruthy()
     })
     const chip = await within(panel).findByRole('button', { name: /roads · answer's area\s*14/ })
     expect(chip.getAttribute('aria-pressed')).toBe('true')
@@ -330,7 +330,7 @@ describe('asking a question', () => {
 
     expect(chip.getAttribute('aria-pressed')).toBe('false')
     expect(
-      document.querySelector(`[data-layer="asset-${ROADS}-fill"]`)?.getAttribute('data-visibility'),
+      document.querySelector(`[data-layer^="asset-${ROADS}~"][data-layer$="-fill"]`)?.getAttribute('data-visibility'),
     ).toBe('none')
   })
 

@@ -47,14 +47,16 @@ export type LayerScope = {
 }
 
 export type ActiveLayer = {
+  /** The asset's id for a catalog layer; with a hash of its scope for an answer's (layerId). */
+  id: string
   assetId: string
   /** What to call it in the panel. The catalog has no display name. */
   label: string
   visible: boolean
   /**
-   * Set for a layer from an Ask answer. One layer per asset: adding the asset
-   * again replaces it, scope and all, so adding it from the catalog afterwards
-   * draws it for the map's view again.
+   * Set for a layer from an Ask answer: drawn for that place and filter only.
+   * Several answer layers of one asset sit side by side, and beside the
+   * asset's own catalog layer, each with its own id.
    */
   scope?: LayerScope
 }
@@ -62,11 +64,12 @@ export type ActiveLayer = {
 type LayersApi = {
   layers: readonly ActiveLayer[]
   /** Add a layer, or replace one already loaded for the same asset. */
-  add: (layer: Omit<ActiveLayer, 'visible'>) => void
-  toggle: (assetId: string) => void
-  remove: (assetId: string) => void
+  /** Add a layer, or replace the one with the same id. The id defaults to the asset's. */
+  add: (layer: Omit<ActiveLayer, 'visible' | 'id'> & { id?: string }) => void
+  toggle: (id: string) => void
+  remove: (id: string) => void
   clear: () => void
-  has: (assetId: string) => boolean
+  has: (id: string) => boolean
   /** The area every layer is read for, or null until the map has settled once. */
   view: Bbox | null
   setView: (view: Bbox) => void
@@ -82,25 +85,23 @@ export function LayersProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<Bbox | null>(null)
   const [drawnArea, setDrawnArea] = useState<Ring | null>(null)
 
-  const add = useCallback((layer: Omit<ActiveLayer, 'visible'>) => {
+  const add = useCallback((layer: Omit<ActiveLayer, 'visible' | 'id'> & { id?: string }) => {
+    const id = layer.id ?? layer.assetId
     setLayers((current) => {
-      const existing = current.find((one) => one.assetId === layer.assetId)
-      // Re-adding keeps whether it was hidden: the user's choice survives a refetch.
-      const next: ActiveLayer = { ...layer, visible: existing?.visible ?? true }
-      return existing
-        ? current.map((one) => (one.assetId === layer.assetId ? next : one))
-        : [...current, next]
+      const existing = current.find((one) => one.id === id)
+      const next: ActiveLayer = { ...layer, id, visible: existing?.visible ?? true }
+      return existing ? current.map((one) => (one.id === id ? next : one)) : [...current, next]
     })
   }, [])
 
-  const toggle = useCallback((assetId: string) => {
+  const toggle = useCallback((id: string) => {
     setLayers((current) =>
-      current.map((one) => (one.assetId === assetId ? { ...one, visible: !one.visible } : one)),
+      current.map((one) => (one.id === id ? { ...one, visible: !one.visible } : one)),
     )
   }, [])
 
-  const remove = useCallback((assetId: string) => {
-    setLayers((current) => current.filter((one) => one.assetId !== assetId))
+  const remove = useCallback((id: string) => {
+    setLayers((current) => current.filter((one) => one.id !== id))
   }, [])
 
   const clear = useCallback(() => setLayers([]), [])
@@ -112,7 +113,7 @@ export function LayersProvider({ children }: { children: ReactNode }) {
       toggle,
       remove,
       clear,
-      has: (assetId: string) => layers.some((one) => one.assetId === assetId),
+      has: (id: string) => layers.some((one) => one.id === id),
       view,
       setView,
       drawnArea,

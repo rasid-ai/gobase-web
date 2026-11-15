@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { ChatReference } from '@/api/generated/model'
 
-import { citationMarks, groupReferences, layerScope, layerScopeOf } from './references'
+import { layerId } from '@/features/workspace/layerId'
+
+import { citationMarks, groupReferences, layerLabel, layerScope, layerScopeOf } from './references'
 
 const DOC = 'cccccccc-dddd-eeee-ffff-000000000000'
 const ROADS = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -203,5 +205,38 @@ describe('layerScopeOf', () => {
     expect(layerScopeOf({ kind: 'layer', asset_id: ROADS, bbox: [0, 0, 1, 1] })).toEqual({
       bbox: [0, 0, 1, 1],
     })
+  })
+})
+
+describe('several layers of one asset', () => {
+  const area = 'POLYGON((35.8 34.4, 35.87 34.4, 35.87 34.46, 35.8 34.46, 35.8 34.4))'
+  const schools: ChatReference = {
+    kind: 'layer',
+    handle: 'A1',
+    asset_id: ROADS,
+    area,
+    filter: { column: 'amenity', op: 'equals', value: 'school' },
+    total: 2,
+    cited: true,
+  }
+  const hospitals: ChatReference = {
+    ...schools,
+    filter: { column: 'amenity', op: 'in', value: ['hospital', 'clinic'] },
+    total: 7,
+  }
+
+  it('keeps each place and filter as its own layer, with its own id', () => {
+    const grouped = groupReferences([schools, hospitals, { ...schools }], 'See [A1].')
+    expect(grouped.layers.map((layer) => layer.total)).toEqual([2, 7])
+    const ids = grouped.layers.map((layer) => layerId(ROADS, layerScopeOf(layer)))
+    expect(new Set(ids).size).toBe(2)
+    expect(ids.every((id) => id.startsWith(`${ROADS}~`))).toBe(true)
+    // A catalog layer is the asset itself.
+    expect(layerId(ROADS)).toBe(ROADS)
+  })
+
+  it('names the filter in the label', () => {
+    expect(layerLabel('poi', hospitals)).toBe("poi · answer's area · amenity in hospital, clinic")
+    expect(layerLabel('poi', { kind: 'layer', asset_id: ROADS })).toBe('poi · whole asset')
   })
 })

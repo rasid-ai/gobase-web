@@ -35,10 +35,10 @@ export function LayersPanel() {
       <ul className="flex max-h-[14rem] flex-col overflow-y-auto">
         {layers.map((layer) => (
           <LayerRow
-            key={layer.assetId}
+            key={layer.id}
             layer={layer}
-            onToggle={() => toggle(layer.assetId)}
-            onRemove={() => remove(layer.assetId)}
+            onToggle={() => toggle(layer.id)}
+            onRemove={() => remove(layer.id)}
           />
         ))}
       </ul>
@@ -62,7 +62,7 @@ function LayerRow({
   onToggle: () => void
   onRemove: () => void
 }) {
-  const features = useAssetFeatures(layer.assetId, layer.visible)
+  const features = useAssetFeatures(layer.assetId, layer.visible, layer.scope)
 
   return (
     <li className="flex items-center gap-2 border-b border-border/60 px-3 py-2 last:border-b-0">

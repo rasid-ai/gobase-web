@@ -1,5 +1,6 @@
 import type { ChatReference } from '@/api/generated/model'
 import type { Bbox } from '@/features/places/bbox'
+import { layerId } from '@/features/workspace/layerId'
 import type { LayerScope } from '@/features/workspace/layers'
 
 /**
@@ -120,7 +121,8 @@ export function groupReferences(
       citations.push({ assetId, page, number, name, dataType })
     }
 
-    if (reference.kind === 'layer') layers.set(assetId, reference)
+    // One per distinct place and filter: an answer may count several of one asset.
+    if (reference.kind === 'layer') layers.set(layerId(assetId, layerScopeOf(reference)), reference)
   }
 
   // A document cited at p. 14 and also handed over as an asset is one source,
@@ -140,6 +142,14 @@ export function layerScope(reference: ChatReference): string {
   // The layer is drawn for the answer's own place (layerScopeOf), not for
   // whatever the map shows, so the label names that place.
   return reference.area || reference.bbox?.length === 4 ? "answer's area" : 'whole asset'
+}
+
+/** A layer's label: the asset, where it was read, and its filter if any. */
+export function layerLabel(name: string, reference: ChatReference): string {
+  const filter = reference.filter
+  if (!filter) return `${name} · ${layerScope(reference)}`
+  const values = Array.isArray(filter.value) ? filter.value : [filter.value]
+  return `${name} · ${layerScope(reference)} · ${filter.column} ${filter.op} ${values.join(', ')}`
 }
 
 /**
