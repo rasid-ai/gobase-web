@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ChatReference } from '@/api/generated/model'
 
-import { citationMarks, groupReferences, layerScope } from './references'
+import { citationMarks, groupReferences, layerScope, layerScopeOf } from './references'
 
 const DOC = 'cccccccc-dddd-eeee-ffff-000000000000'
 const ROADS = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -182,10 +182,29 @@ describe('groupReferences', () => {
 })
 
 describe('layerScope', () => {
-  it('names a drawn area, and otherwise the view', () => {
+  it("names the answer's area, and otherwise the whole asset", () => {
     expect(layerScope({ kind: 'layer', asset_id: ROADS, area: 'POLYGON((...))' })).toBe(
-      'drawn area',
+      "answer's area",
     )
-    expect(layerScope({ kind: 'layer', asset_id: ROADS, bbox: [0, 0, 1, 1] })).toBe('this view')
+    expect(layerScope({ kind: 'layer', asset_id: ROADS, bbox: [0, 0, 1, 1] })).toBe("answer's area")
+    expect(layerScope({ kind: 'layer', asset_id: ROADS })).toBe('whole asset')
+  })
+})
+
+describe('layerScopeOf', () => {
+  it('keeps the area, else the box, and the filter', () => {
+    const filter = { column: 'amenity', op: 'equals' as const, value: 'school' }
+    expect(
+      layerScopeOf({
+        kind: 'layer',
+        asset_id: ROADS,
+        area: 'POLYGON((...))',
+        bbox: [0, 0, 1, 1],
+        filter,
+      }),
+    ).toEqual({ area: 'POLYGON((...))', filter })
+    expect(layerScopeOf({ kind: 'layer', asset_id: ROADS, bbox: [0, 0, 1, 1] })).toEqual({
+      bbox: [0, 0, 1, 1],
+    })
   })
 })

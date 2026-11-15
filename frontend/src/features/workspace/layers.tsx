@@ -2,7 +2,7 @@ import type { Feature, FeatureCollection } from 'geojson'
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import type { AssetDataFeaturesItem } from '@/api/generated/model'
+import type { AssetDataFeaturesItem, ChatFilter } from '@/api/generated/model'
 import type { Bbox } from '@/features/places/bbox'
 
 import type { Ring } from './drawnArea'
@@ -34,11 +34,29 @@ import type { Ring } from './drawnArea'
  * nothing else on the page can reset it by re-rendering.
  */
 
+/**
+ * Where an Ask answer's layer was read, and what it kept: the agent's own
+ * area (WKT) or box, and its attribute filter. A layer with a scope is drawn
+ * for that place only, whatever the map shows or the user draws, so the map
+ * shows what the answer counted (`total` on the reference).
+ */
+export type LayerScope = {
+  area?: string
+  bbox?: Bbox
+  filter?: ChatFilter
+}
+
 export type ActiveLayer = {
   assetId: string
   /** What to call it in the panel. The catalog has no display name. */
   label: string
   visible: boolean
+  /**
+   * Set for a layer from an Ask answer. One layer per asset: adding the asset
+   * again replaces it, scope and all, so adding it from the catalog afterwards
+   * draws it for the map's view again.
+   */
+  scope?: LayerScope
 }
 
 type LayersApi = {

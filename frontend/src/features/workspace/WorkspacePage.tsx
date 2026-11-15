@@ -16,7 +16,7 @@ import type { AskContextRequest, ChatReference, Place } from '@/api/generated/mo
 import { useToast } from '@/components/ui/toast'
 import { type AskScope, AskPanel } from '@/features/ask/AskPanel'
 import { AskToggle } from '@/features/ask/AskToggle'
-import { layerScope } from '@/features/ask/references'
+import { layerScope, layerScopeOf } from '@/features/ask/references'
 import { useAsk } from '@/features/ask/useAsk'
 import type { Bbox } from '@/features/places/bbox'
 import { useAreaParam } from '@/features/places/useAreaParam'
@@ -436,7 +436,11 @@ function MapWorkspace() {
         .fetchQuery(getMapAssetDetailQueryOptions(assetId))
         .then((answer) => {
           if (answer.status === 200) {
-            add({ assetId, label: `${answer.data.name} · ${layerScope(reference)}` })
+            add({
+              assetId,
+              label: `${answer.data.name} · ${layerScope(reference)}`,
+              scope: layerScopeOf(reference),
+            })
           }
         })
         .catch(() => {})

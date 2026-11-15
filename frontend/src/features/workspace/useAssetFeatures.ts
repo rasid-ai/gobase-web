@@ -2,11 +2,15 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { useEffect, useMemo } from 'react'
 
 import { getMapAssetDataQueryKey, mapAssetData } from '@/api/generated/map/map'
-import type { AssetDataFeaturesItem } from '@/api/generated/model'
+import type {
+  AssetDataFeaturesItem,
+  MapAssetDataFilterOp,
+  MapAssetDataParams,
+} from '@/api/generated/model'
 import { serializeBbox } from '@/features/places/bbox'
 
 import { serializeArea } from './drawnArea'
-import { useLayers } from './layers'
+import { type LayerScope, useLayers } from './layers'
 
 /**
  * Features per request. The server caps this at `LAKE_PAGE_SIZE`, so the two
@@ -79,14 +83,24 @@ export type AssetFeatures = {
  * nothing, is a cache hit rather than another trip to the lake.
  */
 export function useAssetFeatures(assetId: string, enabled: boolean): AssetFeatures {
-  const { view, drawnArea } = useLayers()
-  const scope = drawnArea ? 'area' : 'view'
+  const { view, drawnArea, layers } = useLayers()
+  // An Ask answer's layer keeps the place and filter it was counted for. It is
+  // looked up here, by asset, for the same reason the view is: every caller
+  // then builds the same query key.
+  const own = layers.find((layer) => layer.assetId === assetId)?.scope
+  const scope = own || drawnArea ? 'area' : 'view'
   // Order matters: the generated client builds the query string in this
   // object's own order, and the tests key on the whole URL.
-  const params = {
-    limit: PAGE_SIZE,
-    ...(drawnArea ? { area: serializeArea(drawnArea) } : view ? { bbox: serializeBbox(view) } : {}),
-  }
+  const params: MapAssetDataParams = own
+    ? { limit: PAGE_SIZE, ...scopeParams(own) }
+    : {
+        limit: PAGE_SIZE,
+        ...(drawnArea
+          ? { area: serializeArea(drawnArea) }
+          : view
+            ? { bbox: serializeBbox(view) }
+            : {}),
+      }
 
   const query = useInfiniteQuery({
     queryKey: getMapAssetDataQueryKey(assetId, params),
@@ -100,7 +114,7 @@ export function useAssetFeatures(assetId: string, enabled: boolean): AssetFeatur
       last.status === 200 ? (last.data.next_cursor ?? undefined) : undefined,
     // A drawn area needs no window. A window-scoped read waits for the map to
     // report one, rather than asking for the whole file in the meantime.
-    enabled: enabled && (drawnArea !== null || view !== null),
+    enabled: enabled && (own !== undefined || drawnArea !== null || view !== null),
     // Never stale. Coming back to a window already read used to show the
     // cached features and then quietly download every page again, because
     // React Query treats data as stale at once by default. Nothing here can go
@@ -144,5 +158,28 @@ export function useAssetFeatures(assetId: string, enabled: boolean): AssetFeatur
     failed: query.isError || refused !== undefined,
     notFound: refused?.status === 404,
     scope,
+  }
+}
+
+/**
+ * An answer's place and filter as `/data` takes them. `/data` reads the same
+ * area and filter that `/summary` counted, so the map draws what the answer's
+ * `total` says (docs/adr/028). A scope with no place draws the whole asset,
+ * within the page budget.
+ */
+export function scopeParams(scope: LayerScope): Omit<MapAssetDataParams, 'limit' | 'cursor'> {
+  const place = scope.area
+    ? { area: scope.area }
+    : scope.bbox
+      ? { bbox: serializeBbox(scope.bbox) }
+      : {}
+  const filter = scope.filter
+  if (!filter) return place
+  const values = Array.isArray(filter.value) ? filter.value : [filter.value]
+  return {
+    ...place,
+    filter_column: filter.column,
+    filter_op: filter.op as MapAssetDataFilterOp,
+    filter_value: values.map(String),
   }
 }

@@ -4,7 +4,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLayers } from '@/features/workspace/layers'
 import { cn } from '@/lib/utils'
 
-import { type Citation, type GroupedReferences, type Mark, layerScope } from './references'
+import {
+  type Citation,
+  type GroupedReferences,
+  type Mark,
+  layerScope,
+  layerScopeOf,
+} from './references'
 
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
 
@@ -93,8 +99,8 @@ export function CitationChip({
  *
  * Clicking shows or hides it. A layer from a reopened session is not on the
  * map yet, so the first click draws it. Drawing goes through the same layer
- * store as the asset panel's Draw (docs/adr/008), so the layer follows the
- * drawn area or the view as any other does.
+ * store as the asset panel's Draw (docs/adr/008), with the answer's own place
+ * and filter, so the map shows what the count counted, not the current view.
  */
 export function LayerChip({ reference }: { reference: ChatReference }) {
   const assetId = reference.asset_id!
@@ -114,7 +120,9 @@ export function LayerChip({ reference }: { reference: ChatReference }) {
     <button
       type="button"
       aria-pressed={shown}
-      onClick={() => (layer ? toggle(assetId) : add({ assetId, label }))}
+      onClick={() =>
+        layer ? toggle(assetId) : add({ assetId, label, scope: layerScopeOf(reference) })
+      }
       className={cn(CHIP, !shown && 'border-dashed text-muted-foreground')}
       title={shown ? `Hide ${label}` : `Show ${label}`}
     >

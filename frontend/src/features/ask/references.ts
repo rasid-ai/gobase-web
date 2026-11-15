@@ -1,4 +1,6 @@
 import type { ChatReference } from '@/api/generated/model'
+import type { Bbox } from '@/features/places/bbox'
+import type { LayerScope } from '@/features/workspace/layers'
 
 /**
  * An answer's references, sorted for the three places the panel shows them.
@@ -135,5 +137,19 @@ export function groupReferences(
 
 /** What a layer was read for, in the chip's words. */
 export function layerScope(reference: ChatReference): string {
-  return reference.area ? 'drawn area' : 'this view'
+  // The layer is drawn for the answer's own place (layerScopeOf), not for
+  // whatever the map shows, so the label names that place.
+  return reference.area || reference.bbox?.length === 4 ? "answer's area" : 'whole asset'
+}
+
+/**
+ * The place and filter a `layer` reference was counted for, so the map draws
+ * exactly what the answer's `total` counted (docs/adr/028).
+ */
+export function layerScopeOf(reference: ChatReference): LayerScope {
+  return {
+    ...(reference.area ? { area: reference.area } : {}),
+    ...(!reference.area && reference.bbox?.length === 4 ? { bbox: reference.bbox as Bbox } : {}),
+    ...(reference.filter ? { filter: reference.filter } : {}),
+  }
 }

@@ -283,7 +283,7 @@ describe('asking a question', () => {
     await waitFor(() => {
       expect(document.querySelector(`[data-source="asset-${ROADS}"]`)).toBeTruthy()
     })
-    const chip = await within(panel).findByRole('button', { name: /roads · this view\s*14/ })
+    const chip = await within(panel).findByRole('button', { name: /roads · answer's area\s*14/ })
     expect(chip.getAttribute('aria-pressed')).toBe('true')
 
     await user.click(chip)

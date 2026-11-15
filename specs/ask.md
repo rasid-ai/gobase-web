@@ -89,19 +89,16 @@ selected", "this point", or "the current view".
 Restricting retrieval to that area is the agent's job, through the backend
 endpoints its tools call.
 
+**An answer's layer is drawn for its own place and filter** (2026-11-15).
+The layer keeps the reference's `area` (or `bbox`) and `filter`, and `/data`
+reads exactly those (docs/adr/028), so the map shows what the chip's count
+counted, not the whole asset in the current view. Moving the map or drawing
+an area doesn't change it. The chip reads "<asset> · answer's area", or
+"whole asset" when the answer had no place. Adding the same asset from the
+catalog replaces the layer and draws it for the view again.
+
 **Known gaps in how an answer's layer is shown** (not built):
 
-- **The chip's number is not what the chip draws.** The chip shows the
-  reference's `total`, the count the answer gave. Its click draws through
-  the same layer store as the asset pane's Draw, so the map shows the whole
-  asset in the current drawn area or view, with no filter. `/data` now
-  takes the reference's `area` and filter (docs/adr/028), and the agent
-  sends every place as an `area`, so drawing exactly what was counted needs
-  only the layer store to pass them on.
-- **The chip's scope label is wrong for some layers.** It says "drawn area"
-  for any layer with an `area`. The agent now sends the map view and a found
-  place as an `area` too (a rectangle), so those also read "drawn area". A
-  layer of the whole asset has no `area` and reads "this view".
 - **One chip per asset.** An answer may carry several layers of one asset,
   one per count ("2 schools and 7 hospitals"), all with the asset's handle.
   The panel keeps the last one, so its chip shows that count only.
