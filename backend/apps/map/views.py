@@ -2,6 +2,7 @@
 
 import gzip
 import hashlib
+import json
 import logging
 import re
 
@@ -11,6 +12,7 @@ from django.utils.cache import patch_vary_headers
 from django.utils.http import parse_etags
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -22,6 +24,8 @@ from .serializers import (
     AssetDataQuerySerializer,
     AssetDataSerializer,
     AssetDetailSerializer,
+    AssetSummaryQuerySerializer,
+    AssetSummarySerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +57,7 @@ class AssetDetailView(APIView):
 FEATURES_FORMAT = 1
 
 
-def _features_etag(asset_id, limit, bbox, area, cursor) -> str:
+def _features_etag(asset_id, limit, bbox, area, cursor, attribute_filter=None) -> str:
     """The ETag for one page of one asset's features, computed without reading it.
 
     Possible only because assets are content-addressed: changed content gets a
@@ -63,6 +67,13 @@ def _features_etag(asset_id, limit, bbox, area, cursor) -> str:
     lake is touched.
     """
     key = f"{FEATURES_FORMAT}|{asset_id}|{limit}|{bbox}|{area}|{cursor}"
+    if attribute_filter is not None:
+        # Added only for a filtered request, so every copy a browser holds of
+        # an unfiltered page keeps its ETag (docs/adr/028). JSON, so a value
+        # with a `|` in it cannot pass for another request.
+        key += "|" + json.dumps(
+            [attribute_filter.column, attribute_filter.op, list(attribute_filter.values)]
+        )
     return f'W/"{hashlib.sha256(key.encode()).hexdigest()[:32]}"'
 
 
@@ -97,7 +108,12 @@ class AssetDataView(APIView):
                 )
             ),
             400: OpenApiResponse(
-                description="An unreadable bbox, area, cursor or limit, or both bbox and area."
+                description=(
+                    "An unreadable bbox, area, cursor or limit, both bbox and area, or "
+                    "a filter the asset cannot take: an unknown column (the message "
+                    "lists the real ones), an operator its type does not allow, or a "
+                    "value that is not of its type."
+                )
             ),
             404: OpenApiResponse(description="No active vector asset with that id."),
             502: OpenApiResponse(description="The file could not be read."),
@@ -125,16 +141,26 @@ class AssetDataView(APIView):
         bbox = area.envelope if area else asked.get("bbox")
         wkt = area.wkt if area else None
         cursor = asked.get("cursor")
+        attribute_filter = query.attribute_filter()
 
         # Checked after the catalog, not before: a superseded asset must answer
         # 404, not tell the browser its old copy is still good.
-        etag = _features_etag(asset_id, limit, bbox, wkt, cursor)
+        etag = _features_etag(asset_id, limit, bbox, wkt, cursor, attribute_filter)
         held = parse_etags(request.headers.get("If-None-Match", ""))
         if etag in held or "*" in held:
             return cacheable(HttpResponseNotModified(), etag)
 
         try:
-            data = lake.read_vector_features(uri, limit=limit, bbox=bbox, area=wkt, cursor=cursor)
+            data = lake.read_vector_features(
+                uri,
+                limit=limit,
+                bbox=bbox,
+                area=wkt,
+                cursor=cursor,
+                attribute_filter=attribute_filter,
+            )
+        except lake.FilterRefused as exc:
+            raise ValidationError({exc.field: [exc.message]}) from exc
         except lake.LakeUnavailable as exc:
             raise LakeUnreachable() from exc
         except lake.LakeReadError as exc:
@@ -150,6 +176,68 @@ class AssetDataView(APIView):
         )
         response = HttpResponse(body, content_type="application/json")
         return _compressed(request, cacheable(response, etag))
+
+
+class AssetSummaryView(APIView):
+    """How many of a vector asset's features are in a place, and a few of them.
+
+    For answers, where `/data` is for drawing (docs/adr/028). The count is
+    exact, for a rectangle as for a drawn polygon, and takes the same
+    attribute filter `/data` does. A layer drawn with the same `area` and
+    filter shows the features that were counted; `/data` tests a `bbox` by
+    bounding boxes, so there it may show a few more. What the Ask agent's
+    `vector_features` tool calls (docs/adr/024), always with an `area`.
+
+    Vector only, like `/data`. A small body through DRF's renderer: nothing
+    here needs `/data`'s compression or its ETag.
+    """
+
+    @extend_schema(
+        parameters=[AssetSummaryQuerySerializer],
+        responses={
+            200: AssetSummarySerializer,
+            400: OpenApiResponse(
+                description=(
+                    "An unreadable bbox, area or sample, both bbox and area, or a "
+                    "filter the asset cannot take: an unknown column (the message "
+                    "lists the real ones), an operator its type does not allow, or a "
+                    "value that is not of its type."
+                )
+            ),
+            404: OpenApiResponse(description="No active vector asset with that id."),
+            502: OpenApiResponse(description="The file could not be read."),
+            503: OpenApiResponse(description="The lake could not be reached."),
+        },
+        operation_id="map_asset_summary",
+        summary="Vector asset feature count and sample",
+        tags=["map"],
+    )
+    def get(self, request, asset_id):
+        query = AssetSummaryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        asked = query.validated_data
+
+        uri = kb.vector_source_uri(asset_id)
+        if uri is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        area = asked.get("area")
+        try:
+            summary = lake.summarize_vector_features(
+                uri,
+                sample=asked["sample"],
+                bbox=area.envelope if area else asked.get("bbox"),
+                area=area.wkt if area else None,
+                attribute_filter=query.attribute_filter(),
+            )
+        except lake.FilterRefused as exc:
+            raise ValidationError({exc.field: [exc.message]}) from exc
+        except lake.LakeUnavailable as exc:
+            raise LakeUnreachable() from exc
+        except lake.LakeReadError as exc:
+            raise LakeFailed() from exc
+
+        return Response(AssetSummarySerializer({"asset_id": asset_id, **summary}).data)
 
 
 _ACCEPTS_GZIP = re.compile(r"\bgzip\b")

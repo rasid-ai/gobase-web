@@ -80,6 +80,24 @@ def search(
     return results
 
 
+def read(asset_id, chunk_id: str) -> dict | None:
+    """One passage of one document, by its id, or None if there is no such passage.
+
+    For the Ask agent's `doc_read` tool (docs/adr/024). No question, so no
+    score. The index is asked for both ids together, so one document's URL
+    cannot read another's passage.
+    """
+    chunks_uri = kb.document_chunks_uri(asset_id)
+    if not chunks_uri:
+        return None
+    hit = chunks.chunk(chunks_uri, asset_id, chunk_id)
+    if hit is None:
+        return None
+    passage = _passage(hit)
+    del passage["score"]
+    return {"asset_id": asset_id, **passage}
+
+
 def _passage(hit: dict) -> dict:
     """One passage in portal terms, pages from 1."""
     return {

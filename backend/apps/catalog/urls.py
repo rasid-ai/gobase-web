@@ -4,6 +4,7 @@ from .views import (
     AssetListView,
     DatasetListView,
     DocumentPageView,
+    DocumentPassageView,
     DocumentPdfView,
     PassagesView,
     SimilarAssetsView,
@@ -19,6 +20,12 @@ urlpatterns = [
         "assets/<uuid:asset_id>/pages/<int:page>.png",
         DocumentPageView.as_view(),
         name="document-page",
+    ),
+    # One passage by its id, for the Ask agent's doc_read tool (docs/adr/024).
+    path(
+        "assets/<uuid:asset_id>/passages/<str:chunk_id>",
+        DocumentPassageView.as_view(),
+        name="document-passage",
     ),
     path("datasets", DatasetListView.as_view(), name="dataset-list"),
     # Not under assets/: the resource is passages, grouped by the document

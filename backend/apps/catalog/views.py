@@ -1,6 +1,7 @@
 """The Catalog API: browsing everything the knowledge base holds."""
 
 import logging
+import re
 
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseNotModified
@@ -8,7 +9,7 @@ from django.utils.http import content_disposition_header, parse_etags
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -17,11 +18,13 @@ from apps.map.http import LakeFailed, LakeUnreachable, cacheable
 
 from . import chunks, godoc, kb, pages, passages
 from .serializers import (
+    CHUNK_ID_PATTERN,
     AssetListQuerySerializer,
     AssetListSerializer,
     DatasetListQuerySerializer,
     DatasetListSerializer,
     DocumentPageQuerySerializer,
+    DocumentPassageSerializer,
     PassagesQuerySerializer,
     PassagesSerializer,
     SimilarAssetsQuerySerializer,
@@ -308,6 +311,50 @@ class PassagesView(APIView):
             logger.warning("Chunk index error: %s", exc)
             raise ChunkIndexFailed() from exc
         return Response(PassagesSerializer({"embedder": model, "results": results}).data)
+
+
+_CHUNK_ID = re.compile(CHUNK_ID_PATTERN)
+
+
+class DocumentPassageView(APIView):
+    """One passage of a document, by its id: the text, its headings and its pages.
+
+    What the Ask agent's `doc_read` tool calls to quote a passage exactly
+    (docs/adr/024). Pages are counted from 1, as the passages endpoint reports
+    them. The same read the page image does, without the image.
+    """
+
+    @extend_schema(
+        responses={
+            200: DocumentPassageSerializer,
+            400: OpenApiResponse(description="A chunk id that is not one."),
+            404: OpenApiResponse(
+                description=(
+                    "No active document with that id, a document with no passages "
+                    "indexed, or a chunk that is not in it."
+                )
+            ),
+            502: OpenApiResponse(description="The chunk index failed."),
+            503: OpenApiResponse(description="The chunk index could not be reached."),
+        },
+        operation_id="catalog_document_passage",
+        summary="One passage of a document, by its id",
+        tags=["catalog"],
+    )
+    def get(self, request, asset_id, chunk_id):
+        if not _CHUNK_ID.fullmatch(chunk_id):
+            raise ValidationError({"chunk_id": ["This is not a chunk id."]})
+        try:
+            passage = passages.read(asset_id, chunk_id)
+        except chunks.ChunkStoreUnavailable as exc:
+            logger.warning("Chunk index unreachable: %s", exc)
+            raise ChunkIndexUnreachable() from exc
+        except chunks.ChunkStoreError as exc:
+            logger.warning("Chunk index error: %s", exc)
+            raise ChunkIndexFailed() from exc
+        if passage is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(DocumentPassageSerializer(passage).data)
 
 
 class DocumentPageView(APIView):

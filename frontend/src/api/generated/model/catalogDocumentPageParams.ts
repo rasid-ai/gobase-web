@@ -10,7 +10,7 @@ export type CatalogDocumentPageParams = {
 /**
  * A passage's `chunk_id`: its boxes are drawn on the page. Omitted renders the plain page.
  * @minLength 1
- * @pattern ^[A-Za-z0-9._:-]{1,128}$
+ * @pattern ^(?!\.+$)[A-Za-z0-9._:-]{1,128}$
  */
 chunk?: string;
 };

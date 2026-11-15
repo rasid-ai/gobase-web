@@ -23,8 +23,13 @@ import type {
 import type {
   AssetData,
   AssetDetail,
+  AssetSummary,
   MapAssetDataParams,
-  RasterAccess
+  MapAssetRasterClipParams,
+  MapAssetRasterStatsParams,
+  MapAssetSummaryParams,
+  RasterAccess,
+  RasterStats
 } from '../model';
 
 import { httpClient } from '../../http-client';
@@ -169,6 +174,183 @@ export function useMapAssetDetail<TData = Awaited<ReturnType<typeof mapAssetDeta
 
 
 
+export type mapAssetRasterClipResponse200 = {
+  data: Blob
+  status: 200
+}
+
+export type mapAssetRasterClipResponse304 = {
+  data: void
+  status: 304
+}
+
+export type mapAssetRasterClipResponse400 = {
+  data: void
+  status: 400
+}
+
+export type mapAssetRasterClipResponse404 = {
+  data: void
+  status: 404
+}
+
+export type mapAssetRasterClipResponse422 = {
+  data: void
+  status: 422
+}
+
+export type mapAssetRasterClipResponse502 = {
+  data: void
+  status: 502
+}
+
+export type mapAssetRasterClipResponse503 = {
+  data: void
+  status: 503
+}
+
+export type mapAssetRasterClipResponseSuccess = (mapAssetRasterClipResponse200) & {
+  headers: Headers;
+};
+export type mapAssetRasterClipResponseError = (mapAssetRasterClipResponse304 | mapAssetRasterClipResponse400 | mapAssetRasterClipResponse404 | mapAssetRasterClipResponse422 | mapAssetRasterClipResponse502 | mapAssetRasterClipResponse503) & {
+  headers: Headers;
+};
+
+export type mapAssetRasterClipResponse = (mapAssetRasterClipResponseSuccess | mapAssetRasterClipResponseError)
+
+export const getMapAssetRasterClipUrl = (assetId: string,
+    params?: MapAssetRasterClipParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/map/assets/${assetId}/clip.tif?${stringifiedParams}` : `/api/map/assets/${assetId}/clip.tif`
+}
+
+/**
+ * One raster's pixels over a place, as a GeoTIFF to download.
+ *
+ * The window over the place's envelope, in the raster's own CRS and on its
+ * own grid, with its nodata, colours and legend (docs/adr/029). A rectangle,
+ * never a polygon mask: a drawn area is clipped to its envelope. The
+ * response is held whole, so it is capped by size, not by pixel count: a window whose
+ * pixels come to more than `RASTER_CLIP_MAX_BYTES` before compression
+ * (width x height x bands x bytes per value) is a 400 that says how large
+ * it was. The whole raster is not a clip; a desktop client reads it
+ * through `raster-access`.
+ *
+ * Cached as the document PDF is: an ETag and `private, no-cache`, so a
+ * browser keeps the file and asks before reusing it, and a match is a 304
+ * with no lake read. A HEAD request answers with the same status and
+ * headers a GET would, from the raster's header alone: it builds no clip,
+ * so its `Content-Length` is 0 and not the file's.
+ *
+ * Raster only: any other asset is a 404.
+ * @summary A raster clipped to a place, as a GeoTIFF
+ */
+export const mapAssetRasterClip = async (assetId: string,
+    params?: MapAssetRasterClipParams, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetRasterClipResponse> => {
+
+  return httpClient<mapAssetRasterClipResponse>(getMapAssetRasterClipUrl(assetId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMapAssetRasterClipQueryKey = (assetId: string,
+    params?: MapAssetRasterClipParams,) => {
+    return [
+    `/api/map/assets/${assetId}/clip.tif`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getMapAssetRasterClipQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetRasterClip>>, TError = void>(assetId: string,
+    params?: MapAssetRasterClipParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterClip>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMapAssetRasterClipQueryKey(assetId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetRasterClip>>> = ({ signal }) => mapAssetRasterClip(assetId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterClip>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MapAssetRasterClipQueryResult = NonNullable<Awaited<ReturnType<typeof mapAssetRasterClip>>>
+export type MapAssetRasterClipQueryError = void
+
+
+export function useMapAssetRasterClip<TData = Awaited<ReturnType<typeof mapAssetRasterClip>>, TError = void>(
+ assetId: string,
+    params: undefined |  MapAssetRasterClipParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterClip>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetRasterClip>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetRasterClip>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetRasterClip<TData = Awaited<ReturnType<typeof mapAssetRasterClip>>, TError = void>(
+ assetId: string,
+    params?: MapAssetRasterClipParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterClip>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetRasterClip>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetRasterClip>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetRasterClip<TData = Awaited<ReturnType<typeof mapAssetRasterClip>>, TError = void>(
+ assetId: string,
+    params?: MapAssetRasterClipParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterClip>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary A raster clipped to a place, as a GeoTIFF
+ */
+
+export function useMapAssetRasterClip<TData = Awaited<ReturnType<typeof mapAssetRasterClip>>, TError = void>(
+ assetId: string,
+    params?: MapAssetRasterClipParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterClip>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMapAssetRasterClipQueryOptions(assetId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 export type mapAssetDataResponse200 = {
   data: AssetData
   status: 200
@@ -213,6 +395,14 @@ export const getMapAssetDataUrl = (assetId: string,
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["filter_value"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
 
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : String(value))
@@ -468,6 +658,339 @@ export function useMapAssetRasterAccess<TData = Awaited<ReturnType<typeof mapAss
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getMapAssetRasterAccessQueryOptions(assetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type mapAssetRasterStatsResponse200 = {
+  data: RasterStats
+  status: 200
+}
+
+export type mapAssetRasterStatsResponse400 = {
+  data: void
+  status: 400
+}
+
+export type mapAssetRasterStatsResponse404 = {
+  data: void
+  status: 404
+}
+
+export type mapAssetRasterStatsResponse422 = {
+  data: void
+  status: 422
+}
+
+export type mapAssetRasterStatsResponse502 = {
+  data: void
+  status: 502
+}
+
+export type mapAssetRasterStatsResponse503 = {
+  data: void
+  status: 503
+}
+
+export type mapAssetRasterStatsResponseSuccess = (mapAssetRasterStatsResponse200) & {
+  headers: Headers;
+};
+export type mapAssetRasterStatsResponseError = (mapAssetRasterStatsResponse400 | mapAssetRasterStatsResponse404 | mapAssetRasterStatsResponse422 | mapAssetRasterStatsResponse502 | mapAssetRasterStatsResponse503) & {
+  headers: Headers;
+};
+
+export type mapAssetRasterStatsResponse = (mapAssetRasterStatsResponseSuccess | mapAssetRasterStatsResponseError)
+
+export const getMapAssetRasterStatsUrl = (assetId: string,
+    params?: MapAssetRasterStatsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/map/assets/${assetId}/raster-stats?${stringifiedParams}` : `/api/map/assets/${assetId}/raster-stats`
+}
+
+/**
+ * What one raster's pixels say inside a place: band figures and class shares.
+ *
+ * For answers (docs/adr/029). The portal reads only the window over the
+ * place, a chunk of rows at a time, and counts at most
+ * `RASTER_STATS_MAX_PIXELS`: a larger place is read at reduced size and
+ * the answer says `approximate`. The body is figures, never pixels. Raster
+ * only: any other asset is a 404. A raster no place can be put on is a 422
+ * that says so; with no place it is still measured whole.
+ *
+ * A place that misses the raster is a 200 with `pixels: 0`: the honest
+ * answer to "what is here" is "nothing", not an error.
+ * @summary Raster statistics over a place
+ */
+export const mapAssetRasterStats = async (assetId: string,
+    params?: MapAssetRasterStatsParams, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetRasterStatsResponse> => {
+
+  return httpClient<mapAssetRasterStatsResponse>(getMapAssetRasterStatsUrl(assetId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMapAssetRasterStatsQueryKey = (assetId: string,
+    params?: MapAssetRasterStatsParams,) => {
+    return [
+    `/api/map/assets/${assetId}/raster-stats`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getMapAssetRasterStatsQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetRasterStats>>, TError = void>(assetId: string,
+    params?: MapAssetRasterStatsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterStats>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMapAssetRasterStatsQueryKey(assetId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetRasterStats>>> = ({ signal }) => mapAssetRasterStats(assetId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterStats>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MapAssetRasterStatsQueryResult = NonNullable<Awaited<ReturnType<typeof mapAssetRasterStats>>>
+export type MapAssetRasterStatsQueryError = void
+
+
+export function useMapAssetRasterStats<TData = Awaited<ReturnType<typeof mapAssetRasterStats>>, TError = void>(
+ assetId: string,
+    params: undefined |  MapAssetRasterStatsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterStats>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetRasterStats>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetRasterStats>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetRasterStats<TData = Awaited<ReturnType<typeof mapAssetRasterStats>>, TError = void>(
+ assetId: string,
+    params?: MapAssetRasterStatsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterStats>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetRasterStats>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetRasterStats>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetRasterStats<TData = Awaited<ReturnType<typeof mapAssetRasterStats>>, TError = void>(
+ assetId: string,
+    params?: MapAssetRasterStatsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterStats>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Raster statistics over a place
+ */
+
+export function useMapAssetRasterStats<TData = Awaited<ReturnType<typeof mapAssetRasterStats>>, TError = void>(
+ assetId: string,
+    params?: MapAssetRasterStatsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetRasterStats>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMapAssetRasterStatsQueryOptions(assetId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type mapAssetSummaryResponse200 = {
+  data: AssetSummary
+  status: 200
+}
+
+export type mapAssetSummaryResponse400 = {
+  data: void
+  status: 400
+}
+
+export type mapAssetSummaryResponse404 = {
+  data: void
+  status: 404
+}
+
+export type mapAssetSummaryResponse502 = {
+  data: void
+  status: 502
+}
+
+export type mapAssetSummaryResponse503 = {
+  data: void
+  status: 503
+}
+
+export type mapAssetSummaryResponseSuccess = (mapAssetSummaryResponse200) & {
+  headers: Headers;
+};
+export type mapAssetSummaryResponseError = (mapAssetSummaryResponse400 | mapAssetSummaryResponse404 | mapAssetSummaryResponse502 | mapAssetSummaryResponse503) & {
+  headers: Headers;
+};
+
+export type mapAssetSummaryResponse = (mapAssetSummaryResponseSuccess | mapAssetSummaryResponseError)
+
+export const getMapAssetSummaryUrl = (assetId: string,
+    params?: MapAssetSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["filter_value"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/map/assets/${assetId}/summary?${stringifiedParams}` : `/api/map/assets/${assetId}/summary`
+}
+
+/**
+ * How many of a vector asset's features are in a place, and a few of them.
+ *
+ * For answers, where `/data` is for drawing (docs/adr/028). The count is
+ * exact, for a rectangle as for a drawn polygon, and takes the same
+ * attribute filter `/data` does. A layer drawn with the same `area` and
+ * filter shows the features that were counted; `/data` tests a `bbox` by
+ * bounding boxes, so there it may show a few more. What the Ask agent's
+ * `vector_features` tool calls (docs/adr/024), always with an `area`.
+ *
+ * Vector only, like `/data`. A small body through DRF's renderer: nothing
+ * here needs `/data`'s compression or its ETag.
+ * @summary Vector asset feature count and sample
+ */
+export const mapAssetSummary = async (assetId: string,
+    params?: MapAssetSummaryParams, options?: Parameters<typeof httpClient>[1]): Promise<mapAssetSummaryResponse> => {
+
+  return httpClient<mapAssetSummaryResponse>(getMapAssetSummaryUrl(assetId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMapAssetSummaryQueryKey = (assetId: string,
+    params?: MapAssetSummaryParams,) => {
+    return [
+    `/api/map/assets/${assetId}/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getMapAssetSummaryQueryOptions = <TData = Awaited<ReturnType<typeof mapAssetSummary>>, TError = void>(assetId: string,
+    params?: MapAssetSummaryParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetSummary>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMapAssetSummaryQueryKey(assetId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mapAssetSummary>>> = ({ signal }) => mapAssetSummary(assetId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: assetId !== null && assetId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof mapAssetSummary>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MapAssetSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof mapAssetSummary>>>
+export type MapAssetSummaryQueryError = void
+
+
+export function useMapAssetSummary<TData = Awaited<ReturnType<typeof mapAssetSummary>>, TError = void>(
+ assetId: string,
+    params: undefined |  MapAssetSummaryParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetSummary>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetSummary>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetSummary>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetSummary<TData = Awaited<ReturnType<typeof mapAssetSummary>>, TError = void>(
+ assetId: string,
+    params?: MapAssetSummaryParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetSummary>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof mapAssetSummary>>,
+          TError,
+          Awaited<ReturnType<typeof mapAssetSummary>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMapAssetSummary<TData = Awaited<ReturnType<typeof mapAssetSummary>>, TError = void>(
+ assetId: string,
+    params?: MapAssetSummaryParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetSummary>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Vector asset feature count and sample
+ */
+
+export function useMapAssetSummary<TData = Awaited<ReturnType<typeof mapAssetSummary>>, TError = void>(
+ assetId: string,
+    params?: MapAssetSummaryParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof mapAssetSummary>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMapAssetSummaryQueryOptions(assetId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

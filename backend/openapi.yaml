@@ -317,7 +317,7 @@ paths:
         schema:
           type: string
           minLength: 1
-          pattern: ^[A-Za-z0-9._:-]{1,128}$
+          pattern: ^(?!\.+$)[A-Za-z0-9._:-]{1,128}$
         description: 'A passage''s `chunk_id`: its boxes are drawn on the page. Omitted
           renders the plain page.'
       - in: path
@@ -350,6 +350,49 @@ paths:
           description: The PDF could not be read or rendered.
         '503':
           description: The lake or the chunk index could not be reached.
+  /api/catalog/assets/{asset_id}/passages/{chunk_id}:
+    get:
+      operationId: catalog_document_passage
+      description: |-
+        One passage of a document, by its id: the text, its headings and its pages.
+
+        What the Ask agent's `doc_read` tool calls to quote a passage exactly
+        (docs/adr/024). Pages are counted from 1, as the passages endpoint reports
+        them. The same read the page image does, without the image.
+      summary: One passage of a document, by its id
+      parameters:
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: chunk_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - catalog
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentPassage'
+          description: ''
+        '400':
+          description: A chunk id that is not one.
+        '404':
+          description: No active document with that id, a document with no passages
+            indexed, or a chunk that is not in it.
+        '502':
+          description: The chunk index failed.
+        '503':
+          description: The chunk index could not be reached.
   /api/catalog/assets/{asset_id}/pdf:
     get:
       operationId: catalog_document_pdf
@@ -814,6 +857,86 @@ paths:
           description: ''
         '404':
           description: No active asset with that id.
+  /api/map/assets/{asset_id}/clip.tif:
+    get:
+      operationId: map_asset_raster_clip
+      description: |-
+        One raster's pixels over a place, as a GeoTIFF to download.
+
+        The window over the place's envelope, in the raster's own CRS and on its
+        own grid, with its nodata, colours and legend (docs/adr/029). A rectangle,
+        never a polygon mask: a drawn area is clipped to its envelope. The
+        response is held whole, so it is capped by size, not by pixel count: a window whose
+        pixels come to more than `RASTER_CLIP_MAX_BYTES` before compression
+        (width x height x bands x bytes per value) is a 400 that says how large
+        it was. The whole raster is not a clip; a desktop client reads it
+        through `raster-access`.
+
+        Cached as the document PDF is: an ETag and `private, no-cache`, so a
+        browser keeps the file and asks before reusing it, and a match is a 304
+        with no lake read. A HEAD request answers with the same status and
+        headers a GET would, from the raster's header alone: it builds no clip,
+        so its `Content-Length` is 0 and not the file's.
+
+        Raster only: any other asset is a 404.
+      summary: A raster clipped to a place, as a GeoTIFF
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'A drawn polygon: WKT, POLYGON((lon lat, ...)), SRID 4326, at
+          most 100 corners and not crossing itself. Sent instead of bbox. For raster-stats,
+          only the pixels whose centre is inside it are counted. For clip.tif, the
+          pixels over its envelope are returned: a clip is a rectangle, never a polygon
+          mask.'
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'A rectangle: min_lon,min_lat,max_lon,max_lat, SRID 4326. For
+          raster-stats, only the pixels whose centre is inside it are counted, and
+          without bbox or area the whole raster is. For clip.tif, the pixels over
+          it are returned.'
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            image/tiff:
+              schema:
+                type: string
+                format: binary
+          description: ''
+        '304':
+          description: The ETag sent in If-None-Match still matches; use the copy
+            already held.
+        '400':
+          description: An unreadable bbox or area, both, or neither; a place that
+            does not overlap the raster; or a place too large to clip (the message
+            says how large its pixels are, uncompressed, and how large a clip may
+            be).
+        '404':
+          description: No active raster asset with that id.
+        '422':
+          description: 'No place can be put on this raster: its extent has no longitude
+            and latitude box. The message says so.'
+        '502':
+          description: The raster could not be read.
+        '503':
+          description: The lake could not be reached, the read ran past its time limit,
+            or the portal could not write the clip to its own disk.
   /api/map/assets/{asset_id}/data:
     get:
       operationId: map_asset_data
@@ -867,6 +990,44 @@ paths:
           minimum: 0
         description: The `next_cursor` of the previous page.
       - in: query
+        name: filter_column
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description: Keep only the features whose value in this column matches. A
+          column of the asset, as its metadata lists them. Sent with filter_op and
+          filter_value.
+      - in: query
+        name: filter_op
+        schema:
+          enum:
+          - equals
+          - contains
+          - in
+          - <
+          - '>'
+          type: string
+          minLength: 1
+        description: |-
+          How to compare. `equals` and `in`: text without regard to case, other types by value. `contains`: text columns only, without regard to case. `<` and `>`: numbers, dates and timestamps only. A null never matches.
+
+          * `equals` - equals
+          * `contains` - contains
+          * `in` - in
+          * `<` - <
+          * `>` - >
+      - in: query
+        name: filter_value
+        schema:
+          type: array
+          items:
+            type: string
+            maxLength: 200
+          maxItems: 20
+        description: The value to compare with, as text. Repeat the parameter to give
+          `in` several, up to 20; every other operator takes one.
+      - in: query
         name: limit
         schema:
           type: integer
@@ -890,8 +1051,10 @@ paths:
             already held. A browser handles this itself and hands the client its cached
             200.
         '400':
-          description: An unreadable bbox, area, cursor or limit, or both bbox and
-            area.
+          description: 'An unreadable bbox, area, cursor or limit, both bbox and area,
+            or a filter the asset cannot take: an unknown column (the message lists
+            the real ones), an operator its type does not allow, or a value that is
+            not of its type.'
         '404':
           description: No active vector asset with that id.
         '502':
@@ -940,6 +1103,180 @@ paths:
         '503':
           description: Raster access is not set up on this portal, or the lake could
             not be reached.
+  /api/map/assets/{asset_id}/raster-stats:
+    get:
+      operationId: map_asset_raster_stats
+      description: |-
+        What one raster's pixels say inside a place: band figures and class shares.
+
+        For answers (docs/adr/029). The portal reads only the window over the
+        place, a chunk of rows at a time, and counts at most
+        `RASTER_STATS_MAX_PIXELS`: a larger place is read at reduced size and
+        the answer says `approximate`. The body is figures, never pixels. Raster
+        only: any other asset is a 404. A raster no place can be put on is a 422
+        that says so; with no place it is still measured whole.
+
+        A place that misses the raster is a 200 with `pixels: 0`: the honest
+        answer to "what is here" is "nothing", not an error.
+      summary: Raster statistics over a place
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'A drawn polygon: WKT, POLYGON((lon lat, ...)), SRID 4326, at
+          most 100 corners and not crossing itself. Sent instead of bbox. For raster-stats,
+          only the pixels whose centre is inside it are counted. For clip.tif, the
+          pixels over its envelope are returned: a clip is a rectangle, never a polygon
+          mask.'
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'A rectangle: min_lon,min_lat,max_lon,max_lat, SRID 4326. For
+          raster-stats, only the pixels whose centre is inside it are counted, and
+          without bbox or area the whole raster is. For clip.tif, the pixels over
+          it are returned.'
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RasterStats'
+          description: ''
+        '400':
+          description: An unreadable bbox or area, or both.
+        '404':
+          description: No active raster asset with that id.
+        '422':
+          description: 'No place can be put on this raster: its extent has no longitude
+            and latitude box. The message says so.'
+        '502':
+          description: The raster could not be read.
+        '503':
+          description: The lake could not be reached, or the read ran past its time
+            limit.
+  /api/map/assets/{asset_id}/summary:
+    get:
+      operationId: map_asset_summary
+      description: |-
+        How many of a vector asset's features are in a place, and a few of them.
+
+        For answers, where `/data` is for drawing (docs/adr/028). The count is
+        exact, for a rectangle as for a drawn polygon, and takes the same
+        attribute filter `/data` does. A layer drawn with the same `area` and
+        filter shows the features that were counted; `/data` tests a `bbox` by
+        bounding boxes, so there it may show a few more. What the Ask agent's
+        `vector_features` tool calls (docs/adr/024), always with an `area`.
+
+        Vector only, like `/data`. A small body through DRF's renderer: nothing
+        here needs `/data`'s compression or its ETag.
+      summary: Vector asset feature count and sample
+      parameters:
+      - in: query
+        name: area
+        schema:
+          type: string
+          minLength: 1
+        description: 'Count only the features that intersect this drawn polygon: WKT,
+          POLYGON((lon lat, ...)), SRID 4326, at most 100 corners and not crossing
+          itself. Sent instead of bbox.'
+      - in: path
+        name: asset_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: bbox
+        schema:
+          type: string
+          minLength: 1
+        description: 'Count only the features that intersect this rectangle: min_lon,min_lat,max_lon,max_lat,
+          SRID 4326. Exact: a feature whose bounding box overlaps it but whose shape
+          does not is left out. Without bbox or area the whole file is counted.'
+      - in: query
+        name: filter_column
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description: Keep only the features whose value in this column matches. A
+          column of the asset, as its metadata lists them. Sent with filter_op and
+          filter_value.
+      - in: query
+        name: filter_op
+        schema:
+          enum:
+          - equals
+          - contains
+          - in
+          - <
+          - '>'
+          type: string
+          minLength: 1
+        description: |-
+          How to compare. `equals` and `in`: text without regard to case, other types by value. `contains`: text columns only, without regard to case. `<` and `>`: numbers, dates and timestamps only. A null never matches.
+
+          * `equals` - equals
+          * `contains` - contains
+          * `in` - in
+          * `<` - <
+          * `>` - >
+      - in: query
+        name: filter_value
+        schema:
+          type: array
+          items:
+            type: string
+            maxLength: 200
+          maxItems: 20
+        description: The value to compare with, as text. Repeat the parameter to give
+          `in` several, up to 20; every other operator takes one.
+      - in: query
+        name: sample
+        schema:
+          type: integer
+          maximum: 10
+          minimum: 0
+          default: 5
+        description: How many matching rows to return as a sample, in file order.
+      tags:
+      - map
+      security:
+      - jwtAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetSummary'
+          description: ''
+        '400':
+          description: 'An unreadable bbox, area or sample, both bbox and area, or
+            a filter the asset cannot take: an unknown column (the message lists the
+            real ones), an operator its type does not allow, or a value that is not
+            of its type.'
+        '404':
+          description: No active vector asset with that id.
+        '502':
+          description: The file could not be read.
+        '503':
+          description: The lake could not be reached.
   /api/places/search:
     get:
       operationId: places_search
@@ -1428,6 +1765,36 @@ components:
       - time_end
       - time_start
       - topic_path
+    AssetSummary:
+      type: object
+      description: |-
+        How many of a vector asset's features match, and what a few of them hold.
+
+        What the Ask agent's `vector_features` tool reads (docs/adr/024,
+        docs/adr/028). Small on purpose: a count and a few rows of properties, no
+        geometry. The features themselves are drawn from `/data` with the same
+        place and filter.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        total:
+          type: integer
+          readOnly: true
+          description: The exact number of features inside the place, filter applied.
+        sample:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          readOnly: true
+          description: 'The properties of the first matching features in file order:
+            the file''s non-geometry columns, as `/data` writes them.'
+      required:
+      - asset_id
+      - sample
+      - total
     ChangePasswordRequest:
       type: object
       properties:
@@ -1873,6 +2240,60 @@ components:
       - pages
       - pdf
       - title
+    DocumentPassage:
+      type: object
+      description: One passage read by its id, with the document it belongs to.
+      properties:
+        chunk_id:
+          type: string
+          readOnly: true
+          description: The passage's id in the chunk index; what the page image takes.
+        text:
+          type: string
+          readOnly: true
+        heading_path:
+          type: array
+          items:
+            type: string
+          readOnly: true
+          description: The section headings above the passage, outermost first. Empty
+            when none.
+        page_start:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The page the passage starts on, as a reader counts them, from
+            1 — the number `/pages/{page}.png` and a PDF viewer's `#page=` take. The
+            chunk index stores pages from 0. Null when the index records no page.
+        page_end:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The page it ends on, from 1.
+        pages_with_boxes:
+          type: array
+          items:
+            type: integer
+          readOnly: true
+          description: The pages, from 1, on which the passage can be drawn.
+        chunk_type:
+          type: string
+          readOnly: true
+          description: 'What the parser read: text, table, list, chart, …'
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: The document the passage is in.
+      required:
+      - asset_id
+      - chunk_id
+      - chunk_type
+      - heading_path
+      - page_end
+      - page_start
+      - pages_with_boxes
+      - text
     DocumentPassages:
       type: object
       description: A list row for a document, plus the passages of it that matched.
@@ -2271,6 +2692,142 @@ components:
       - key
       - region
       - url
+    RasterBandStats:
+      type: object
+      description: One band's figures over the pixels that hold data inside the place.
+      properties:
+        index:
+          type: integer
+          readOnly: true
+          description: The band's number, from 1.
+        min:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: Null when no pixel holds data.
+        max:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        mean:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        valid_percent:
+          type: number
+          format: double
+          readOnly: true
+          description: The share of the place's pixels that hold data (not nodata),
+            0 to 100.
+      required:
+      - index
+      - max
+      - mean
+      - min
+      - valid_percent
+    RasterClass:
+      type: object
+      description: One class of a classified raster, inside the place.
+      properties:
+        value:
+          type: integer
+          readOnly: true
+          description: The pixel value.
+        name:
+          type: string
+          readOnly: true
+          nullable: true
+          description: The class's name from the raster's legend. Null when the legend
+            has none.
+        pixels:
+          type: integer
+          readOnly: true
+        share:
+          type: number
+          format: double
+          readOnly: true
+          description: This class's part of the pixels that hold data, 0 to 1.
+      required:
+      - name
+      - pixels
+      - share
+      - value
+    RasterOtherClasses:
+      type: object
+      description: The classes left out of the list, as one sum.
+      properties:
+        values:
+          type: integer
+          readOnly: true
+          description: How many values were left out.
+        pixels:
+          type: integer
+          readOnly: true
+        share:
+          type: number
+          format: double
+          readOnly: true
+          description: Their part of the pixels that hold data, 0 to 1.
+      required:
+      - pixels
+      - share
+      - values
+    RasterStats:
+      type: object
+      description: |-
+        What a raster's pixels say inside a place.
+
+        What the Ask agent's `raster_clip` tool reads (docs/adr/024,
+        docs/adr/029). Small on purpose: figures, never pixels. The pixels are a
+        separate download, `clip.tif`.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          readOnly: true
+        pixels:
+          type: integer
+          readOnly: true
+          description: How many pixels are inside the place, on the grid that was
+            read. 0 when the place misses the raster; there are then no figures.
+        approximate:
+          type: boolean
+          readOnly: true
+          description: 'True when the place holds more pixels than the server reads
+            at once: it was then read at reduced size, so `pixels` counts that smaller
+            grid and the figures and shares are close, not exact.'
+        bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/RasterBandStats'
+          readOnly: true
+        classes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RasterClass'
+          readOnly: true
+          nullable: true
+          description: 'For a classified raster (one whole-number band with a legend
+            in its tags): the values found, largest share first, at most 256. Null
+            for any other raster.'
+        other_classes:
+          allOf:
+          - $ref: '#/components/schemas/RasterOtherClasses'
+          readOnly: true
+          nullable: true
+          description: Every value beyond those in `classes`, summed, so the shares
+            add up to 1. Null when `classes` holds them all, and for a raster that
+            is not classified.
+      required:
+      - approximate
+      - asset_id
+      - bands
+      - classes
+      - other_classes
+      - pixels
     RoleEnum:
       enum:
       - admin

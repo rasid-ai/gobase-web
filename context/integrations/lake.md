@@ -16,9 +16,11 @@ PDF, bytes (see "Reading one object whole").
 DuckDB reads the lake only. It never touches Postgres — `kb` stays on Django's
 connection and its read-only role (docs/adr/002).
 
-One other module speaks to the lake, and reads nothing from it:
-`apps/map/sts.py` asks its STS for credentials that a desktop client uses to
-read one raster itself (docs/adr/022, context/integrations/lake-sts.md).
+Two other modules speak to the lake. `apps/map/sts.py` reads nothing from
+it: it asks its STS for credentials that a desktop client uses to read one
+raster itself (docs/adr/022, context/integrations/lake-sts.md).
+`apps/map/raster.py` reads a window of a raster with rasterio, with the same
+`LAKE_S3_*` settings as below (docs/adr/029, context/integrations/raster.md).
 
 ## Configuration
 
@@ -110,6 +112,56 @@ DuckDB stops as soon as it has enough rows rather than reading and skipping.
 never under-inclusive: a feature whose box overlaps the area but whose geometry
 does not comes back as well. Free for drawing — it lands off screen — but
 anything that counts or answers from this endpoint has to know.
+
+`read_vector_features` also takes `attribute_filter` (below).
+
+## A count and a sample
+
+`summarize_vector_features(uri, sample=, bbox=, area=, attribute_filter=)`
+answers how many features match, exactly, and the properties of the first
+few (docs/adr/028). It is for answers; `read_vector_features` is for
+drawing. Both build their WHERE in one place, `_scope`, so they cannot
+drift apart.
+
+The one difference is a bbox on its own. A page tests it with
+`ST_Intersects_Extent`, box against box. A count tests it with
+`ST_Intersects` against the rectangle, on the real geometry, because a
+feature whose box overlaps the window and whose shape does not must not be
+in a figure. The covering column prunes first either way.
+
+Two queries, not one: `count(*)` over the conditions, then the sample with
+`ORDER BY file_row_number LIMIT n`. A single query would build the
+properties of every matching row to keep five. A count with no conditions
+reads only the file's metadata.
+
+## The attribute filter
+
+`AttributeFilter(column, op, values)`: one column, one operator from
+`FILTER_OPERATORS` (`equals`, `contains`, `in`, `<`, `>`), values as text.
+`_filter_condition` turns it into one condition and its parameters, or
+raises `FilterRefused(field, message)`, which the views answer as a 400 on
+that parameter.
+
+- **The column** is looked up among the file's attribute columns (from
+  `DESCRIBE`, minus the geometry, the covering `bbox` and
+  `file_row_number`) and quoted with `_quote`. The caller's text is never
+  written into the SQL; an unknown name is refused with the real names.
+- **The values** are bound parameters. For a typed column each is cast in
+  the query, `CAST(? AS <type>)`. The type text comes from `DESCRIBE` and is
+  only used when it matches a fixed list of number and time types.
+- **Before the read**, each value is tried with `TRY_CAST`, so a value that
+  does not fit is a 400 and not a failed read.
+- **Text** (`VARCHAR`, `UUID`, `ENUM`): `lower(col::VARCHAR) IN (lower(?), …)`
+  for `equals` and `in`, `contains(lower(col::VARCHAR), lower(?))` for
+  `contains`. `contains` is DuckDB's plain substring test, so `%` and `_`
+  mean themselves.
+- **Numbers** are cast to `DOUBLE`, so `1.5` against an `INTEGER` column is
+  not rounded to 2. A whole number against a whole-number column is cast to
+  the column's type, which keeps a 64-bit id exact.
+- **`<` and `>`** on a float column add `NOT isnan(col)`: DuckDB sorts NaN
+  above every number.
+- **Refused:** `<` and `>` on text or booleans, `contains` on anything but
+  text, and any filter on a nested or binary column.
 
 ## A drawn area
 

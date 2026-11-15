@@ -270,6 +270,84 @@ def test_a_different_request_gets_a_different_etag(as_viewer, monkeypatch, tmp_p
     assert len(tags) == 5
 
 
+FILTER = {"filter_column": "osm_id", "filter_op": ">", "filter_value": "26"}
+
+
+def test_a_filter_keeps_only_the_features_that_match(as_viewer, monkeypatch, tmp_path):
+    """The same filter the summary counts with, so the map draws what was counted."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=30)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    body = as_viewer.get(url(), FILTER).json()
+
+    assert body["count"] == 3
+    assert ids(body) == [27, 28, 29]
+
+
+def test_a_filter_the_asset_cannot_take_is_a_400(as_viewer, monkeypatch, tmp_path):
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    response = as_viewer.get(url(), {**FILTER, "filter_column": "amenity"})
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "filter_column": ["This asset has no column `amenity`. Its columns: osm_id, name."]
+    }
+    assert as_viewer.get(url(), {"filter_column": "osm_id"}).status_code == 400
+
+
+def test_a_filtered_page_has_its_own_etag(as_viewer, monkeypatch, tmp_path):
+    """A filtered page and the whole one are different bodies, so different ETags."""
+    path = write_spread_points(tmp_path / "spread.parquet", rows=30)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    tags = {
+        as_viewer.get(url(), params).headers["ETag"]
+        for params in (
+            {},
+            FILTER,
+            {**FILTER, "filter_value": "27"},
+            {**FILTER, "filter_op": "<"},
+            {**FILTER, "filter_column": "name", "filter_op": "equals"},
+            {"filter_column": "name", "filter_op": "in", "filter_value": ["a", "b"]},
+            {"filter_column": "name", "filter_op": "in", "filter_value": ["a|b"]},
+        )
+    }
+
+    assert len(tags) == 7
+
+
+def test_a_filtered_page_revalidates_against_its_own_etag(as_viewer, monkeypatch, tmp_path):
+    path = write_spread_points(tmp_path / "spread.parquet", rows=30)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+    whole = as_viewer.get(url()).headers["ETag"]
+    filtered = as_viewer.get(url(), FILTER).headers["ETag"]
+
+    assert as_viewer.get(url(), FILTER, HTTP_IF_NONE_MATCH=filtered).status_code == 304
+    # The whole file's copy is not a copy of the filtered page.
+    assert as_viewer.get(url(), FILTER, HTTP_IF_NONE_MATCH=whole).status_code == 200
+
+
+def test_an_unfiltered_page_keeps_the_etag_it_had_before_filters(
+    as_viewer, monkeypatch, tmp_path, settings
+):
+    """Adding the filter did not bump FEATURES_FORMAT: a browser's copies stay good.
+
+    The value is the ETag this request had before the filter existed
+    (docs/adr/028). If this fails, every cached page is refetched once.
+    """
+    import hashlib
+
+    path = write_spread_points(tmp_path / "spread.parquet", rows=3)
+    monkeypatch.setattr(kb, "vector_source_uri", lambda asset_id: path)
+
+    key = f"1|{ASSET_ID}|{settings.LAKE_PAGE_SIZE}|[2.0, -0.5, 5.0, 0.5]|None|None"
+    before = f'W/"{hashlib.sha256(key.encode()).hexdigest()[:32]}"'
+
+    assert as_viewer.get(url(), {"bbox": "2,-0.5,5,0.5"}).headers["ETag"] == before
+
+
 def test_a_superseded_asset_is_404_even_with_a_matching_etag(as_viewer, monkeypatch, tmp_path):
     """The ETag is checked after the catalog, so an old copy is never blessed."""
     path = write_spread_points(tmp_path / "spread.parquet", rows=3)

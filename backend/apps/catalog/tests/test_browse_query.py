@@ -151,6 +151,24 @@ class TestDocuments:
         assert "modality = 'document'" in kb._DOCUMENT_PDF
         assert "status = 'active'" in kb._DOCUMENT_PDF
 
+    def test_the_chunk_table_read_names_the_modality_and_the_status(self):
+        assert "modality = 'document'" in kb._DOCUMENT_CHUNKS
+        assert "status = 'active'" in kb._DOCUMENT_CHUNKS
+
+    def test_a_document_names_its_chunk_table_whether_or_not_its_pdf_is_known(self, monkeypatch):
+        monkeypatch.setattr(
+            kb, "_rows", lambda sql, params: [{"chunks_uri": "s3://silver/x.lance"}]
+        )
+        assert kb.document_chunks_uri("cd8173bb-65ef-4bab-8bec-2be34d7157b9") == (
+            "s3://silver/x.lance"
+        )
+
+    def test_no_document_or_no_chunk_table_is_nothing_to_read(self, monkeypatch):
+        monkeypatch.setattr(kb, "_rows", lambda sql, params: [])
+        assert kb.document_chunks_uri("cd8173bb-65ef-4bab-8bec-2be34d7157b9") is None
+        monkeypatch.setattr(kb, "_rows", lambda sql, params: [{"chunks_uri": None}])
+        assert kb.document_chunks_uri("cd8173bb-65ef-4bab-8bec-2be34d7157b9") is None
+
     def test_a_document_whose_pdf_was_never_recorded_has_nothing_to_serve(self, monkeypatch):
         """A bundle loaded without its source stamp: a 404, not a read of a null path."""
         monkeypatch.setattr(

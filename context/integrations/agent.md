@@ -11,7 +11,9 @@ from the portal's side: what the gateway sends, and what it accepts back.
 Where the agent's design left a field name open, this file fixes it, and the
 agent is built to match.
 
-Built on 2026-11-09 against a stub agent. The real agent is not built yet.
+Built on 2026-11-09 against a stub agent, then checked against the real one.
+The agent's tools are being built one at a time; the table under "How the
+agent calls back" says which call this backend today.
 
 ## Settings
 
@@ -43,6 +45,27 @@ no usable password. It sends `Authorization: Api-Key <key>`, read from
 the agent can never write, and it sees what any Viewer sees. Issue it with
 `manage.py create_api_key gobase-agent "<where it runs>"`; revoke it in
 Django admin.
+
+What the tools call, as built here (docs/adr/024 lists all nine):
+
+| Tool | Endpoint |
+|---|---|
+| `catalog_search` | `GET /api/catalog/assets` |
+| `list_datasets` | `GET /api/catalog/datasets` |
+| `describe_asset` | `GET /api/map/assets/{id}` |
+| `find_place` | `GET /api/places/search` |
+| `vector_features` | `GET /api/map/assets/{id}/summary` |
+| `raster_clip` | `GET /api/map/assets/{id}/raster-stats` |
+| `doc_read` | `GET /api/catalog/assets/{id}/passages/{chunk_id}` |
+
+Three endpoints were added for the agent on 2026-11-10. `doc_read`'s is one
+passage by its id, with its text, headings and pages from 1.
+`vector_features`' is an exact count of a vector asset's features in a
+place, with a few sample rows and a simple attribute filter (docs/adr/028).
+`raster_clip`'s is a raster's figures over a place: per-band statistics and,
+for a classified raster, each class's share (docs/adr/029). The agent never
+calls `GET /api/map/assets/{id}/clip.tif`: its `raster` reference carries the
+place, and the client fetches the clip from this backend with it.
 
 The two secrets are different and go opposite ways: `AGENT_SERVICE_TOKEN`
 is what this backend shows the agent, and the API key is what the agent
@@ -86,7 +109,7 @@ stream of server-sent events: a name on an `event:` line, and JSON on a
 | Event | Agent's `data` | What the SPA receives |
 |---|---|---|
 | `step` | `{tool, status, note?}` — `status` is `started`, `finished` or `failed` | the same, with `event` |
-| `text` | `{delta}` | the same, with `event` |
+| `text` | `{delta}` — citations are `[A1]` markers, one handle per pair; only handles a tool returned this turn get through | the same, with `event` |
 | `reference` | one reference (below) | `{event, reference}` |
 | `done` | `{text, references}` — the whole answer, checked | the same, with `event` |
 | `error` | `{message, incomplete}` | the same, with `event` |
@@ -103,13 +126,52 @@ One flat shape, `ChatReference`. `kind` says which fields are set:
 | `asset` | `asset_id` |
 | `layer` | `asset_id`, `area` (WKT) or `bbox`, `filter`, `total` |
 | `passage` | `asset_id`, `chunk_id`, `page` (from 1) |
-| `raster` | `asset_id`, `area` or `bbox`, `stats` |
+| `raster` | `asset_id`, `area` (WKT) or `bbox`, `stats` |
 | `frame` | `bbox` |
 
+Every kind may also carry `handle`, the agent's short name for the item
+(`A1` for assets, `P1` for passages, `L1` for a found place on a `frame`;
+`[APL][1-9][0-9]{0,4}`), unique within
+the session, which the answer cites inline as `[A1]`, plus the asset's `name`
+and `data_type` as the agent read them from the catalog. In `done` and in a
+stored turn each reference also has `cited`: whether the answer cited it.
+A streamed `reference` event carries no `cited`; the SPA reads the markers
+in the text until `done` says.
+
 `filter` is `{column, op, value}`, with `op` one of `equals`, `contains`,
-`in`, `<`, `>` (docs/adr/024). `stats` is an open object: the figures the
-answer used, per band or per class. The backend passes a reference on with
-only its kind's fields; it does not look the asset up.
+`in`, `<`, `>` (docs/adr/028); `value` is text, or a list of texts for `in`.
+They are the `filter_column`, `filter_op` and `filter_value` that `/data`
+takes. A `layer` carries its asset's handle (`A1`), and has neither `area`
+nor `bbox` when the count was of the whole asset. The agent sends every
+place as an `area`, a rectangle included, so `/data` with that `area` draws
+exactly what was counted (docs/adr/028); the contract still accepts a `bbox`.
+
+A `raster` carries its asset's handle too, and its `area` the same way: a
+client can fetch the clip with it from `GET /api/map/assets/{id}/clip.tif`
+(docs/adr/029). The panel does not offer that yet, and the agent's tool
+tells the model nothing about a download. With no `area` the figures are of
+the whole raster, and there is no clip to offer. `stats` is an open object,
+the figures the agent showed the model: `pixels`, `approximate`, `bands`
+(`band`, `min`, `max`, `mean`, `valid_percent`) and, for a classified
+raster, `classes` (`value`, `name`, `share_percent`, `pixels`; at most 12,
+the rest summed in `other_classes`). A percentage above zero that rounds to
+0.00 arrives as the text `"<0.01"`, and one below 100 that rounds to 100.00
+as `">99.99"`. `pixels: 0` means the raster does not
+reach the place.
+
+Two things the gateway does not check:
+
+- **`stats` has no size or shape limit.** Any JSON object passes. The
+  agent's real ones are under 2 KB; the gateway trusts the agent for that,
+  as its only caller's only upstream.
+- **`scope` is dropped.** The agent puts the scope it used (`drawn_area`,
+  `map_view`, `L1`, `everywhere`) on `layer` and `raster` references. It
+  is not a field of the contract, so it is removed like any field the
+  contract does not name. The `area` is what the panel gets.
+An answer may hold several layers or rasters of one asset, one per place
+or filter, all with the asset's handle. The backend passes a reference on with
+only its kind's fields; it does not look the asset up. A `handle` outside
+the pattern ends the answer like any field that does not fit.
 
 ## What the backend checks
 

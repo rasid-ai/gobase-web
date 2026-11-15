@@ -27,6 +27,9 @@ belong to the platform repo and are never run from here. See docs/adr/001.
 - **pgvector** similarity search in `kb` for document chunks and dataset cards.
 - **Embedded DuckDB** in the backend process queries Parquet/GeoParquet on
   S3 via httpfs — per-request connections, S3 credentials scoped read-only.
+- **rasterio (GDAL)** reads a window of a raster (a COG on S3) with the same
+  read-only credentials, for figures over a place and for a clip
+  (docs/adr/029). The web map still draws no raster.
 - **Dagster GraphQL API** is the only way run information is read. The
   backend never reads Dagster's internal database, so the platform repo can
   upgrade Dagster freely.
@@ -136,7 +139,8 @@ geo-portal/
       catalog/             # kb.py (the kb schema reader) + browse endpoints;
                            # chunks.py (LanceDB), pages.py (pdfium), passages.py
       chat/                # the Ask gateway: relays to gobase-agent (no model, no store)
-      map/                 # footprint/coverage + asset metadata endpoints
+      map/                 # footprint/coverage + asset metadata endpoints;
+                           # lake.py (DuckDB), raster.py (rasterio), sts.py
       runs/                # Dagster GraphQL client, run list/detail
     openapi.yaml           # exported schema (the contract), committed in CI
     Dockerfile
@@ -192,6 +196,14 @@ geo-portal/
    A question asked with an area drawn runs flow 1 with the polygon in its
    context; a layer in the answer is a reference the map draws from
    `/api/map/assets/{id}/data`, never GeoJSON in the answer (docs/adr/024).
+   The figure in such an answer comes from `GET
+   /api/map/assets/{id}/summary`: an exact count in a bbox or an area, a
+   few rows of properties, and a simple attribute filter that `/data` takes
+   too (docs/adr/028). A figure about a raster comes from `GET
+   /api/map/assets/{id}/raster-stats`: per-band statistics and class shares
+   over a bbox or an area, read from the window of the COG over it; the
+   pixels themselves are a download, `GET /api/map/assets/{id}/clip.tif`
+   (docs/adr/029, context/integrations/raster.md).
 3. **Assets:** filters → `GET /api/catalog/datasets` (from `kb`) → the
    datasets, each with its counts; opening one, or browsing every asset →
    `GET /api/catalog/assets` → one page of rows, the total behind it, and a
@@ -256,3 +268,6 @@ geo-portal/
    /api/catalog/assets/{id}/pages/{page}.png?chunk=` → the PDF read from
    bronze and one page rendered with the passage's boxes drawn
    (`apps/catalog/pages.py`); Open PDF at the page appends `#page=N`.
+   One passage by its id → `GET /api/catalog/assets/{id}/passages/{chunk_id}`
+   → its text, headings and pages from 1, read from the same index. The Ask
+   agent's `doc_read` tool calls it (docs/adr/024).

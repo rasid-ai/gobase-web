@@ -553,8 +553,8 @@ class PassagesQuerySerializer(CatalogScopeSerializer):
     )
 
 
-class PassageSerializer(serializers.Serializer):
-    """One passage of a document that matched the question."""
+class PassageTextSerializer(serializers.Serializer):
+    """One passage of a document: its text and where it sits."""
 
     chunk_id = serializers.CharField(
         read_only=True, help_text="The passage's id in the chunk index; what the page image takes."
@@ -585,11 +585,22 @@ class PassageSerializer(serializers.Serializer):
     chunk_type = serializers.CharField(
         read_only=True, help_text="What the parser read: text, table, list, chart, …"
     )
+
+
+class PassageSerializer(PassageTextSerializer):
+    """One passage of a document that matched the question."""
+
     score = serializers.FloatField(
         read_only=True,
         allow_null=True,
         help_text="Cosine similarity to the question: 1 is identical. Rows come best first.",
     )
+
+
+class DocumentPassageSerializer(PassageTextSerializer):
+    """One passage read by its id, with the document it belongs to."""
+
+    asset_id = serializers.UUIDField(read_only=True, help_text="The document the passage is in.")
 
 
 class DocumentPassagesSerializer(AssetListItemSerializer):
@@ -616,11 +627,17 @@ class PassagesSerializer(serializers.Serializer):
     results = DocumentPassagesSerializer(many=True, read_only=True)
 
 
+# What a `chunk_id` may look like, wherever a caller sends one. The value is
+# quoted into the chunk index's filter, so nothing else gets that far. Never
+# only dots: `.` and `..` are path steps, and a client would ask another URL.
+CHUNK_ID_PATTERN = r"^(?!\.+$)[A-Za-z0-9._:-]{1,128}$"
+
+
 class DocumentPageQuerySerializer(serializers.Serializer):
     """Which passage, if any, to draw on the page."""
 
     chunk = serializers.RegexField(
-        r"^[A-Za-z0-9._:-]{1,128}$",
+        CHUNK_ID_PATTERN,
         required=False,
         help_text=(
             "A passage's `chunk_id`: its boxes are drawn on the page. Omitted "

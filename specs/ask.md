@@ -7,10 +7,13 @@ is a gateway to it and runs no model. The contract is in
 context/integrations/agent.md.
 
 **Built (2026-11-09):** the gateway and the panel, tested against a faked
-agent and checked live against a stub. **Not built:** the agent itself, and
-the backend endpoints its tools need (docs/adr/024). So Ask answers nothing
-yet in any deployed portal; with no `AGENT_URL` the panel says Ask is
-unavailable.
+agent and checked live against a stub. **Built (2026-11-10):** the three
+backend endpoints the agent's tools were missing (docs/adr/024; "What the
+backend serves the agent's tools" below), each run end to end with the real
+agent on a developer's machine. **Not built:** two of the agent's nine tools
+(`doc_search`, `doc_passages`; the agent's repo says which), and a deployed
+agent. So Ask answers nothing yet in any deployed portal; with no
+`AGENT_URL` the panel says Ask is unavailable.
 
 ## Answering
 
@@ -39,24 +42,42 @@ The Ask service returned 502."
 
 ## What an answer shows
 
-The agent sends one list of references. The panel shows it in three places
+The agent sends one list of references: everything its tools returned, each
+with a short handle (`A1`), its name and data type. The answer cites inline
+with markers, `[A1]`. The panel shows only what the answer cited
 (`features/ask/references.ts`):
 
-- **Citations**, under the text: every asset the answer drew on, once per
-  asset and page — name, data type, and `p. N` for a passage. An asset cited
+- **Marks**, in the text: each marker becomes a small numbered button, 1, 2,
+  3 in order of first citation in that answer. Selecting one opens the asset.
+  A bracket the turn has no reference for (`[sic]`) stays as text.
+- **Citations**, under the text: every cited asset, in marker order and with
+  the same number — name, data type, and `p. N` for a passage. An asset cited
   at a page gets no second chip without one. Selecting one opens the asset's
-  metadata in the map's pane.
-- **Assets**, in a box below: the `asset` and `raster` references, to open.
+  metadata in the map's pane. The name and type come with the reference; a
+  reference without them is looked up in the catalog.
+- **Assets**, in a box below: the cited `asset` and `raster` references, to
+  open.
 - **On the map**, in the same box: the `layer` references, each with the
   count the answer gave. A layer that arrives while the answer streams is
   drawn at once; its chip hides and shows it.
 
 A `frame` reference moves the map when it arrives, and "Framed to the
-answer" under the text moves it back there.
+answer" under the text moves it back there. A frame may carry the handle of
+the place the agent found (`L1`). A place is never cited, so it gets no mark
+and no chip.
 
-Not built: a raster's clip download (its backend endpoint does not exist), a
-passage opening at its page image (a passage opens the asset's metadata, from
-which the PDF opens), and the hover that shows a citation's dataset label.
+A reference counts as cited when its handle appears as a marker in the text,
+so chips appear while the answer streams, as it cites them, and after an
+answer that stopped early. At `done`, and in a stored turn, the agent's own
+`cited` flag is also honoured: `cited: false` hides a chip, `cited: true`
+shows one. A reference with no handle and no flag is shown, as before handles.
+
+Not built: a raster's clip download and its figures in the panel (the
+endpoint exists since 2026-11-10, `GET /api/map/assets/{id}/clip.tif`, and a
+`raster` reference carries the `area` to send it and the `stats` to show;
+the panel shows the reference as an asset chip only), a passage opening at
+its page image (a passage opens the asset's metadata, from which the PDF
+opens), and the hover that shows a citation's dataset label.
 
 ## Area scope
 
@@ -66,11 +87,24 @@ The line above the box says which: "Asking about · this area · 1 asset
 selected", "this point", or "the current view".
 
 Restricting retrieval to that area is the agent's job, through the backend
-endpoints its tools call. **Known gap:** a layer from an answer is drawn
-through the same layer store as the asset pane's Draw, so it follows the
-current drawn area or view, not the area and filter the answer counted.
-`/data` has no attribute filter yet (docs/adr/024), so until it does, a
-filtered layer draws more than the answer counted.
+endpoints its tools call.
+
+**Known gaps in how an answer's layer is shown** (not built):
+
+- **The chip's number is not what the chip draws.** The chip shows the
+  reference's `total`, the count the answer gave. Its click draws through
+  the same layer store as the asset pane's Draw, so the map shows the whole
+  asset in the current drawn area or view, with no filter. `/data` now
+  takes the reference's `area` and filter (docs/adr/028), and the agent
+  sends every place as an `area`, so drawing exactly what was counted needs
+  only the layer store to pass them on.
+- **The chip's scope label is wrong for some layers.** It says "drawn area"
+  for any layer with an `area`. The agent now sends the map view and a found
+  place as an `area` too (a rectangle), so those also read "drawn area". A
+  layer of the whole asset has no `area` and reads "this view".
+- **One chip per asset.** An answer may carry several layers of one asset,
+  one per count ("2 schools and 7 hospitals"), all with the asset's handle.
+  The panel keeps the last one, so its chip shows that count only.
 
 ## Sessions
 
@@ -97,3 +131,35 @@ questions), streaming, incomplete, unavailable (the session list answered
 question box), and an error on send (the toast). Each is in
 `context/designs/GeoPortal.zip`, and each was checked in a browser, light and
 dark, against a stub agent on 2026-11-09.
+
+## What the backend serves the agent's tools
+
+The agent's tools read the knowledge base through this backend
+(docs/adr/024). Four of them use endpoints the pages already use. Three
+endpoints exist for the agent's answers alone:
+
+- **A passage by its id (built 2026-11-10).** `GET
+  /api/catalog/assets/{asset_id}/passages/{chunk_id}` returns one passage of
+  a document: `asset_id`, `chunk_id`, `text`, `heading_path`, `page_start`,
+  `page_end`, `pages_with_boxes` and `chunk_type`. Pages count from 1, as in
+  deep search. It answers 404 when the id is not an active document, when the
+  document has no passages indexed, or when the chunk is not in that
+  document; 400 for a chunk id that is not one; 503 when the chunk index
+  cannot be reached and 502 when it fails. A document whose PDF was never
+  recorded can still be read.
+
+- **A features summary (built 2026-11-10).** `GET
+  /api/map/assets/{asset_id}/summary` returns `asset_id`, `total` and
+  `sample` for a vector asset: the exact number of features in a `bbox` or a
+  drawn `area` (or the whole file), and the properties of the first few, with
+  no geometry. It takes a simple attribute filter, which `/data` takes too
+  (specs/map.md, "A count and a filter"; docs/adr/028).
+
+- **Raster figures and a clip (built 2026-11-10).** `GET
+  /api/map/assets/{asset_id}/raster-stats` returns `asset_id`, `pixels`,
+  `approximate`, `bands`, `classes` and `other_classes` for a raster: per-band statistics
+  over a `bbox` or a drawn `area` (or the whole raster), and each class's
+  share for a classified raster. `GET /api/map/assets/{asset_id}/clip.tif`
+  downloads the pixels over the place as a GeoTIFF. The agent's `raster_clip`
+  tool calls the first; the second is for the client (specs/map.md, "Raster
+  figures and a clip"; docs/adr/029).

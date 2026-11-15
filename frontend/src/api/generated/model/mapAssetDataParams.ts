@@ -5,6 +5,7 @@
  * Internal API for the Geo Portal SPA. Read-only over the knowledge base.
  * OpenAPI spec version: 0.1.0
  */
+import type { MapAssetDataFilterOp } from './mapAssetDataFilterOp';
 
 export type MapAssetDataParams = {
 /**
@@ -22,6 +23,29 @@ bbox?: string;
  * @minimum 0
  */
 cursor?: number;
+/**
+ * Keep only the features whose value in this column matches. A column of the asset, as its metadata lists them. Sent with filter_op and filter_value.
+ * @minLength 1
+ * @maxLength 255
+ */
+filter_column?: string;
+/**
+ * How to compare. `equals` and `in`: text without regard to case, other types by value. `contains`: text columns only, without regard to case. `<` and `>`: numbers, dates and timestamps only. A null never matches.
+ *
+ * * `equals` - equals
+ * * `contains` - contains
+ * * `in` - in
+ * * `<` - <
+ * * `>` - >
+ * @minLength 1
+ */
+filter_op?: MapAssetDataFilterOp;
+/**
+ * The value to compare with, as text. Repeat the parameter to give `in` several, up to 20; every other operator takes one.
+ * @maxItems 20
+ * @items.maxLength 200
+ */
+filter_value?: string[];
 /**
  * Features per page. Defaults to, and is capped at, the server's page size.
  * @minimum 1

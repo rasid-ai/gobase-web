@@ -306,3 +306,24 @@ LAKE_STS_SECRET_KEY = env("LAKE_STS_SECRET_KEY", "")
 # STS allows. The add-in asks for a new set before this runs out.
 LAKE_STS_DURATION_SECONDS = int(env("LAKE_STS_DURATION_SECONDS", "3600"))
 LAKE_STS_TIMEOUT_SECONDS = float(env("LAKE_STS_TIMEOUT_SECONDS", "5"))
+
+# --- raster figures and clips (docs/adr/029) ---------------------------------
+# The portal reads a raster's pixels itself for two endpoints, both with the
+# LAKE_S3_* settings above. Only apps/map/raster.py reads these.
+#
+# The most pixels read to answer raster-stats. A window above it is read at
+# reduced size (from a COG's overview) and the answer says it is approximate.
+RASTER_STATS_MAX_PIXELS = int(env("RASTER_STATS_MAX_PIXELS", "4000000"))
+# The largest clip.tif, as bytes of pixels before compression: width x height
+# x bands x bytes per value. Above it the endpoint answers 400. Bytes, not
+# pixels, because the response is held in memory whole, and four float bands
+# weigh sixteen times what one byte band does. 64 MB by default.
+RASTER_CLIP_MAX_BYTES = int(env("RASTER_CLIP_MAX_BYTES", str(64 * 1024 * 1024)))
+# The longest a raster read may take, in seconds, from opening the raster to
+# its last pixel. Checked between chunks of rows of a statistics read and
+# between strips of a clip, so a read can run over by one of those: a few
+# megabytes. A read that reaches it answers 503. Zero means no limit of this
+# kind (GDAL still bounds each request). A clip at the cap pulls 45 to 70 MB
+# from the lake, depending on the window, so 60 seconds asks for a link of 6
+# to 9 Mbit/s between the portal and the lake; raise it for a slower one.
+RASTER_READ_TIMEOUT_SECONDS = float(env("RASTER_READ_TIMEOUT_SECONDS", "60"))

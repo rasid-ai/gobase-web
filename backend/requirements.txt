@@ -15,8 +15,13 @@ gunicorn==23.0.0
 uvicorn[standard]==0.41.0
 # Asks the lake's STS for short-lived credentials that read one raster, for
 # desktop clients (docs/adr/022). The only module that imports it is
-# apps/map/sts.py; nothing in the portal reads a raster itself.
+# apps/map/sts.py. rasterio's own S3 session also loads it, for the lake's keys.
 boto3==1.43.114
+# Reads a raster's pixels over a place, for raster-stats and clip.tif
+# (docs/adr/029). The wheel bundles GDAL and PROJ, so the image needs no system
+# package. The only module that imports it is apps/map/raster.py, and it
+# imports it on first use: nothing at start-up needs it.
+rasterio==1.5.1
 # Reads GeoParquet from the lake over S3 (GP-4). The only module that imports
 # it is apps/map/lake.py; kb stays on Django's connection, never DuckDB.
 duckdb==1.5.5

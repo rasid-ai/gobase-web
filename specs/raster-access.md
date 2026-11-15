@@ -36,6 +36,9 @@ context/integrations/lake-sts.md.
   on machines on the tailnet.
 - **The web map.** It does not draw rasters; TiTiler tiles remain the plan
   (docs/adr/003).
+- **Not this endpoint's job: figures and clips.** The portal reads a raster
+  itself for `raster-stats` and `clip.tif` (specs/map.md, "Raster figures
+  and a clip"; docs/adr/029). Those need no credentials on the client.
 - **Rate limits.** Nothing stops a key asking every second; each answer
   still reads only one raster.
 - **AWS S3.** `AssumeRole` there needs a real role ARN, which is not a setting.

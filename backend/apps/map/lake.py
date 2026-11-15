@@ -17,7 +17,11 @@ connection and its read-only role (docs/adr/002).
 
 import json
 import logging
+import math
+import re
 import threading
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 import duckdb
 from django.conf import settings
@@ -31,6 +35,40 @@ class LakeUnavailable(Exception):
 
 class LakeReadError(Exception):
     """The lake answered, but the file is missing or not readable as GeoParquet."""
+
+
+# The attribute filter's fixed operators, and its caps (docs/adr/028).
+FILTER_OPERATORS = ("equals", "contains", "in", "<", ">")
+MAX_FILTER_VALUES = 20
+MAX_FILTER_VALUE_CHARS = 200
+# How many column names a refusal lists, so the caller's next try can be right.
+_LISTED_COLUMNS = 100
+
+
+@dataclass(frozen=True)
+class AttributeFilter:
+    """One column, one operator, and the value or values to compare with.
+
+    Not SQL. The column is checked against the file's own columns and quoted;
+    every value is a bound parameter (docs/adr/028). Values arrive as text
+    and are cast to the column's type.
+    """
+
+    column: str
+    op: str
+    values: tuple[str, ...]
+
+
+class FilterRefused(ValueError):
+    """The filter cannot be applied to this file. The caller's mistake: a 400.
+
+    `field` is the request parameter at fault, so the answer can say which.
+    """
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+        self.message = message
 
 
 # One connection per worker process, built on first use. DuckDB connections are
@@ -243,6 +281,352 @@ def _covering_bbox_column(columns: list[tuple[str, str]], uri: str) -> str | Non
     return None
 
 
+@dataclass(frozen=True)
+class _Scope:
+    """What a read is narrowed to: the file's columns, and the WHERE that keeps the rows."""
+
+    geometry: str
+    covering: str | None
+    columns: list[tuple[str, str]]
+    conditions: tuple[str, ...]
+    params: tuple
+
+
+def _scope(
+    reader,
+    uri: str,
+    *,
+    bbox: tuple[float, float, float, float] | None,
+    area: str | None,
+    attribute_filter: AttributeFilter | None,
+    exact: bool = False,
+) -> _Scope:
+    """The conditions that keep a read to a place and to an attribute filter.
+
+    Shared by the page read and the summary, so an `area` and a filter mean
+    the same rows to both. Each condition binds its own parameters, in order;
+    the caller puts the file's URI before them.
+
+    `exact` decides how a `bbox` without an `area` is tested. A page for a
+    window tests boxes against the box, which is cheap and slightly
+    over-inclusive. A count has to be exact, so it tests the real geometry
+    against the box.
+    """
+    if area is not None and bbox is None:
+        raise ValueError("an area needs its envelope passed as bbox, for pruning")
+
+    geometry_name = _geometry_column(reader, uri)
+    columns = _describe(reader, uri)
+    covering = _covering_bbox_column(columns, uri)
+    geometry = _quote(geometry_name)
+
+    conditions: list[str] = []
+    params: list = []
+    if bbox is not None:
+        min_lon, min_lat, max_lon, max_lat = bbox
+        if covering is not None:
+            # A plain range test on the covering column, and the whole
+            # reason the area filter is affordable. DuckDB checks it
+            # against each row group's min/max statistics and skips the
+            # groups that miss, before reading any geometry at all. It
+            # will not derive this from ST_Intersects_Extent on its own
+            # (checked on DuckDB 1.5.5), so without it every row of the
+            # file is read off the object store to answer any area query.
+            box = _quote(covering)
+            conditions.append(
+                f"{box}.xmin <= ? AND {box}.xmax >= ? AND {box}.ymin <= ? AND {box}.ymax >= ?"
+            )
+            params.extend([max_lon, min_lon, max_lat, min_lat])
+
+        if area is not None:
+            # A drawn polygon is tested exactly. Its outline is on screen,
+            # so a feature drawn outside it reads as a bug rather than as
+            # an optimisation: over Beirut the loose box test returns 15%
+            # more buildings than lie inside the polygon. The exact test
+            # only runs on what the envelope let through, which is why it
+            # is affordable (56 ms against 371 ms unpruned, docs/adr/014).
+            conditions.append(f"ST_Intersects({geometry}, ST_GeomFromText(?))")
+            params.append(area)
+        elif exact:
+            # A count is a figure in an answer, so a feature whose box
+            # overlaps the window but whose shape does not must not be in
+            # it (docs/adr/028). The covering column still prunes first.
+            conditions.append(f"ST_Intersects({geometry}, ST_MakeEnvelope(?, ?, ?, ?))")
+            params.extend(bbox)
+        else:
+            # A window is tested on bounding boxes, not real geometry:
+            # `ST_Intersects_Extent` is a box-against-box test and the
+            # exact predicate does real geometry work on every surviving
+            # row, measured 18-40% slower for the same rows.
+            #
+            # It is over-inclusive and never under-inclusive: a feature
+            # whose box overlaps the window but whose geometry does not
+            # comes back too. For a window that is free — it lands off
+            # screen and MapLibre clips it. Anything counting or answering
+            # from this must know it (docs/adr/012).
+            conditions.append(f"ST_Intersects_Extent({geometry}, ST_MakeEnvelope(?, ?, ?, ?))")
+            params.extend(bbox)
+
+    if attribute_filter is not None:
+        attributes = [
+            (name, dtype)
+            for name, dtype in columns
+            if name not in (geometry_name, covering, "file_row_number")
+        ]
+        condition, values = _filter_condition(reader, attributes, attribute_filter)
+        conditions.append(condition)
+        params.extend(values)
+
+    return _Scope(geometry_name, covering, columns, tuple(conditions), tuple(params))
+
+
+# How a column's DuckDB type may be filtered. The type text comes from
+# DESCRIBE, and only a type matching one of these is ever written into a CAST.
+_TEXT_TYPES = re.compile(r"VARCHAR|UUID|ENUM\(.*\)")
+_NUMBER_TYPES = re.compile(
+    r"U?(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT)|FLOAT|DOUBLE|REAL|DECIMAL\(\d+,\s*\d+\)"
+)
+_TIME_TYPES = re.compile(r"DATE|TIMESTAMP(_S|_MS|_NS)?|TIMESTAMP WITH TIME ZONE|TIME")
+
+
+def _filter_condition(
+    reader, attributes: list[tuple[str, str]], asked: AttributeFilter
+) -> tuple[str, list]:
+    """The SQL for one attribute filter and the values it binds, or `FilterRefused`.
+
+    The semantics (docs/adr/028):
+
+    - `equals` and `in` compare text without regard to case, and any other
+      type after casting the value to the column's type.
+    - `contains` is for text only, without regard to case. `%` and `_` in the
+      value are ordinary characters.
+    - `<` and `>` are for numbers, dates and timestamps only.
+    - A null never matches, and neither does NaN for `<` or `>`.
+
+    Nothing the caller sent is written into the SQL: the column name is the
+    file's own, found by comparing, and each value is a parameter.
+    """
+    if asked.op not in FILTER_OPERATORS:
+        raise FilterRefused(
+            "filter_op", f"filter_op must be one of: {', '.join(FILTER_OPERATORS)}."
+        )
+    values = list(asked.values)
+    if not values:
+        raise FilterRefused("filter_value", "A filter needs a value.")
+    if asked.op != "in" and len(values) != 1:
+        raise FilterRefused("filter_value", f"`{asked.op}` takes one value; use `in` for several.")
+    if len(values) > MAX_FILTER_VALUES:
+        raise FilterRefused("filter_value", f"`in` takes at most {MAX_FILTER_VALUES} values.")
+    if any(len(value) > MAX_FILTER_VALUE_CHARS for value in values):
+        raise FilterRefused(
+            "filter_value", f"A filter value is at most {MAX_FILTER_VALUE_CHARS} characters."
+        )
+
+    dtype = next((dtype for name, dtype in attributes if name == asked.column), None)
+    if dtype is None:
+        names = [name for name, _ in attributes]
+        listed = ", ".join(names[:_LISTED_COLUMNS]) or "none"
+        more = f", and {len(names) - _LISTED_COLUMNS} more" if len(names) > _LISTED_COLUMNS else ""
+        raise FilterRefused(
+            "filter_column",
+            f"This asset has no column `{asked.column}`. Its columns: {listed}{more}.",
+        )
+    column = _quote(asked.column)
+    kind = dtype.upper()
+
+    if _TEXT_TYPES.fullmatch(kind):
+        if asked.op in ("<", ">"):
+            raise FilterRefused(
+                "filter_op",
+                f"`{asked.op}` needs a number or a date; `{asked.column}` is text ({dtype}).",
+            )
+        if asked.op == "contains":
+            if not values[0]:
+                raise FilterRefused("filter_value", "`contains` needs some text to look for.")
+            # `contains` is a plain substring test: no wildcard means anything.
+            return f"contains(lower({column}::VARCHAR), lower(?))", values
+        marks = ", ".join("lower(?)" for _ in values)
+        return f"lower({column}::VARCHAR) IN ({marks})", values
+
+    number = bool(_NUMBER_TYPES.fullmatch(kind))
+    if not (number or _TIME_TYPES.fullmatch(kind) or kind == "BOOLEAN"):
+        raise FilterRefused(
+            "filter_column", f"Column `{asked.column}` ({dtype}) cannot be filtered on."
+        )
+    if asked.op == "contains":
+        raise FilterRefused(
+            "filter_op", f"`contains` is for text columns; `{asked.column}` is {dtype}."
+        )
+    if kind == "BOOLEAN" and asked.op in ("<", ">"):
+        raise FilterRefused(
+            "filter_op", f"`{asked.op}` needs a number or a date; `{asked.column}` is {dtype}."
+        )
+    if _WHOLE_TYPES.fullmatch(kind) and asked.op in ("equals", "in"):
+        # A whole-number column equals only whole numbers that fit its type,
+        # so each value is compared in that type and a 64-bit id stays exact.
+        # `1.5`, or a number too large for the column, is a number no row
+        # equals: it is left out, not compared as a DOUBLE, which would round
+        # the column's large values together (docs/adr/028).
+        kept = []
+        for value in values:
+            whole = _whole_number(value)
+            if whole is _NOT_A_NUMBER:
+                raise FilterRefused(
+                    "filter_value",
+                    f"`{value}` is not a value column `{asked.column}` ({dtype}) can hold.",
+                )
+            if whole is not None and _casts(reader, whole, kind):
+                kept.append(whole)
+        if not kept:
+            return "FALSE", []
+        marks = ", ".join(f"CAST(? AS {kind})" for _ in kept)
+        return f"{column} IN ({marks})", kept
+
+    casts = []
+    for value in values:
+        cast = _cast_type(reader, value, kind, number)
+        if cast is None:
+            raise FilterRefused(
+                "filter_value",
+                f"`{value}` is not a value column `{asked.column}` ({dtype}) can hold.",
+            )
+        casts.append(cast)
+
+    if asked.op in ("<", ">"):
+        condition = f"{column} {asked.op} CAST(? AS {casts[0]})"
+        if kind in _FLOATING:
+            # DuckDB orders NaN above every number; it is not "greater than 5".
+            condition += f" AND NOT isnan({column})"
+        return condition, values
+    # One comparison per value, not one IN list: a list has one type, so a
+    # single value cast to DOUBLE would turn every comparison into a DOUBLE one.
+    tests = " OR ".join(f"{column} = CAST(? AS {cast})" for cast in casts)
+    return f"({tests})", values
+
+
+_WHOLE_NUMBER = re.compile(r"[+-]?[0-9]+")
+_WHOLE_TYPES = re.compile(r"U?(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT)")
+_SINGLE_TYPES = {"FLOAT", "REAL"}
+_NOT_A_NUMBER = object()
+# No whole-number type holds more digits than this (UHUGEINT has 39).
+_MAX_WHOLE_DIGITS = 40
+
+
+def _whole_number(value: str):
+    """A number sent as text, as a whole number's digits.
+
+    None when it is a number but not a whole one a column could hold (`1.5`,
+    `1e99`), and `_NOT_A_NUMBER` when it is not a finite number at all.
+    `7.0` and `7e0` are 7.
+    """
+    try:
+        number = Decimal(value.strip())
+    except (InvalidOperation, ValueError):
+        return _NOT_A_NUMBER
+    if not number.is_finite():
+        return _NOT_A_NUMBER
+    if number.adjusted() >= _MAX_WHOLE_DIGITS or number != number.to_integral_value():
+        return None
+    return str(int(number))
+
+
+def _casts(reader, value: str, kind: str) -> bool:
+    """Whether a value sent as text casts to a type. `kind` is never the caller's text."""
+    reader.execute(f"SELECT TRY_CAST(? AS {kind}) IS NOT NULL", [value])
+    return bool(reader.fetchone()[0])
+
+
+def _cast_type(reader, value: str, kind: str, number: bool) -> str | None:
+    """The type to cast a value sent as text to, or None if the column cannot hold it.
+
+    A number is compared as a DOUBLE, so `1.5` against a whole-number column
+    means 1.5 and is not rounded to 2 by a cast to the column's type. Two
+    exceptions keep a comparison exact:
+
+    - A whole number against a whole-number column is cast to that type: a
+      64-bit id does not fit a DOUBLE exactly.
+    - Any number against a 32-bit FLOAT column is cast to FLOAT. Widened to a
+      DOUBLE, the column's 0.1 is 0.100000001490116, which equals no `0.1`.
+    """
+    if number:
+        try:
+            if not math.isfinite(float(value)):
+                return None
+        except ValueError:
+            return None
+        if kind in _SINGLE_TYPES:
+            pass
+        elif not (_WHOLE_TYPES.fullmatch(kind) and _WHOLE_NUMBER.fullmatch(value)):
+            kind = "DOUBLE"
+    if _casts(reader, value, kind):
+        return kind
+    if number and kind != "DOUBLE":
+        # A number too large for the column's type: no row equals it, but it
+        # is still a number to compare with.
+        return "DOUBLE"
+    return None
+
+
+def summarize_vector_features(
+    uri: str,
+    *,
+    sample: int,
+    bbox: tuple[float, float, float, float] | None = None,
+    area: str | None = None,
+    attribute_filter: AttributeFilter | None = None,
+) -> dict:
+    """How many features match, exactly, and the properties of the first few.
+
+    For answers, not for drawing (docs/adr/028). The same scope as
+    `read_vector_features`, with one difference: a `bbox` on its own is
+    tested against each feature's real geometry, because a count has to be
+    exact. The covering column still prunes first.
+
+    Returns `total` and `sample`: up to `sample` rows of properties in file
+    order, no geometry, written by the same rules as a page's properties.
+    """
+    try:
+        reader = _shared_connection().cursor()
+    except duckdb.Error as exc:
+        raise LakeUnavailable(str(exc)) from exc
+
+    try:
+        scope = _scope(
+            reader, uri, bbox=bbox, area=area, attribute_filter=attribute_filter, exact=True
+        )
+        where = f"WHERE {' AND '.join(scope.conditions)}" if scope.conditions else ""
+        params = [uri, *scope.params]
+
+        reader.execute(f"SELECT count(*) FROM read_parquet(?) {where}", params)
+        total = int(reader.fetchone()[0])
+
+        rows = None
+        if total and sample > 0:
+            properties = _properties(scope.columns, exclude={scope.geometry, scope.covering})
+            reader.execute(
+                f"""
+                SELECT string_agg(__properties__, ',' ORDER BY __cursor__)
+                FROM (
+                    SELECT file_row_number AS __cursor__, {properties} AS __properties__
+                    FROM read_parquet(?, file_row_number = true)
+                    {where}
+                    ORDER BY file_row_number
+                    LIMIT {int(sample)}
+                )
+                """,
+                params,
+            )
+            rows = reader.fetchone()[0]
+    except duckdb.Error as exc:
+        raise _classify(exc, uri) from exc
+    finally:
+        reader.close()
+
+    # A handful of rows, so parsing them costs nothing; the response is small
+    # and goes through DRF like any other.
+    return {"total": total, "sample": json.loads(f"[{rows or ''}]")}
+
+
 def read_vector_features(
     uri: str,
     *,
@@ -250,6 +634,7 @@ def read_vector_features(
     bbox: tuple[float, float, float, float] | None = None,
     area: str | None = None,
     cursor: int | None = None,
+    attribute_filter: AttributeFilter | None = None,
 ) -> dict:
     """Read one page of features from a GeoParquet file in the lake.
 
@@ -266,6 +651,9 @@ def read_vector_features(
     shape and a silently wrong answer.
 
     `cursor` is the `next_cursor` the previous page returned.
+
+    `attribute_filter` keeps only the rows whose column matches
+    (docs/adr/028). A filter the file cannot take raises `FilterRefused`.
 
     Returns the features, how many this page holds, and the cursor for the next
     page — None when this page is the last. The scan asks for one row beyond
@@ -288,53 +676,10 @@ def read_vector_features(
         raise LakeUnavailable(str(exc)) from exc
 
     try:
-        geometry_name = _geometry_column(reader, uri)
-        columns = _describe(reader, uri)
-        covering = _covering_bbox_column(columns, uri)
+        scope = _scope(reader, uri, bbox=bbox, area=area, attribute_filter=attribute_filter)
+        geometry_name, covering, columns = scope.geometry, scope.covering, scope.columns
         geometry = _quote(geometry_name)
-
-        # Both filters are optional and each binds its own parameters, so the
-        # WHERE clause is assembled rather than written out.
-        conditions: list[str] = []
-        params: list = [uri]
-        if bbox is not None:
-            min_lon, min_lat, max_lon, max_lat = bbox
-            if covering is not None:
-                # A plain range test on the covering column, and the whole
-                # reason the area filter is affordable. DuckDB checks it
-                # against each row group's min/max statistics and skips the
-                # groups that miss, before reading any geometry at all. It
-                # will not derive this from ST_Intersects_Extent on its own
-                # (checked on DuckDB 1.5.5), so without it every row of the
-                # file is read off the object store to answer any area query.
-                box = _quote(covering)
-                conditions.append(
-                    f"{box}.xmin <= ? AND {box}.xmax >= ? AND {box}.ymin <= ? AND {box}.ymax >= ?"
-                )
-                params.extend([max_lon, min_lon, max_lat, min_lat])
-
-            if area is not None:
-                # A drawn polygon is tested exactly. Its outline is on screen,
-                # so a feature drawn outside it reads as a bug rather than as
-                # an optimisation: over Beirut the loose box test returns 15%
-                # more buildings than lie inside the polygon. The exact test
-                # only runs on what the envelope let through, which is why it
-                # is affordable (56 ms against 371 ms unpruned, docs/adr/014).
-                conditions.append(f"ST_Intersects({geometry}, ST_GeomFromText(?))")
-                params.append(area)
-            else:
-                # A window is tested on bounding boxes, not real geometry:
-                # `ST_Intersects_Extent` is a box-against-box test and the
-                # exact predicate does real geometry work on every surviving
-                # row, measured 18-40% slower for the same rows.
-                #
-                # It is over-inclusive and never under-inclusive: a feature
-                # whose box overlaps the window but whose geometry does not
-                # comes back too. For a window that is free — it lands off
-                # screen and MapLibre clips it. Anything counting or answering
-                # from this must know it (docs/adr/012).
-                conditions.append(f"ST_Intersects_Extent({geometry}, ST_MakeEnvelope(?, ?, ?, ?))")
-                params.extend(bbox)
+        conditions, params = list(scope.conditions), [uri, *scope.params]
         if cursor is not None:
             conditions.append("file_row_number > ?")
             params.append(cursor)

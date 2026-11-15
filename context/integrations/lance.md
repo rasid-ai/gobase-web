@@ -87,10 +87,13 @@ answer without a connection. A table the catalog names but the bucket does
 not hold (lancedb raises `ValueError: Table '…' was not found`) is an empty
 answer too: the data platform's next run rewrites it.
 
-`chunks.chunk(chunks_uri, asset_id, chunk_id)` fetches one passage for the
-page image, filtered on both ids so a URL cannot read across documents. Both
-values are quoted into the filter; `chunk_id` is also validated by the
-serializer before it gets here.
+`chunks.chunk(chunks_uri, asset_id, chunk_id)` fetches one passage, filtered
+on both ids so a URL cannot read across documents. Two endpoints use it: the
+page image, for the passage's boxes, and `GET
+/api/catalog/assets/{id}/passages/{chunk_id}`, which returns the passage's
+text, headings and pages for the Ask agent's `doc_read` tool (docs/adr/024).
+Both values are quoted into the filter; `chunk_id` is also checked against
+`CHUNK_ID_PATTERN` (`apps/catalog/serializers.py`) before it gets here.
 
 No ANN index exists; a flat scan is milliseconds at this size.
 

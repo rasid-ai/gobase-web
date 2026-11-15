@@ -230,6 +230,124 @@ types have features to draw is the knowledge base's to say, not the
 interface's, so an asset with none says so when asked rather than being
 quietly refused a button.
 
+## A count and a filter — built in the API, not on the page
+
+`GET /api/map/assets/{id}/summary` counts a vector asset's features and
+returns a few of them (docs/adr/028). It exists for the Ask agent's answers;
+no page calls it yet.
+
+- **The place** is a `bbox`, a drawn `area`, or neither for the whole file.
+  The count is exact for both: a bbox here tests each feature's real shape,
+  where `/data` tests bounding boxes.
+- **`sample`** (0–10, default 5) is how many rows come back: the first
+  matching features in file order, properties only.
+- **The filter** is three parameters, sent together: `filter_column`,
+  `filter_op` and `filter_value`.
+  - `equals` and `in` match text whatever its case, and other types by
+    value. `in` takes up to 20 values, by repeating `filter_value`.
+  - `contains` is for text columns, whatever the case. `%` and `_` mean
+    themselves.
+  - `<` and `>` are for numbers, dates and timestamps.
+  - A null never matches.
+- **A filter the asset cannot take is a 400** that names the parameter: an
+  unknown column (the message lists the real ones), an operator the
+  column's type does not allow, a value that is not of its type, or a nested
+  column.
+
+`/data` takes the same filter, so a layer can show exactly the features a
+count was of. The map does not send one yet. An unfiltered page keeps the
+ETag it had.
+
+## Raster figures and a clip — built in the API, not on the page
+
+Two endpoints read a raster's pixels over a place (docs/adr/029). They exist
+for the Ask agent's answers; no page calls them yet.
+
+`GET /api/map/assets/{id}/raster-stats` says what the pixels inside a place
+hold.
+
+- **The place** is a `bbox`, a drawn `area`, or neither for the whole
+  raster. A pixel counts when its centre is inside the place; a place
+  smaller than a pixel counts the pixels it touches, and a place with no
+  size (a point) counts the one pixel it is in.
+- **`pixels`** is how many pixels are inside the place.
+- **A place wider than the raster** is cut to it. A zoomed-out map view
+  over a raster measures the whole raster. A raster that crosses the
+  antimeridian (180°) is measured on both sides of it.
+- **`bands`** gives each band's `min`, `max` and `mean` over the pixels that
+  hold data, and `valid_percent`, their share of `pixels`. An alpha band
+  is not listed. A small figure is not rounded to zero.
+- **`classes`** is for a classified raster (one whole-number band with a
+  legend in its `classes` tag): each value's `name`, `pixels` and `share` of
+  the pixels that hold data, largest first, at most 256. It is null for any
+  other raster.
+- **`other_classes`** sums every value beyond those 256 (`values`, `pixels`,
+  `share`). It is null when `classes` holds them all.
+- **`approximate`** is true when the place holds more pixels than the server
+  counts (`RASTER_STATS_MAX_PIXELS`, 4,000,000). The raster is then
+  read at reduced size, `pixels` counts that smaller grid, and the figures
+  are close, not exact.
+- **A place that misses the raster** is a 200 with `pixels: 0` and no
+  figures.
+
+`GET /api/map/assets/{id}/clip.tif` downloads the pixels over a place as a
+GeoTIFF.
+
+- **It needs a place:** a `bbox` or an `area`.
+- **The clip is a rectangle.** A drawn area is clipped to its envelope, not
+  masked to its shape.
+- **It is the raster's own grid and CRS**, not resampled, with its nodata
+  or mask, colours, band names and legend. Only tags on a fixed list are
+  carried, and none that names a path: a short tag with any slash in it
+  is left out, and a sentence that has the shape of a path.
+- **It is capped by size** at `RASTER_CLIP_MAX_BYTES` (64 MB of pixels
+  before compression: width x height x bands x bytes per value). A larger
+  place is a 400 that gives its pixel count, its size and the size
+  allowed. A place that misses the raster is a 400.
+- **The download is named** `<asset name>_clip.tif`.
+- **The browser keeps it** and asks before reusing it (an ETag and
+  `private, no-cache`, as for a document's PDF). A copy that is still good
+  is a 304 with no read of the lake.
+- **A HEAD request** answers with the status and headers a GET would, and
+  builds no clip. Its `Content-Length` is 0, not the file's.
+- **`If-None-Match`** matches whether the ETag comes back as `W/"x"` or
+  `"x"`.
+- **A clip the portal could not write** to its own disk is a 503 that says
+  so, not a 502.
+
+Both answer 404 for anything but an active raster, 503 when the lake cannot
+be reached, and 502 when the raster cannot be read. A lake that answers
+with an error of its own (5xx, throttling, an expired token) is a 503 too.
+A JWT or an API key may read both.
+
+How long a failing lake holds a request, measured on 2026-11-10:
+
+| The lake | Answer | After |
+|---|---|---|
+| refuses the port, or does not resolve | 503 | under 1 second |
+| drops every packet | 503 | 15 seconds |
+| connects, then says nothing | 503 | 24 seconds |
+| sends headers and then stalls, or drips | 503 | 8 seconds |
+| is slow but alive | 503 | `RASTER_READ_TIMEOUT_SECONDS` (60), plus the chunk of rows or strip it is on: a few megabytes |
+
+A statistics read goes a chunk of rows at a time, all bands at once, and
+looks at the time limit between chunks. Through a link throttled to
+400 KB/s, a long, thin place that ran 114 seconds now answers in 52; at
+150 KB/s, 303 seconds became a 503 after 60 to 69.
+
+The Ask agent, the one caller of `raster-stats`, stops waiting after 15
+seconds. A read that takes longer goes on here until it ends or reaches a
+bound above, and its worker stays held.
+
+Not handled: a raster whose extent has no lon/lat box (the whole world in
+Mollweide), or one stored with longitudes from 0 to 360. With a place each
+is a 422 that says so; without one, `raster-stats` still measures the whole
+raster. The catalog holds neither. A world-wide grid that reaches less than
+a pixel past 180° is handled.
+
+Not built: any page using them. The Ask panel shows a `raster` reference as
+an asset chip and offers no download yet (specs/ask.md).
+
 ## Semantic search — built
 
 In semantic mode the panel on the right is a question box and, under it,
@@ -273,17 +391,18 @@ viewport, and the drawn area or the clicked point, and the selected asset
 this area"). Restricting retrieval to the area is the agent's, through the
 catalog endpoints its tools call (docs/adr/024), and is not built.
 
-Worth knowing when it is built: the features endpoint matches a drawn area
-exactly, but a window only by bounding box (docs/adr/012), so anything that
-counts or answers from a window rather than an area inherits that
-looseness.
+The agent counts through the summary endpoint above, which is exact for a
+window as for an area. `/data` still matches a window by bounding box
+(docs/adr/012), so a layer drawn for a window can show a few features the
+count left out.
 
 ## Answer layers — built, without the filter
 
 An answer carrying a vector layer renders it on the map, and the user can
 hide and re-show it without re-asking: its chip in the answer toggles it, and
 it is in the layers panel like any other (specs/ask.md). It is drawn through
-the same layer store as Draw, so it follows the drawn area or the view; the
-answer's own filter is not applied until `/data` takes one (docs/adr/024).
+the same layer store as Draw, so it follows the drawn area or the view. The
+answer's own area and filter are not applied yet: `/data` takes the filter
+since 2026-11-10 (docs/adr/028), but the layer store does not send it.
 Not built: an answer referencing a raster asset displaying it as tiles
 over the basemap when the answer completes.

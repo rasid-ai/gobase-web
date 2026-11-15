@@ -123,6 +123,14 @@ _DOCUMENT_PDF = """
     WHERE assets.asset_id = %s AND status = 'active' AND modality = 'document'
 """
 
+# The chunk table holding one document's passages. Not `_DOCUMENT_PDF`: a
+# passage's text can be read whether or not the PDF was recorded.
+_DOCUMENT_CHUNKS = """
+    SELECT doc.chunks_uri
+    FROM assets JOIN doc_documents doc ON doc.asset_id = assets.asset_id
+    WHERE assets.asset_id = %s AND status = 'active' AND modality = 'document'
+"""
+
 _VECTOR_LAYERS = """
     SELECT layer_name, geometry_type, native_crs, feature_count, columns
     FROM geo_layers
@@ -512,15 +520,35 @@ def asset_detail(asset_id) -> dict | None:
     }
 
 
-# The lake path for one raster asset: a COG in silver. The portal never reads
-# it; it tells a desktop client where it is, with credentials to read it
-# (docs/adr/022). Like the vector read, it names a modality because its
+# The lake path for one raster asset: a COG in silver. This read tells a
+# desktop client where it is, with credentials to read it whole
+# (docs/adr/022); `raster_source` below is for the portal's own windowed
+# reads (docs/adr/029). Like the vector read, it names a modality because its
 # endpoint serves one.
 _RASTER_SOURCE_URI = """
     SELECT source_uri
     FROM assets
     WHERE asset_id = %s AND status = 'active' AND modality = 'raster'
 """
+
+
+# The same raster, with the name the catalog shows for it: what a clip of it
+# is called when it is downloaded (docs/adr/029).
+_RASTER_SOURCE = f"""
+    SELECT source_uri, {_DERIVED_NAME} AS name
+    FROM assets
+    WHERE asset_id = %s AND status = 'active' AND modality = 'raster'
+"""
+
+
+def raster_source(asset_id) -> dict | None:
+    """An active raster's lake URI and derived name, or None if there is no such asset.
+
+    For the endpoints that read the raster's pixels (docs/adr/029). None
+    covers the same three misses as `raster_source_uri`.
+    """
+    found = _rows(_RASTER_SOURCE, [str(asset_id)])
+    return found[0] if found else None
 
 
 def raster_source_uri(asset_id) -> str | None:
@@ -561,6 +589,16 @@ def document_pdf(asset_id) -> dict | None:
     if not found or found[0]["pdf_uri"] is None:
         return None
     return found[0]
+
+
+def document_chunks_uri(asset_id) -> str | None:
+    """The chunk table of an active document, or None if it has no passages to read.
+
+    None covers every miss alike: no such id, a superseded row, another
+    modality, and a document the data platform has not chunked.
+    """
+    found = _rows(_DOCUMENT_CHUNKS, [str(asset_id)])
+    return found[0]["chunks_uri"] if found else None
 
 
 # Similarity, for the map's Semantic mode (docs/adr/018). The browse CTE again,
