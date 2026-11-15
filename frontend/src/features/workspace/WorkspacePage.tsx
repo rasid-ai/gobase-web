@@ -38,6 +38,7 @@ import {
 } from './layers'
 import { layerId } from './layerId'
 import { useMapTokens } from './mapTokens'
+import { PIN_IMAGE, PIN_PIXEL_RATIO, pinImage } from './pin'
 import { useAssetFeatures } from './useAssetFeatures'
 import { viewportOf, windowFor } from './view'
 
@@ -147,7 +148,7 @@ function MapWorkspace() {
   const selectedId = clickedId ?? linkedId
   const tokens = useMapTokens()
   const toast = useToast()
-  const { layers, add, setView, drawnArea, setDrawnArea } = useLayers()
+  const { layers, add, remove, setView, drawnArea, setDrawnArea } = useLayers()
   const map = useRef<MapRef | null>(null)
 
   /**
@@ -174,6 +175,28 @@ function MapWorkspace() {
     setMapReady(true)
     onMoveEnd()
   }, [onMoveEnd])
+
+  // The pin the point layers draw (pin.ts), in the result colour. Added once
+  // the map has loaded, redrawn when the theme changes the colour, and added
+  // again whenever a style reload drops it (`styleimagemissing`).
+  useEffect(() => {
+    const instance = map.current?.getMap?.()
+    if (!mapReady || !instance) return
+    const put = () => {
+      const image = pinImage(tokens.result)
+      if (!image) return
+      if (instance.hasImage(PIN_IMAGE)) instance.updateImage(PIN_IMAGE, image)
+      else instance.addImage(PIN_IMAGE, image, { pixelRatio: PIN_PIXEL_RATIO })
+    }
+    const missing = (event: { id: string }) => {
+      if (event.id === PIN_IMAGE) put()
+    }
+    put()
+    instance.on('styleimagemissing', missing)
+    return () => {
+      instance.off('styleimagemissing', missing)
+    }
+  }, [mapReady, tokens.result])
 
   // A drawn area and a clicked point are one selection, never both, so the
   // pane asks the catalog about whichever is set (docs/adr/014, docs/adr/016).
@@ -451,7 +474,25 @@ function MapWorkspace() {
     [add, fit, queryClient],
   )
 
-  const ask = useAsk({ open: askOpen, getContext: getAskContext, onReference: onAskReference })
+  // A layer drawn while the answer streamed, that the answer did not cite in
+  // the end (a mistaken first count, gobase-agent ADR-013), leaves the map.
+  const onAskDone = useCallback(
+    (references: ChatReference[]) => {
+      for (const reference of references) {
+        if (reference.kind === 'layer' && reference.asset_id && reference.cited === false) {
+          remove(layerId(reference.asset_id, layerScopeOf(reference)))
+        }
+      }
+    },
+    [remove],
+  )
+
+  const ask = useAsk({
+    open: askOpen,
+    getContext: getAskContext,
+    onReference: onAskReference,
+    onDone: onAskDone,
+  })
 
   return (
     <div className="flex h-full w-full">
@@ -676,11 +717,19 @@ function DrawnLayer({ layer, color }: { layer: ActiveLayer; color: string }) {
         paint={{ 'line-color': color, 'line-width': 1.5 }}
       />
       <Layer
-        id={`asset-${layer.id}-circle`}
-        type="circle"
+        id={`asset-${layer.id}-point`}
+        type="symbol"
         filter={['in', ['geometry-type'], ['literal', POINT_TYPES]]}
-        layout={{ visibility }}
-        paint={{ 'circle-color': color, 'circle-radius': 3, 'circle-opacity': 0.85 }}
+        // A pin per point (pin.ts), its tip on the point. Every pin is drawn,
+        // overlapping or not: a count on the chip must match what is shown.
+        layout={{
+          visibility,
+          'icon-image': PIN_IMAGE,
+          'icon-anchor': 'bottom',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 1],
+        }}
       />
     </Source>
   )

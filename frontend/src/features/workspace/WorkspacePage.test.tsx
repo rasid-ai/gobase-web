@@ -304,7 +304,7 @@ beforeEach(() => {
 })
 
 describe('drawing a vector asset', () => {
-  it('draws its features as fill, line and circle layers', async () => {
+  it('draws its features as fill, line and pin layers', async () => {
     mockFetch({
       ...session(),
       ...pane(POINT),
@@ -322,7 +322,7 @@ describe('drawing a vector asset', () => {
     // Three marks, because one file may hold points, lines and polygons at once.
     expect(document.querySelector(`[data-layer="asset-${ASSET_ID}-fill"]`)).toBeTruthy()
     expect(document.querySelector(`[data-layer="asset-${ASSET_ID}-line"]`)).toBeTruthy()
-    expect(document.querySelector(`[data-layer="asset-${ASSET_ID}-circle"]`)).toBeTruthy()
+    expect(document.querySelector(`[data-layer="asset-${ASSET_ID}-point"]`)).toBeTruthy()
   })
 
   it('draws Multi geometries too, not only their single-part forms', async () => {
@@ -350,7 +350,7 @@ describe('drawing a vector asset', () => {
 
     expect(await filterOf('fill')).toContain('MultiPolygon')
     expect(await filterOf('line')).toContain('MultiLineString')
-    expect(await filterOf('circle')).toContain('MultiPoint')
+    expect(await filterOf('point')).toContain('MultiPoint')
   })
 
   it('lists the layer in the panel and marks the row as drawn', async () => {
@@ -949,6 +949,23 @@ describe('browsing a place by dataset', () => {
     await openDataset(user)
     expect(within(panel).getByRole('heading', { name: 'Road network' })).toBeInTheDocument()
     expect(within(panel).getByText('rivers')).toBeInTheDocument()
+  })
+
+  it('hides the pane to show the map under it, and shows it again where it was', async () => {
+    mockFetch({ ...session(), ...pane(POINT) })
+    const user = userEvent.setup()
+    renderApp('/map')
+    await user.click(await screen.findByRole('button', { name: 'map surface' }))
+    const panel = await screen.findByRole('complementary', { name: 'Assets at this point' })
+    await openDataset(user)
+
+    await user.click(within(panel).getByRole('button', { name: 'Hide datasets' }))
+    expect(screen.queryByRole('complementary', { name: 'Assets at this point' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Show datasets' }))
+    const shown = screen.getByRole('complementary', { name: 'Assets at this point' })
+    // Nothing was cleared: the dataset that was open is still open.
+    expect(within(shown).getByRole('heading', { name: 'Road network' })).toBeInTheDocument()
   })
 
   it('searches dataset names, then the files of the one opened, separately', async () => {

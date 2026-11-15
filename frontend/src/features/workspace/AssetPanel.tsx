@@ -1,5 +1,5 @@
 import { keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, Maximize2, Minimize2 } from 'lucide-react'
+import { ChevronLeft, Maximize2, Minimize2, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 
 import { useCatalogAssetList, useCatalogDatasetList } from '@/api/generated/catalog/catalog'
@@ -65,6 +65,11 @@ export function AssetPane({
   const [datasetQuery, setDatasetQuery] = useState('')
   const [dataset, setDataset] = useState<Dataset | null>(null)
   const [expanded, setExpanded] = useState(false)
+  // Hidden for the selection it was hidden on. Selecting another asset (from
+  // the map, a list or an Ask citation) shows the pane again, and a new click
+  // or area remounts it (it is keyed by place), shown.
+  const [hiddenFor, setHiddenFor] = useState<string | null | undefined>(undefined)
+  const hidden = hiddenFor !== undefined && hiddenFor === selectedId
 
   const datasets = useCatalogDatasetList(
     { ...place, ...(datasetQuery ? { q: datasetQuery } : {}) },
@@ -81,6 +86,20 @@ export function AssetPane({
 
   if (!selected && (place === null || (answer === undefined && !failed) || empty)) return null
 
+  if (hidden) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setHiddenFor(undefined)}
+        className="pointer-events-auto bg-background/95 backdrop-blur"
+      >
+        <PanelRightOpen aria-hidden />
+        {selected ? 'Show details' : 'Show datasets'}
+      </Button>
+    )
+  }
+
   return (
     <aside
       aria-label={selected ? 'Selected asset' : label}
@@ -90,6 +109,18 @@ export function AssetPane({
         selected && expanded ? 'w-[min(48rem,100%)]' : 'w-[22rem]',
       )}
     >
+      {/* Hides the pane to see the map under it; nothing is cleared. */}
+      <div className="-mr-2 -mt-2 mb-1 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setHiddenFor(selectedId)}
+          aria-label={selected ? 'Hide details' : 'Hide datasets'}
+          title="Hide"
+          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          <PanelRightClose aria-hidden className="size-4" />
+        </button>
+      </div>
       {selected ? (
         <AssetDetailPanel
           detail={selected}

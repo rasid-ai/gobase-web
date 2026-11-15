@@ -100,6 +100,12 @@ an area doesn't change it. The chip reads "<asset> · answer's area", or
 "whole asset" when the answer had no place, then the filter if there is one
 ("poi · answer's area · amenity in hospital, clinic").
 
+**A layer the answer didn't use leaves the map** (2026-11-15). Layers are
+drawn as they stream in. When the answer ends, a layer whose `cited` is
+false in `done` is taken off the map and gets no chip. The agent sets it
+false when the answer cites the asset but not that count (gobase-agent
+ADR-013), for example a first count in the wrong place.
+
 **Several layers of one asset** (2026-11-15). An answer may count several
 things in one asset ("2 schools and 7 hospitals" from one points-of-interest
 file). Each place and filter is its own layer, with its own chip and count,

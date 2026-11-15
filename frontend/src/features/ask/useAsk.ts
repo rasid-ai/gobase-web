@@ -62,9 +62,14 @@ type Options = {
   getContext: () => AskContextRequest
   /** A reference arrived while an answer streamed — the page frames or draws it. */
   onReference: (reference: ChatReference) => void
+  /**
+   * The answer ended with its checked references, each saying whether it was
+   * cited. The page takes off the map the layers the answer did not use.
+   */
+  onDone?: (references: ChatReference[]) => void
 }
 
-export function useAsk({ open, getContext, onReference }: Options) {
+export function useAsk({ open, getContext, onReference, onDone }: Options) {
   const queryClient = useQueryClient()
   const toast = useToast()
 
@@ -79,9 +84,9 @@ export function useAsk({ open, getContext, onReference }: Options) {
   const abort = useRef<AbortController | null>(null)
   const keys = useRef(0)
   const opening = useRef(0)
-  const latest = useRef({ open, getContext, onReference })
+  const latest = useRef({ open, getContext, onReference, onDone })
   useEffect(() => {
-    latest.current = { open, getContext, onReference }
+    latest.current = { open, getContext, onReference, onDone }
   })
 
   // Leaving the page stops the answer; the agent keeps what it had.
@@ -136,6 +141,7 @@ export function useAsk({ open, getContext, onReference }: Options) {
               references: event.references,
               status: 'done',
             }))
+            if (session.current === sessionId) latest.current.onDone?.(event.references)
             ended = true
           } else if (event.event === 'error') {
             patch((turn) => ({ ...turn, status: 'incomplete', message: event.message }))

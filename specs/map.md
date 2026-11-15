@@ -61,6 +61,15 @@ code (context/integrations/kb.md).
 
 ## The detail — built
 
+The pane has a hide button at its top right. It folds the pane into a
+"Show datasets" (or "Show details") button, and nothing in it is cleared.
+Selecting another asset, clicking the map again or drawing a new area shows
+it again.
+
+Point features of a drawn layer are pins (a symbol layer with a canvas-drawn
+pin in the result colour, `pin.ts`), every one shown even when they overlap.
+Lines and areas are unchanged.
+
 Selecting an asset shows its name and metadata and draws its footprint, with
 its own control to draw its data — the same control the list row carries, so
 the two panels offer the same actions. For a document that control is Open

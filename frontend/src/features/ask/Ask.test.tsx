@@ -268,6 +268,40 @@ describe('asking a question', () => {
     expect(window.open).toHaveBeenCalledTimes(2)
   })
 
+  it('takes off the map a layer the answer did not cite in the end', async () => {
+    const counted = { kind: 'layer', handle: 'A1', asset_id: ROADS, bbox: HOME, total: 14 }
+    const mistaken = { ...counted, area: 'POLYGON((35 33, 36 33, 36 34, 35 34, 35 33))', total: 9 }
+    mockFetch(
+      routes({
+        [TURN]: {
+          status: 200,
+          stream: [
+            sse({ event: 'reference', reference: mistaken }),
+            sse({ event: 'reference', reference: counted }),
+            sse({
+              event: 'done',
+              text: '14 roads [A1].',
+              references: [
+                { ...mistaken, cited: false },
+                { ...counted, cited: true },
+              ],
+            }),
+          ],
+        },
+      }),
+    )
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await openAsk(user)
+    await askQuestion(user, panel)
+
+    await within(panel).findByRole('button', { name: /roads · answer's area\s*14/ })
+    await waitFor(() =>
+      expect(document.querySelectorAll(`[data-source^="asset-${ROADS}~"]`)).toHaveLength(1),
+    )
+    expect(within(panel).queryByRole('button', { name: /\s9$/ })).toBeNull()
+  })
+
   it('shows a citation as the asset it cites, from its mark in the text or its chip', async () => {
     const reference = { kind: 'asset', handle: 'A1', asset_id: DOC, cited: true }
     mockFetch(
@@ -330,7 +364,9 @@ describe('asking a question', () => {
 
     expect(chip.getAttribute('aria-pressed')).toBe('false')
     expect(
-      document.querySelector(`[data-layer^="asset-${ROADS}~"][data-layer$="-fill"]`)?.getAttribute('data-visibility'),
+      document
+        .querySelector(`[data-layer^="asset-${ROADS}~"][data-layer$="-fill"]`)
+        ?.getAttribute('data-visibility'),
     ).toBe('none')
   })
 
