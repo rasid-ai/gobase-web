@@ -84,7 +84,17 @@ def test_a_session_comes_back_with_its_turns_in_order(as_viewer, user, fake_agen
         {
             "prompt": "What data is there here?",
             "text": "Two datasets cover this point.",
-            "references": [{"kind": "asset", "asset_id": ASSET}],
+            "references": [
+                {
+                    "kind": "asset",
+                    "handle": "A1",
+                    "asset_id": ASSET,
+                    "name": "education_facilities",
+                    "data_type": "vector",
+                    "cited": True,
+                },
+                {"kind": "asset", "handle": "A2", "asset_id": ASSET, "cited": False},
+            ],
             "incomplete": False,
         },
         {

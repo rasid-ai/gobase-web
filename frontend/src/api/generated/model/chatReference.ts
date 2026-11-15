@@ -22,9 +22,26 @@ import type { ChatReferenceKindEnum } from './chatReferenceKindEnum';
  * - `raster`: `asset_id`, `area` or `bbox`, `stats` — figures read from a
  *   raster over an area.
  * - `frame`: `bbox` — where the map should look.
+ *
+ * Every kind may also carry `handle`, the agent's short name for the item
+ * (`A1`, `P1`), which the answer cites inline as `[A1]`, plus the asset's
+ * `name` and `data_type` as the agent read them from the catalog. In `done`
+ * and in a stored turn each reference also says whether the answer `cited`
+ * it; a reference the answer did not cite gets no chip.
  */
 export interface ChatReference {
   kind: ChatReferenceKindEnum;
+  /**
+     * The agent's short name for the item: `A` (asset), `P` (passage) or `L` (a found place, on a `frame`) and a number. `A` and `P` are cited inline as `[A1]`.
+     * @pattern ^[APL][1-9][0-9]{0,4}$
+     */
+  handle?: string;
+  /** In `done` and in stored turns: whether the answer cited this handle. */
+  cited?: boolean;
+  /** The asset's name, as the agent read it. */
+  name?: string;
+  /** The asset's data type, as the agent read it. */
+  data_type?: string;
   /** Every kind but `frame`. */
   asset_id?: string;
   /**

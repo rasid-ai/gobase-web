@@ -188,6 +188,78 @@ def test_the_answer_is_relayed_event_by_event(bearer, fake_agent):
     ]
 
 
+def test_a_references_handle_name_and_data_type_are_relayed(bearer, fake_agent):
+    reference = {
+        "kind": "asset",
+        "handle": "A1",
+        "asset_id": ASSET,
+        "name": "education_facilities",
+        "data_type": "vector",
+    }
+    fake_agent.answer = stream(
+        sse(("reference", reference)),
+        sse(("done", {"text": "One layer [A1].", "references": [{**reference, "cited": True}]})),
+    )
+
+    _, events = ask(bearer, QUESTION)
+
+    assert events == [
+        {"event": "reference", "reference": reference},
+        {"event": "done", "text": "One layer [A1].", "references": [{**reference, "cited": True}]},
+    ]
+
+
+def test_an_uncited_reference_keeps_its_false(bearer, fake_agent):
+    # `cited: false` is a fact the panel acts on: it must not vanish like a null would.
+    reference = {"kind": "asset", "handle": "A2", "asset_id": ASSET, "cited": False}
+    fake_agent.answer = stream(sse(("done", {"text": "Nothing here.", "references": [reference]})))
+
+    _, events = ask(bearer, QUESTION)
+
+    assert events[0]["references"] == [reference]
+
+
+def test_a_reference_without_a_handle_still_passes(bearer, fake_agent):
+    reference = {"kind": "asset", "asset_id": ASSET}
+    fake_agent.answer = stream(sse(("reference", reference)))
+
+    _, events = ask(bearer, QUESTION)
+
+    assert events[0] == {"event": "reference", "reference": reference}
+
+
+def test_a_frame_with_a_place_handle_passes(bearer, fake_agent):
+    """The agent names a found place `L1` and sends it on the frame (its docs/adr/010)."""
+    reference = {
+        "kind": "frame",
+        "handle": "L1",
+        "name": "Tripoli",
+        "bbox": [35.8, 34.4, 35.9, 34.5],
+    }
+    fake_agent.answer = stream(
+        sse(("reference", reference)),
+        sse(("done", {"text": "", "references": [{**reference, "cited": False}]})),
+    )
+
+    _, events = ask(bearer, QUESTION)
+
+    assert events == [
+        {"event": "reference", "reference": reference},
+        {"event": "done", "text": "", "references": [{**reference, "cited": False}]},
+    ]
+
+
+def test_a_handle_outside_the_pattern_ends_the_answer(bearer, fake_agent):
+    fake_agent.answer = stream(
+        sse(("reference", {"kind": "asset", "handle": "x1", "asset_id": ASSET})),
+        sse(("done", {"text": "", "references": []})),
+    )
+
+    _, events = ask(bearer, QUESTION)
+
+    assert events == [CUT_OFF]
+
+
 def test_the_agents_error_event_ends_the_answer(bearer, fake_agent):
     fake_agent.answer = stream(
         sse(("text", {"delta": "It describes"})),

@@ -153,23 +153,46 @@ describe('the Ask panel', () => {
 
 describe('asking a question', () => {
   it('streams the answer, cites its sources, and sends what the map is looking at', async () => {
-    const reference = { kind: 'passage', asset_id: DOC, chunk_id: 'c-1', page: 3 }
+    // Everything the tools returned; the answer cites only the report.
+    const report = {
+      kind: 'passage',
+      handle: 'P1',
+      asset_id: DOC,
+      name: 'Airport report',
+      data_type: 'document',
+      chunk_id: 'c-1',
+      page: 3,
+    }
+    const roads = {
+      kind: 'asset',
+      handle: 'A1',
+      asset_id: ROADS,
+      name: 'roads',
+      data_type: 'vector',
+    }
+    const text = 'It describes security as **adequate** [P1], quoting the brief [sic].'
     const { fetchMock } = mockFetch(
       routes({
         [`GET ${getCatalogDatasetListUrl({ lon: 35.5, lat: 33.85 })}`]: {
           status: 200,
           body: { results: [] },
         },
+        // The chip renders from the reference: no detail request is needed for it.
+        [`GET ${getMapAssetDetailUrl(ROADS)}`]: { status: 404 },
         [TURN]: {
           status: 200,
           stream: [
             sse({ event: 'step', tool: 'doc_passages', status: 'started', note: 'Reading' }),
-            sse({ event: 'text', delta: 'It describes security as **adequate**' }),
-            sse({ event: 'reference', reference }),
+            sse({ event: 'reference', reference: roads }),
+            sse({ event: 'reference', reference: report }),
+            sse({ event: 'text', delta: 'It describes security as **adequate** [P1]' }),
             sse({
               event: 'done',
-              text: 'It describes security as **adequate**.',
-              references: [reference],
+              text,
+              references: [
+                { ...roads, cited: false },
+                { ...report, cited: true },
+              ],
             }),
           ],
         },
@@ -184,9 +207,16 @@ describe('asking a question', () => {
     await askQuestion(user, panel)
 
     expect(await within(panel).findByText('adequate')).toBeTruthy()
+    // The marker is a numbered mark, and the chip carries the same number.
+    const mark = await within(panel).findByRole('button', { name: 'Citation 1: Airport report' })
+    expect(mark.textContent).toBe('1')
+    expect(within(panel).queryByText(/\[P1\]/)).toBeNull()
+    expect(within(panel).getByText(/quoting the brief \[sic\]\./)).toBeTruthy()
     expect(
-      await within(panel).findByRole('button', { name: /Airport report\s*document p\. 3/ }),
+      within(panel).getByRole('button', { name: /^1\s*Airport report\s*document p\. 3$/ }),
     ).toBeTruthy()
+    // The roads were returned but not cited: no chip.
+    expect(within(panel).queryByRole('button', { name: /roads/ })).toBeNull()
     // No tool trace in the UI (context/ui-rules.md).
     expect(within(panel).queryByText('Reading')).toBeNull()
 
@@ -199,13 +229,13 @@ describe('asking a question', () => {
     expect(within(panel).getByPlaceholderText('Ask a follow-up…')).toBeTruthy()
   })
 
-  it('shows a citation as the asset it cites', async () => {
-    const reference = { kind: 'asset', asset_id: DOC }
+  it('shows a citation as the asset it cites, from its mark in the text or its chip', async () => {
+    const reference = { kind: 'asset', handle: 'A1', asset_id: DOC, cited: true }
     mockFetch(
       routes({
         [TURN]: {
           status: 200,
-          stream: [sse({ event: 'done', text: 'See the report.', references: [reference] })],
+          stream: [sse({ event: 'done', text: 'See the report [A1].', references: [reference] })],
         },
       }),
     )
@@ -214,8 +244,11 @@ describe('asking a question', () => {
 
     const panel = await openAsk(user)
     await askQuestion(user, panel)
-    const chips = await within(panel).findAllByRole('button', { name: /Airport report/ })
-    await user.click(chips[0])
+    // No name came with the reference, so the chips read the catalog for it.
+    expect(
+      await within(panel).findAllByRole('button', { name: /^1\s*Airport report/ }),
+    ).toHaveLength(2)
+    await user.click(within(panel).getByRole('button', { name: 'Citation 1' }))
 
     const pane = await screen.findByRole('complementary', { name: 'Selected asset' })
     expect(within(pane).getByText('Airport report')).toBeTruthy()
@@ -407,8 +440,17 @@ describe('sessions', () => {
           turns: [
             {
               prompt: 'Where did the wadi flood?',
-              text: 'Along the eastern bank.',
-              references: [],
+              text: 'Along the eastern bank [A2].',
+              references: [
+                {
+                  kind: 'asset',
+                  handle: 'A1',
+                  asset_id: DOC,
+                  name: 'Airport report',
+                  cited: false,
+                },
+                { kind: 'asset', handle: 'A2', asset_id: ROADS, name: 'roads', cited: true },
+              ],
               incomplete: false,
             },
           ],
@@ -424,8 +466,12 @@ describe('sessions', () => {
     await user.click(within(panel).getByRole('button', { name: 'Sessions' }))
     await user.click(await within(panel).findByRole('button', { name: row.title }))
 
-    expect(await within(panel).findByText('Along the eastern bank.')).toBeTruthy()
+    expect(await within(panel).findByText(/Along the eastern bank/)).toBeTruthy()
     expect(within(panel).getByRole('heading', { name: row.title })).toBeTruthy()
+    // A stored turn shows its cited reference, numbered, and not the other.
+    expect(within(panel).getByRole('button', { name: 'Citation 1: roads' })).toBeTruthy()
+    expect(within(panel).getAllByRole('button', { name: /^1\s*roads/ })).toHaveLength(2)
+    expect(within(panel).queryByRole('button', { name: /Airport report/ })).toBeNull()
 
     await user.click(within(panel).getByRole('button', { name: 'Sessions' }))
     answers[LIST] = { status: 200, body: { results: [] } }

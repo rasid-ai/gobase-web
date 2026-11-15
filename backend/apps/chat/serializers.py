@@ -25,6 +25,11 @@ REFERENCE_KINDS = ["asset", "layer", "passage", "raster", "frame"]
 FILTER_OPERATORS = ["equals", "contains", "in", "<", ">"]
 STEP_STATUSES = ["started", "finished", "failed"]
 
+# The handle the agent gives an item (gobase-agent docs/adr/006, 010): `A` for
+# assets, `P` for passages, `L` for a found place (a `frame` carries one), then
+# a number from 1. Only `A` and `P` are ever cited.
+HANDLE_PATTERN = r"^[APL][1-9][0-9]{0,4}$"
+
 
 # --- what the SPA sends -----------------------------------------------------
 
@@ -127,9 +132,33 @@ class ChatReferenceSerializer(serializers.Serializer):
     - `raster`: `asset_id`, `area` or `bbox`, `stats` — figures read from a
       raster over an area.
     - `frame`: `bbox` — where the map should look.
+
+    Every kind may also carry `handle`, the agent's short name for the item
+    (`A1`, `P1`), which the answer cites inline as `[A1]`, plus the asset's
+    `name` and `data_type` as the agent read them from the catalog. In `done`
+    and in a stored turn each reference also says whether the answer `cited`
+    it; a reference the answer did not cite gets no chip.
     """
 
     kind = serializers.ChoiceField(choices=REFERENCE_KINDS)
+    handle = serializers.RegexField(
+        HANDLE_PATTERN,
+        required=False,
+        help_text=(
+            "The agent's short name for the item: `A` (asset), `P` (passage) or `L` "
+            "(a found place, on a `frame`) and a number. `A` and `P` are cited inline as `[A1]`."
+        ),
+    )
+    cited = serializers.BooleanField(
+        required=False,
+        help_text="In `done` and in stored turns: whether the answer cited this handle.",
+    )
+    name = serializers.CharField(
+        required=False, help_text="The asset's name, as the agent read it."
+    )
+    data_type = serializers.CharField(
+        required=False, help_text="The asset's data type, as the agent read it."
+    )
     asset_id = serializers.UUIDField(required=False, help_text="Every kind but `frame`.")
     area = serializers.CharField(
         required=False,

@@ -300,7 +300,10 @@ function Turn({
   onSelectAsset: (assetId: string) => void
   onFrame: (bbox: [number, number, number, number]) => void
 }) {
-  const grouped = useMemo(() => groupReferences(turn.references), [turn.references])
+  const grouped = useMemo(
+    () => groupReferences(turn.references, turn.text),
+    [turn.references, turn.text],
+  )
   const streaming = turn.status === 'streaming'
 
   return (
@@ -313,7 +316,12 @@ function Turn({
         aria-busy={streaming}
         className="flex flex-col gap-4 border-l border-border pl-4 text-[15px] leading-relaxed"
       >
-        <AnswerText text={turn.text} trailing={streaming ? <Caret /> : null} />
+        <AnswerText
+          text={turn.text}
+          marks={grouped.marks}
+          onSelect={onSelectAsset}
+          trailing={streaming ? <Caret /> : null}
+        />
         {turn.status === 'incomplete' ? (
           <div
             role="status"

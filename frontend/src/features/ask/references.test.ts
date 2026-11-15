@@ -2,11 +2,43 @@ import { describe, expect, it } from 'vitest'
 
 import type { ChatReference } from '@/api/generated/model'
 
-import { groupReferences, layerScope } from './references'
+import { citationMarks, groupReferences, layerScope } from './references'
 
 const DOC = 'cccccccc-dddd-eeee-ffff-000000000000'
 const ROADS = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const LANDCOVER = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
+
+/** A citation as the panel shows it, with nothing known beyond its id. */
+const bare = (assetId: string, page: number | null = null) => ({
+  assetId,
+  page,
+  number: null,
+  name: null,
+  dataType: null,
+})
+
+describe('citationMarks', () => {
+  const references: ChatReference[] = [
+    { kind: 'asset', handle: 'A1', asset_id: ROADS, name: 'roads', data_type: 'vector' },
+    { kind: 'asset', handle: 'A2', asset_id: LANDCOVER, name: 'landcover', data_type: 'raster' },
+    { kind: 'asset', handle: 'A3', asset_id: DOC, name: 'Airport report', data_type: 'document' },
+  ]
+
+  it('numbers the handles the text cites, in order of first appearance', () => {
+    const marks = citationMarks('Roads [A3] cross the area [A1][A3], see [A1].', references)
+
+    expect([...marks.entries()]).toEqual([
+      ['A3', { number: 1, assetId: DOC, name: 'Airport report' }],
+      ['A1', { number: 2, assetId: ROADS, name: 'roads' }],
+    ])
+  })
+
+  it('ignores a bracket with no reference behind it', () => {
+    const marks = citationMarks('Quoted [sic] from [A9], and [A1, A2] as one pair.', references)
+
+    expect(marks.size).toBe(0)
+  })
+})
 
 describe('groupReferences', () => {
   it('cites every asset an answer used, once per asset and page', () => {
@@ -19,9 +51,9 @@ describe('groupReferences', () => {
     ]
 
     expect(groupReferences(references).citations).toEqual([
-      { assetId: DOC, page: 14 },
-      { assetId: DOC, page: 20 },
-      { assetId: ROADS, page: null },
+      bare(DOC, 14),
+      bare(DOC, 20),
+      bare(ROADS),
     ])
   })
 
@@ -32,12 +64,9 @@ describe('groupReferences', () => {
       { kind: 'asset', asset_id: ROADS },
     ])
 
-    expect(grouped.citations).toEqual([
-      { assetId: DOC, page: 14 },
-      { assetId: ROADS, page: null },
-    ])
+    expect(grouped.citations).toEqual([bare(DOC, 14), bare(ROADS)])
     // Still handed over to open, in the Assets box.
-    expect(grouped.assets).toEqual([DOC, ROADS])
+    expect(grouped.assets).toEqual([bare(DOC), bare(ROADS)])
   })
 
   it('hands over assets and rasters as assets, and layers as layers', () => {
@@ -48,7 +77,7 @@ describe('groupReferences', () => {
       layer,
     ])
 
-    expect(grouped.assets).toEqual([DOC, LANDCOVER])
+    expect(grouped.assets).toEqual([bare(DOC), bare(LANDCOVER)])
     expect(grouped.layers).toEqual([layer])
   })
 
@@ -67,6 +96,88 @@ describe('groupReferences', () => {
 
     expect(grouped.frame).toEqual([35, 33, 36, 34])
     expect(grouped.citations).toEqual([])
+  })
+
+  describe('with handles', () => {
+    const roads: ChatReference = {
+      kind: 'asset',
+      handle: 'A1',
+      asset_id: ROADS,
+      name: 'roads',
+      data_type: 'vector',
+    }
+    const landcover: ChatReference = {
+      kind: 'asset',
+      handle: 'A2',
+      asset_id: LANDCOVER,
+      name: 'landcover',
+      data_type: 'raster',
+    }
+    const report: ChatReference = {
+      kind: 'asset',
+      handle: 'A3',
+      asset_id: DOC,
+      name: 'Airport report',
+      data_type: 'document',
+    }
+
+    it('shows only what the text cites, numbered as the text does, while streaming', () => {
+      const grouped = groupReferences([roads, landcover, report], 'See [A3] and then [A1].')
+
+      expect(grouped.citations).toEqual([
+        { assetId: DOC, page: null, number: 1, name: 'Airport report', dataType: 'document' },
+        { assetId: ROADS, page: null, number: 2, name: 'roads', dataType: 'vector' },
+      ])
+      expect(grouped.assets.map((asset) => asset.assetId)).toEqual([DOC, ROADS])
+      expect(grouped.marks.get('A3')?.number).toBe(1)
+    })
+
+    it("follows the agent's word at done: cited shows, uncited does not", () => {
+      const grouped = groupReferences(
+        [
+          { ...roads, cited: true },
+          { ...landcover, cited: false },
+        ],
+        'Roads everywhere [A1].',
+      )
+
+      expect(grouped.citations.map((c) => c.assetId)).toEqual([ROADS])
+    })
+
+    it('still shows a cited reference whose marker the text lost', () => {
+      // The agent's `cited` is checked; the text is what streamed. Trust the flag.
+      const grouped = groupReferences([{ ...roads, cited: true }], 'No marker here.')
+
+      expect(grouped.citations).toEqual([
+        { assetId: ROADS, page: null, number: null, name: 'roads', dataType: 'vector' },
+      ])
+    })
+
+    it('shows a reference with neither handle nor cited, as before handles', () => {
+      const grouped = groupReferences([{ kind: 'asset', asset_id: DOC }, roads], 'Nothing cited.')
+
+      expect(grouped.citations).toEqual([bare(DOC)])
+    })
+
+    it('keeps an uncited layer off the list', () => {
+      const layer: ChatReference = { kind: 'layer', handle: 'A1', asset_id: ROADS, total: 3 }
+
+      expect(groupReferences([layer], 'No roads after all.').layers).toEqual([])
+      expect(groupReferences([layer], 'Roads [A1].').layers).toEqual([layer])
+    })
+
+    it('takes several layers of one asset that share its handle as one mark and one chip', () => {
+      const asset: ChatReference = { kind: 'asset', handle: 'A1', asset_id: ROADS }
+      const first: ChatReference = { kind: 'layer', handle: 'A1', asset_id: ROADS, total: 2 }
+      const last: ChatReference = { kind: 'layer', handle: 'A1', asset_id: ROADS, total: 7 }
+      const text = '2 primary roads [A1] and 7 tracks [A1].'
+
+      const grouped = groupReferences([asset, first, last], text)
+
+      expect(citationMarks(text, [asset, first, last]).size).toBe(1)
+      expect(grouped.citations).toHaveLength(1)
+      expect(grouped.layers).toEqual([last])
+    })
   })
 })
 

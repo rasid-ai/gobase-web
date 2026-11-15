@@ -4,51 +4,84 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLayers } from '@/features/workspace/layers'
 import { cn } from '@/lib/utils'
 
-import { type GroupedReferences, layerScope } from './references'
+import { type Citation, type GroupedReferences, type Mark, layerScope } from './references'
 
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
 
 const CHIP =
   'inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
+type Label = { name: string; dataType: string }
+
 /**
  * The asset's name and data type, for a chip.
  *
- * A reference carries only an id (docs/adr/024), so the chip reads the
- * asset's detail — the same request the map's panel makes when the chip is
- * clicked, so that click is then answered from the cache. An id the catalog
- * does not have shows no chip: there is nothing true to say about it.
+ * The agent sends them with the reference, as it read them from the catalog.
+ * When a reference lacks them (an older agent, or a kind that carries only an
+ * id, docs/adr/024), the chip reads the asset's detail — the same request the
+ * map's panel makes when the chip is clicked, so that click is then answered
+ * from the cache. An id the catalog does not have shows no chip: there is
+ * nothing true to say about it.
  */
-function useAssetLabel(assetId: string) {
-  const detail = useMapAssetDetail(assetId)
+function useAssetLabel(assetId: string, known: { name: string | null; dataType: string | null }) {
+  const detail = useMapAssetDetail(assetId, { query: { enabled: known.name === null } })
+  if (known.name !== null) {
+    return { label: { name: known.name, dataType: known.dataType ?? '' } as Label, loading: false }
+  }
   const asset = detail.data?.status === 200 ? detail.data.data : null
   const missing = detail.isError || (detail.data !== undefined && detail.data.status !== 200)
-  return { asset, loading: !asset && !missing }
+  const label: Label | null = asset ? { name: asset.name, dataType: asset.data_type } : null
+  return { label, loading: !label && !missing }
 }
 
 function ChipSkeleton() {
   return <Skeleton className="h-8 w-44" />
 }
 
-/** A cited asset, with its page for a passage. Selecting it shows its metadata. */
-export function CitationChip({
-  assetId,
-  page,
+/**
+ * A citation marker in the answer's text: its number, as a button that opens
+ * the asset. The chip under the answer carries the same number.
+ */
+export function CitationMark({
+  mark,
   onSelect,
 }: {
-  assetId: string
-  page: number | null
+  mark: Mark
   onSelect: (assetId: string) => void
 }) {
-  const { asset, loading } = useAssetLabel(assetId)
+  const label = mark.name ? `Citation ${mark.number}: ${mark.name}` : `Citation ${mark.number}`
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(mark.assetId)}
+      aria-label={label}
+      title={mark.name ?? undefined}
+      className="mx-0.5 inline-flex h-[1.3em] min-w-[1.3em] items-center justify-center rounded-sm border border-border bg-background px-1 align-[0.15em] font-mono text-[0.7em] leading-none text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {mark.number}
+    </button>
+  )
+}
+
+/** A cited asset, with its number and its page for a passage. Selecting it shows its metadata. */
+export function CitationChip({
+  citation,
+  onSelect,
+}: {
+  citation: Citation
+  onSelect: (assetId: string) => void
+}) {
+  const { assetId, page, number } = citation
+  const { label, loading } = useAssetLabel(assetId, citation)
   if (loading) return <ChipSkeleton />
-  if (!asset) return null
+  if (!label) return null
 
   return (
-    <button type="button" onClick={() => onSelect(assetId)} className={CHIP} title={asset.name}>
-      <span className="truncate">{asset.name}</span>
+    <button type="button" onClick={() => onSelect(assetId)} className={CHIP} title={label.name}>
+      {number !== null ? <span className={cn(MICRO, 'shrink-0')}>{number}</span> : null}
+      <span className="truncate">{label.name}</span>
       <span className={cn(MICRO, 'shrink-0')}>
-        {asset.data_type}
+        {label.dataType}
         {page !== null ? ` p. ${page}` : ''}
       </span>
     </button>
@@ -65,7 +98,10 @@ export function CitationChip({
  */
 export function LayerChip({ reference }: { reference: ChatReference }) {
   const assetId = reference.asset_id!
-  const { asset, loading } = useAssetLabel(assetId)
+  const { label: asset, loading } = useAssetLabel(assetId, {
+    name: reference.name ?? null,
+    dataType: reference.data_type ?? null,
+  })
   const { layers, add, toggle } = useLayers()
   if (loading) return <ChipSkeleton />
   if (!asset) return null
@@ -125,8 +161,7 @@ export function Citations({
       {citations.map((citation) => (
         <CitationChip
           key={`${citation.assetId}:${citation.page ?? ''}`}
-          assetId={citation.assetId}
-          page={citation.page}
+          citation={citation}
           onSelect={onSelect}
         />
       ))}
@@ -153,8 +188,8 @@ export function OutputBox({
       {assets.length > 0 ? (
         <div className="flex flex-col items-start gap-2">
           <h3 className={MICRO}>Assets · {assets.length}</h3>
-          {assets.map((assetId) => (
-            <CitationChip key={assetId} assetId={assetId} page={null} onSelect={onSelect} />
+          {assets.map((asset) => (
+            <CitationChip key={asset.assetId} citation={asset} onSelect={onSelect} />
           ))}
         </div>
       ) : null}
