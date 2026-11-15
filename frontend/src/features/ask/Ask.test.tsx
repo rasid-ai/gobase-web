@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getCatalogDatasetListUrl } from '@/api/generated/catalog/catalog'
+import { getCatalogDatasetListUrl, getCatalogDocumentPdfUrl } from '@/api/generated/catalog/catalog'
 import {
   getChatSessionDeleteUrl,
   getChatSessionListUrl,
@@ -16,7 +16,7 @@ import type { Bbox } from '@/features/places/bbox'
 import { serializeBbox } from '@/features/places/bbox'
 import { PAGE_SIZE } from '@/features/workspace/useAssetFeatures'
 import { windowFor } from '@/features/workspace/view'
-import { type Route, mockFetch, openStream, renderApp, resetSession } from '@/test/harness'
+import { type Route, fakeTab, mockFetch, openStream, renderApp, resetSession } from '@/test/harness'
 
 /** Where the stub map is looking. */
 const HOME: Bbox = [35.4, 33.7, 35.7, 34.0]
@@ -229,6 +229,45 @@ describe('asking a question', () => {
     expect(within(panel).getByPlaceholderText('Ask a follow-up…')).toBeTruthy()
   })
 
+  it("opens a cited document's PDF at the cited page, from its mark or its chip", async () => {
+    const tab = fakeTab()
+    const passage = {
+      kind: 'passage',
+      handle: 'P1',
+      asset_id: DOC,
+      chunk_id: 'c1',
+      page: 4,
+      data_type: 'document',
+      name: 'Airport report',
+      cited: true,
+    }
+    mockFetch(
+      routes({
+        [TURN]: {
+          status: 200,
+          stream: [sse({ event: 'done', text: 'Screening is fast [P1].', references: [passage] })],
+        },
+        [`GET ${getCatalogDocumentPdfUrl(DOC)}`]: {
+          status: 200,
+          blob: new Blob(['%PDF-'], { type: 'application/pdf' }),
+        },
+      }),
+    )
+    const user = userEvent.setup()
+    renderApp('/map')
+    const panel = await openAsk(user)
+    await askQuestion(user, panel)
+
+    // The chip, not the map's pane: a document has nothing to draw.
+    await user.click(await within(panel).findByRole('button', { name: /^1\s*Airport report/ }))
+    expect(window.open).toHaveBeenCalledWith('', '_blank')
+    await waitFor(() => expect(tab.location.href).toBe('blob:pdf#page=4'))
+    expect(screen.queryByRole('heading', { name: 'Airport report' })).toBeNull()
+
+    await user.click(within(panel).getByRole('button', { name: 'Citation 1: Airport report' }))
+    expect(window.open).toHaveBeenCalledTimes(2)
+  })
+
   it('shows a citation as the asset it cites, from its mark in the text or its chip', async () => {
     const reference = { kind: 'asset', handle: 'A1', asset_id: DOC, cited: true }
     mockFetch(
@@ -244,10 +283,11 @@ describe('asking a question', () => {
 
     const panel = await openAsk(user)
     await askQuestion(user, panel)
-    // No name came with the reference, so the chips read the catalog for it.
+    // No name came with the reference, so the chip reads the catalog for it.
+    // One chip: a cited asset is not repeated in a box below.
     expect(
       await within(panel).findAllByRole('button', { name: /^1\s*Airport report/ }),
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     await user.click(within(panel).getByRole('button', { name: 'Citation 1' }))
 
     const pane = await screen.findByRole('complementary', { name: 'Selected asset' })
@@ -470,7 +510,7 @@ describe('sessions', () => {
     expect(within(panel).getByRole('heading', { name: row.title })).toBeTruthy()
     // A stored turn shows its cited reference, numbered, and not the other.
     expect(within(panel).getByRole('button', { name: 'Citation 1: roads' })).toBeTruthy()
-    expect(within(panel).getAllByRole('button', { name: /^1\s*roads/ })).toHaveLength(2)
+    expect(within(panel).getAllByRole('button', { name: /^1\s*roads/ })).toHaveLength(1)
     expect(within(panel).queryByRole('button', { name: /Airport report/ })).toBeNull()
 
     await user.click(within(panel).getByRole('button', { name: 'Sessions' }))

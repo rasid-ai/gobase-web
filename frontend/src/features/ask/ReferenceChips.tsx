@@ -1,6 +1,7 @@
 import { useMapAssetDetail } from '@/api/generated/map/map'
 import type { ChatReference } from '@/api/generated/model'
 import { Skeleton } from '@/components/ui/skeleton'
+import { openDocumentPdf } from '@/features/catalog/openDocument'
 import { useLayers } from '@/features/workspace/layers'
 import { cn } from '@/lib/utils'
 
@@ -48,6 +49,24 @@ function ChipSkeleton() {
  * A citation marker in the answer's text: its number, as a button that opens
  * the asset. The chip under the answer carries the same number.
  */
+/**
+ * Open what a citation names. A document opens its PDF in a new tab, at the
+ * cited page; it has nothing to draw, so the map's pane is the wrong place for
+ * it. Anything else, or a PDF that cannot be fetched, opens in the map's pane.
+ *
+ * `openDocumentPdf` opens its tab before its first await, inside the click,
+ * which is what popup blockers allow, so this must be called from the click.
+ */
+async function openCited(
+  target: { assetId: string; page: number | null; dataType: string | null },
+  onSelect: (assetId: string) => void,
+): Promise<void> {
+  if (target.dataType === 'document') {
+    if (await openDocumentPdf(target.assetId, target.page ?? undefined)) return
+  }
+  onSelect(target.assetId)
+}
+
 export function CitationMark({
   mark,
   onSelect,
@@ -59,7 +78,7 @@ export function CitationMark({
   return (
     <button
       type="button"
-      onClick={() => onSelect(mark.assetId)}
+      onClick={() => void openCited(mark, onSelect)}
       aria-label={label}
       title={mark.name ?? undefined}
       className="mx-0.5 inline-flex h-[1.3em] min-w-[1.3em] items-center justify-center rounded-sm border border-border bg-background px-1 align-[0.15em] font-mono text-[0.7em] leading-none text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -69,7 +88,10 @@ export function CitationMark({
   )
 }
 
-/** A cited asset, with its number and its page for a passage. Selecting it shows its metadata. */
+/**
+ * A cited asset, with its number and its page for a passage. Selecting it opens
+ * a document's PDF at that page, and shows anything else in the map's pane.
+ */
 export function CitationChip({
   citation,
   onSelect,
@@ -83,7 +105,12 @@ export function CitationChip({
   if (!label) return null
 
   return (
-    <button type="button" onClick={() => onSelect(assetId)} className={CHIP} title={label.name}>
+    <button
+      type="button"
+      onClick={() => void openCited({ assetId, page, dataType: label.dataType }, onSelect)}
+      className={CHIP}
+      title={label.dataType === 'document' ? `Open the PDF of ${label.name}` : label.name}
+    >
       {number !== null ? <span className={cn(MICRO, 'shrink-0')}>{number}</span> : null}
       <span className="truncate">{label.name}</span>
       <span className={cn(MICRO, 'shrink-0')}>
@@ -177,38 +204,24 @@ export function Citations({
   )
 }
 
-/** What the answer hands over: assets to open, and layers on the map. */
-export function OutputBox({
-  grouped,
-  onSelect,
-}: {
-  grouped: GroupedReferences
-  onSelect: (assetId: string) => void
-}) {
-  const { assets, layers } = grouped
-  if (assets.length === 0 && layers.length === 0) return null
-
+/**
+ * The layers the answer put on the map. Cited assets are not repeated here:
+ * each is already a numbered chip under the answer, which opens it.
+ */
+export function OutputBox({ grouped }: { grouped: GroupedReferences }) {
+  const { layers } = grouped
+  if (layers.length === 0) return null
   return (
     <section
       aria-label="What the answer found"
       className="flex flex-col gap-3 rounded-lg border border-border p-4"
     >
-      {assets.length > 0 ? (
-        <div className="flex flex-col items-start gap-2">
-          <h3 className={MICRO}>Assets · {assets.length}</h3>
-          {assets.map((asset) => (
-            <CitationChip key={asset.assetId} citation={asset} onSelect={onSelect} />
-          ))}
-        </div>
-      ) : null}
-      {layers.length > 0 ? (
-        <div className="flex flex-col items-start gap-2">
-          <h3 className={MICRO}>On the map · {layers.length}</h3>
-          {layers.map((reference) => (
-            <LayerChip key={reference.asset_id} reference={reference} />
-          ))}
-        </div>
-      ) : null}
+      <div className="flex flex-col items-start gap-2">
+        <h3 className={MICRO}>On the map · {layers.length}</h3>
+        {layers.map((reference) => (
+          <LayerChip key={reference.asset_id} reference={reference} />
+        ))}
+      </div>
     </section>
   )
 }

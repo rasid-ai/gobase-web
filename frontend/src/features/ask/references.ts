@@ -33,7 +33,14 @@ import type { LayerScope } from '@/features/workspace/layers'
 /** A marker in the text, `[A1]`: one handle per pair. */
 const MARKER = /\[([AP][1-9][0-9]{0,4})\]/g
 
-export type Mark = { number: number; assetId: string; name: string | null }
+export type Mark = {
+  number: number
+  assetId: string
+  name: string | null
+  /** For a passage: the page it is on, from 1. Opens a document's PDF there. */
+  page: number | null
+  dataType: string | null
+}
 
 export type Citation = {
   assetId: string
@@ -46,7 +53,6 @@ export type Citation = {
 export type GroupedReferences = {
   marks: Map<string, Mark>
   citations: Citation[]
-  assets: Citation[]
   layers: ChatReference[]
   frame: [number, number, number, number] | null
 }
@@ -72,6 +78,8 @@ export function citationMarks(
       number: marks.size + 1,
       assetId: reference.asset_id!,
       name: reference.name ?? null,
+      page: reference.kind === 'passage' ? (reference.page ?? null) : null,
+      dataType: reference.data_type ?? null,
     })
   }
   return marks
@@ -90,7 +98,6 @@ export function groupReferences(
   const marks = citationMarks(text, references)
   const citations: Citation[] = []
   const seen = new Set<string>()
-  const assets: Citation[] = []
   const layers = new Map<string, ChatReference>()
   let frame: GroupedReferences['frame'] = null
 
@@ -113,12 +120,6 @@ export function groupReferences(
       citations.push({ assetId, page, number, name, dataType })
     }
 
-    if (
-      (reference.kind === 'asset' || reference.kind === 'raster') &&
-      !assets.some((asset) => asset.assetId === assetId)
-    ) {
-      assets.push({ assetId, page: null, number, name, dataType })
-    }
     if (reference.kind === 'layer') layers.set(assetId, reference)
   }
 
@@ -130,9 +131,8 @@ export function groupReferences(
   // Numbered chips first, in the text's order; the rest keep their arrival order.
   const rank = (citation: Citation) => citation.number ?? Number.MAX_SAFE_INTEGER
   sources.sort((a, b) => rank(a) - rank(b))
-  assets.sort((a, b) => rank(a) - rank(b))
 
-  return { marks, citations: sources, assets, layers: [...layers.values()], frame }
+  return { marks, citations: sources, layers: [...layers.values()], frame }
 }
 
 /** What a layer was read for, in the chip's words. */

@@ -48,16 +48,19 @@ with markers, `[A1]`. The panel shows only what the answer cited
 (`features/ask/references.ts`):
 
 - **Marks**, in the text: each marker becomes a small numbered button, 1, 2,
-  3 in order of first citation in that answer. Selecting one opens the asset.
+  3 in order of first citation in that answer. Selecting one opens the asset,
+  as its chip does.
   A bracket the turn has no reference for (`[sic]`) stays as text.
 - **Citations**, under the text: every cited asset, in marker order and with
   the same number — name, data type, and `p. N` for a passage. An asset cited
-  at a page gets no second chip without one. Selecting one opens the asset's
-  metadata in the map's pane. The name and type come with the reference; a
-  reference without them is looked up in the catalog.
-- **Assets**, in a box below: the cited `asset` and `raster` references, to
-  open.
-- **On the map**, in the same box: the `layer` references, each with the
+  at a page gets no second chip without one. Selecting one opens a
+  document's PDF in a new tab, at the cited page. Anything else, or a PDF
+  that can't be fetched, opens the asset's metadata in the map's pane. The
+  name and type come with the reference; a reference without them is looked
+  up in the catalog. (Until 2026-11-15 a box below repeated every cited
+  asset and raster as an "Assets" list; it showed the same chips twice and
+  is gone.)
+- **On the map**, in a box below: the `layer` references, each with the
   count the answer gave. A layer that arrives while the answer streams is
   drawn at once; its chip hides and shows it.
 

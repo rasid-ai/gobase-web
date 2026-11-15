@@ -1240,10 +1240,10 @@ describe('semantic search', () => {
     // row says which one it is in; and a document's format is its file's.
     expect(within(panel).getByText('Airports · document · pdf')).toBeInTheDocument()
     expect(within(panel).getByText('Road network · vector · geoparquet')).toBeInTheDocument()
-    // Every row can be drawn, as in every other list; the one with nothing
-    // to draw says so when asked (specs/map.md). A document adds Open, and
-    // nothing else does.
-    expect(within(panel).getByRole('button', { name: `Draw ${DOC_NAME}` })).toBeInTheDocument()
+    // Every row but a document's can be drawn, as in every other list; one
+    // with nothing to draw says so when asked (specs/map.md). A document has
+    // nothing to draw, so it gets Open instead, and nothing else does.
+    expect(within(panel).queryByRole('button', { name: `Draw ${DOC_NAME}` })).toBeNull()
     expect(within(panel).getAllByRole('button', { name: 'Open' })).toHaveLength(1)
   })
 

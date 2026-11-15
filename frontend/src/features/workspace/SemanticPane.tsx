@@ -6,16 +6,11 @@ import type { AssetDetail, SimilarAsset } from '@/api/generated/model'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { OpenPdf } from '@/features/catalog/OpenPdf'
 import { cn } from '@/lib/utils'
 
 import { AssetDetailPanel, AssetRow, Failed } from './AssetPanel'
 
 const MICRO = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground'
-
-/** A row's own action: mono, like the Draw beside it. */
-const ACTION =
-  'shrink-0 rounded font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50'
 
 /** How many matches one question lists. The best few, not a page. */
 export const MATCHES = 10
@@ -197,15 +192,7 @@ function Matches({
               onSelect={() => onSelect(match.asset_id)}
               onDraw={() => onDraw(match.asset_id, match.name)}
               showDataset
-            >
-              {/*
-                Open, beside Draw, only when the catalog records the PDF:
-                offered and broken is worse than not offered.
-              */}
-              {match.document?.pdf ? (
-                <OpenPdf assetId={match.asset_id} label="Open" className={ACTION} />
-              ) : null}
-            </AssetRow>
+            />
           </li>
         ))}
       </ul>

@@ -339,7 +339,7 @@ function Turn({
         <Citations grouped={grouped} onSelect={onSelectAsset} onFrame={onFrame} />
       </div>
 
-      <OutputBox grouped={grouped} onSelect={onSelectAsset} />
+      <OutputBox grouped={grouped} />
     </article>
   )
 }

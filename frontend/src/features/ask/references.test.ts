@@ -28,8 +28,8 @@ describe('citationMarks', () => {
     const marks = citationMarks('Roads [A3] cross the area [A1][A3], see [A1].', references)
 
     expect([...marks.entries()]).toEqual([
-      ['A3', { number: 1, assetId: DOC, name: 'Airport report' }],
-      ['A1', { number: 2, assetId: ROADS, name: 'roads' }],
+      ['A3', { number: 1, assetId: DOC, name: 'Airport report', page: null, dataType: 'document' }],
+      ['A1', { number: 2, assetId: ROADS, name: 'roads', page: null, dataType: 'vector' }],
     ])
   })
 
@@ -65,11 +65,9 @@ describe('groupReferences', () => {
     ])
 
     expect(grouped.citations).toEqual([bare(DOC, 14), bare(ROADS)])
-    // Still handed over to open, in the Assets box.
-    expect(grouped.assets).toEqual([bare(DOC), bare(ROADS)])
   })
 
-  it('hands over assets and rasters as assets, and layers as layers', () => {
+  it('hands over layers for the map, and cites assets and rasters only as citations', () => {
     const layer: ChatReference = { kind: 'layer', asset_id: ROADS, area: 'POLYGON((...))' }
     const grouped = groupReferences([
       { kind: 'asset', asset_id: DOC },
@@ -77,7 +75,7 @@ describe('groupReferences', () => {
       layer,
     ])
 
-    expect(grouped.assets).toEqual([bare(DOC), bare(LANDCOVER)])
+    expect(grouped.citations.map((c) => c.assetId)).toEqual([DOC, LANDCOVER, ROADS])
     expect(grouped.layers).toEqual([layer])
   })
 
@@ -128,7 +126,6 @@ describe('groupReferences', () => {
         { assetId: DOC, page: null, number: 1, name: 'Airport report', dataType: 'document' },
         { assetId: ROADS, page: null, number: 2, name: 'roads', dataType: 'vector' },
       ])
-      expect(grouped.assets.map((asset) => asset.assetId)).toEqual([DOC, ROADS])
       expect(grouped.marks.get('A3')?.number).toBe(1)
     })
 

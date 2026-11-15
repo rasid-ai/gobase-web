@@ -4,7 +4,8 @@ import { type ReactNode, useState } from 'react'
 
 import { useCatalogAssetList, useCatalogDatasetList } from '@/api/generated/catalog/catalog'
 import type { AssetDetail, AssetListItem, Dataset } from '@/api/generated/model'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { OpenPdf } from '@/features/catalog/OpenPdf'
 import { Input } from '@/components/ui/input'
 import { Segmented } from '@/components/ui/segmented'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -425,15 +426,27 @@ export function AssetRow({
           metadata, drawing puts features on the map, and one must not force
           the other (docs/adr/008).
         */}
-        <button
-          type="button"
-          onClick={onDraw}
-          disabled={loading}
-          aria-label={drawn ? `Redraw ${asset.name}` : `Draw ${asset.name}`}
-          className="shrink-0 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground disabled:opacity-50"
-        >
-          {loading ? <Spinner /> : drawn ? <span aria-hidden>✓</span> : 'Draw'}
-        </button>
+        {asset.data_type === 'document' ? (
+          // A document has nothing to draw. It opens instead, only when the
+          // catalog records its PDF: offered and broken is worse than not offered.
+          asset.document?.pdf ? (
+            <OpenPdf
+              assetId={asset.asset_id}
+              label="Open"
+              className="shrink-0 rounded font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
+            />
+          ) : null
+        ) : (
+          <button
+            type="button"
+            onClick={onDraw}
+            disabled={loading}
+            aria-label={drawn ? `Redraw ${asset.name}` : `Draw ${asset.name}`}
+            className="shrink-0 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            {loading ? <Spinner /> : drawn ? <span aria-hidden>✓</span> : 'Draw'}
+          </button>
+        )}
       </div>
 
       {drawn ? <LayerNote features={features} className="mt-1" /> : null}
@@ -532,19 +545,27 @@ export function AssetDetailPanel({
           that list, so without this the only way to draw it would be to find
           it again by clicking the map.
 
-          Offered whatever the data type is. Only vector assets have features
-          to draw, but which types those are belongs to the knowledge base and
-          not to this file (specs/map.md) — an asset with nothing to draw says
-          so when asked, exactly as it does from the list.
+          Offered for every data type but documents. Only vector assets have
+          features to draw, but which types those are belongs to the knowledge
+          base and not to this file (specs/map.md) — an asset with nothing to
+          draw says so when asked, exactly as it does from the list. A
+          document is a PDF by definition, so it gets Open PDF instead.
         */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onDraw(detail.asset_id, detail.name)}
-          disabled={loading}
-        >
-          {loading ? <Spinner /> : drawn ? 'Redraw' : 'Draw'}
-        </Button>
+        {detail.data_type === 'document' ? (
+          <OpenPdf
+            assetId={detail.asset_id}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          />
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onDraw(detail.asset_id, detail.name)}
+            disabled={loading}
+          >
+            {loading ? <Spinner /> : drawn ? 'Redraw' : 'Draw'}
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={onClear}>
           Clear
         </Button>

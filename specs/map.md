@@ -37,7 +37,9 @@ the catalog assets whose coverage includes it, in three levels
    with how many assets and of which data types. A search box above filters
    them by name.
 2. **Files.** Opening a dataset lists its assets here, by name, each with
-   its data type, format, and a control to draw it. A search box searches
+   its data type, format, and a control to draw it. A document has nothing
+   to draw: its row offers Open instead, which opens its PDF in a new tab
+   when the catalog records one, and nothing otherwise. A search box searches
    their metadata — the same catalog text, and the same exact match, as on
    the Assets page (specs/assets.md) — and a data type choice (All, or one
    type) sits beneath it. The choice appears only here: among datasets a
@@ -61,7 +63,8 @@ code (context/integrations/kb.md).
 
 Selecting an asset shows its name and metadata and draws its footprint, with
 its own control to draw its data — the same control the list row carries, so
-the two panels offer the same actions. The panel opens either because a click
+the two panels offer the same actions. For a document that control is Open
+PDF. The panel opens either because a click
 found assets here, or because an asset arrived in the URL; nothing else opens
 it. Metadata is whatever the catalog holds for that asset: there is no fixed
 field set and it differs by data type. Clearing the selection removes that
