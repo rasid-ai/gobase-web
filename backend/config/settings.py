@@ -324,6 +324,8 @@ RASTER_CLIP_MAX_BYTES = int(env("RASTER_CLIP_MAX_BYTES", str(64 * 1024 * 1024)))
 # between strips of a clip, so a read can run over by one of those: a few
 # megabytes. A read that reaches it answers 503. Zero means no limit of this
 # kind (GDAL still bounds each request). A clip at the cap pulls 45 to 70 MB
-# from the lake, depending on the window, so 60 seconds asks for a link of 6
-# to 9 Mbit/s between the portal and the lake; raise it for a slower one.
-RASTER_READ_TIMEOUT_SECONDS = float(env("RASTER_READ_TIMEOUT_SECONDS", "60"))
+# from the lake, depending on the window, so 300 seconds asks for a link of
+# 1.2 to 1.9 Mbit/s between the portal and the lake; raise it for a slower one.
+# The agent waits 330 s for raster-stats (its BACKEND_RASTER_TIMEOUT_SECONDS),
+# so keep this below that (docs/adr/030).
+RASTER_READ_TIMEOUT_SECONDS = float(env("RASTER_READ_TIMEOUT_SECONDS", "300"))

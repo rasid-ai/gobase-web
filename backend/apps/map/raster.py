@@ -142,13 +142,13 @@ _CONNECT_SECONDS = 5
 _STALL_SECONDS = 8
 _STALL_BYTES = 1024
 # One request, however well it is going. The largest one a read makes is about
-# 8 MB, so this asks for a link of 2 Mbit/s or better.
-_REQUEST_SECONDS = 30
+# 8 MB, so this asks for a link of 0.6 Mbit/s or better (ADR-030).
+_REQUEST_SECONDS = 120
 # A whole read, from open to last pixel, when the caller names no limit
 # (`RASTER_READ_TIMEOUT_SECONDS`). Checked between steps, so a read can run
 # over by one step: one chunk of a statistics read, one strip of a clip. Zero
 # or less means no limit of this kind; GDAL's bounds on each request stay.
-READ_SECONDS = 60
+READ_SECONDS = 300
 
 # How much a statistics read asks of the lake in one step, and holds from it.
 # A step is one chunk of rows, all bands at once. `_CHUNK_BLOCK_BYTES` is the

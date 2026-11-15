@@ -328,7 +328,7 @@ How long a failing lake holds a request, measured on 2026-11-10:
 | drops every packet | 503 | 15 seconds |
 | connects, then says nothing | 503 | 24 seconds |
 | sends headers and then stalls, or drips | 503 | 8 seconds |
-| is slow but alive | 503 | `RASTER_READ_TIMEOUT_SECONDS` (60), plus the chunk of rows or strip it is on: a few megabytes |
+| is slow but alive | 503 | `RASTER_READ_TIMEOUT_SECONDS` (300, docs/adr/030), plus the chunk of rows or strip it is on: a few megabytes |
 
 A statistics read goes a chunk of rows at a time, all bands at once, and
 looks at the time limit between chunks. Through a link throttled to

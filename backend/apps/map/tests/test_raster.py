@@ -407,7 +407,7 @@ def test_a_dead_lake_is_given_up_on_without_a_retry():
     options = raster._options()
 
     assert options["GDAL_HTTP_CONNECTTIMEOUT"] == "5"
-    assert options["GDAL_HTTP_TIMEOUT"] == "30"
+    assert options["GDAL_HTTP_TIMEOUT"] == "120"  # docs/adr/030
     assert options["GDAL_HTTP_MAX_RETRY"] == "0"
 
 

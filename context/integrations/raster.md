@@ -42,7 +42,7 @@ Three settings bound what is read:
 |---|---|---|
 | `RASTER_STATS_MAX_PIXELS` | 4,000,000 | The most pixels read for `raster-stats`. Above it the place is read at reduced size and the answer says `approximate`. |
 | `RASTER_CLIP_MAX_BYTES` | 67,108,864 (64 MB) | The largest `clip.tif`, as bytes of pixels before compression: width x height x bands x bytes per value. Above it the endpoint answers 400. |
-| `RASTER_READ_TIMEOUT_SECONDS` | 60 | The longest one read may take, from opening the raster to its last pixel. Checked between chunks of rows of a statistics read and between strips of a clip. A read that reaches it answers 503. Zero means no limit of this kind; GDAL still bounds each request. See "How long a read can take". |
+| `RASTER_READ_TIMEOUT_SECONDS` | 300 (docs/adr/030) | The longest one read may take, from opening the raster to its last pixel. Checked between chunks of rows of a statistics read and between strips of a clip. A read that reaches it answers 503. Zero means no limit of this kind; GDAL still bounds each request. See "How long a read can take". |
 
 Every read also sets these GDAL options:
 
@@ -52,7 +52,7 @@ Every read also sets these GDAL options:
 | `GDAL_HTTP_CONNECTTIMEOUT` | 5 | Seconds to connect. |
 | `GDAL_HTTP_LOW_SPEED_TIME` | 8 | A request that gets fewer bytes a second than the limit below, for this many seconds, is given up on. This is what ends a lake that connects and then stalls. |
 | `GDAL_HTTP_LOW_SPEED_LIMIT` | 1024 | Bytes a second. |
-| `GDAL_HTTP_TIMEOUT` | 30 | Seconds for any one request, however well it is going. |
+| `GDAL_HTTP_TIMEOUT` | 120 (30 until docs/adr/030) | Seconds for any one request, however well it is going. |
 | `GDAL_HTTP_MAX_RETRY` | 0 | GDAL waits 30 seconds before a retry. See "Nine things". |
 | `GDAL_CACHEMAX` | 32 MB | GDAL's block cache. Its default is 5% of the machine's memory. |
 | `CPL_VSIL_CURL_NON_CACHED` | `/vsis3/` | GDAL keeps nothing about a lake object after the file is closed. |
@@ -246,7 +246,7 @@ for `raster-stats` and for `clip.tif` alike:
 | refuses the port, or does not resolve | under 1 s | under 1 s | 503 |
 
 A lake that is slow but alive is bounded by `RASTER_READ_TIMEOUT_SECONDS`:
-a read still going after 60 seconds stops before its next chunk or strip
+a read still going after 300 seconds (60 until docs/adr/030) stops before its next chunk or strip
 and answers 503. It can run over by the step it is in. A step pulls a few
 megabytes: a chunk of a statistics read is 1 to 3 MB on the catalog's
 rasters, a strip of a clip up to 8 MB. At 150 KB/s that is up to 19
@@ -278,7 +278,7 @@ catalog's rasters (bytes pulled, counted by that proxy):
 | `raster-stats`, a whole three-band raster (from an overview) | 10 MB | 3 MB |
 | anything on a land-cover raster | about 1 MB or less | 0.3 MB |
 
-So a clip at the cap needs 6 to 9 Mbit/s to finish in 60 seconds, and the
+So a clip at the cap needs 1.2 to 1.9 Mbit/s to finish in 300 seconds, and the
 largest single request needs about 2 Mbit/s to finish in 30. On a slower
 link the largest reads answer 503 and smaller ones still work; raise
 `RASTER_READ_TIMEOUT_SECONDS` there. A raster with more or wider bands
