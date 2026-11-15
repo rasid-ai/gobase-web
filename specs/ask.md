@@ -10,8 +10,8 @@ context/integrations/agent.md.
 agent and checked live against a stub. **Built (2026-11-10):** the three
 backend endpoints the agent's tools were missing (docs/adr/024; "What the
 backend serves the agent's tools" below), each run end to end with the real
-agent on a developer's machine. **Not built:** two of the agent's nine tools
-(`doc_search`, `doc_passages`; the agent's repo says which), and a deployed
+agent on a developer's machine. All nine of the agent's tools are built
+(`doc_search` and `doc_passages` on 2026-11-15). **Not built:** a deployed
 agent. So Ask answers nothing yet in any deployed portal; with no
 `AGENT_URL` the panel says Ask is unavailable.
 
