@@ -3,8 +3,8 @@
  *
  * It attaches the in-memory access token, and on a 401 renews the session
  * once from the refresh cookie and retries the original request — which is
- * what makes HLR-003 invisible to the user. If renewal fails, the session is
- * over and listeners are told (HLR-004).
+ * what makes renewal invisible to the user. If renewal fails, the session is
+ * over and listeners are told.
  *
  * Orval's fetch client expects `(url, init)` and a `{ data, status, headers }`
  * result, discriminated on status. Non-2xx is returned, not thrown; callers
@@ -51,7 +51,12 @@ function withAuth(init: RequestInit, token: string | null): RequestInit {
   return { ...init, credentials: 'same-origin', headers }
 }
 
-export async function httpClient<T>(url: string, init: RequestInit): Promise<T> {
+/**
+ * A fetch that carries the session: the access token, and the one renewal and
+ * retry on a 401. `httpClient` is this plus JSON parsing; anything that wants
+ * the raw response — a PDF opened in a new tab — calls this directly.
+ */
+export async function fetchWithSession(url: string, init: RequestInit): Promise<Response> {
   let response = await fetch(url, withAuth(init, getAccessToken()))
 
   // Renew once, then retry. Login and refresh are excluded: a 401 there is
@@ -65,6 +70,12 @@ export async function httpClient<T>(url: string, init: RequestInit): Promise<T> 
       notifySessionEnded()
     }
   }
+
+  return response
+}
+
+export async function httpClient<T>(url: string, init: RequestInit): Promise<T> {
+  const response = await fetchWithSession(url, init)
 
   const data = response.status === 204 ? undefined : await response.json().catch(() => undefined)
 

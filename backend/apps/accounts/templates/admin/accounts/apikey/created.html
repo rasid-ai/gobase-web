@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url 'admin:accounts_apikey_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; {{ api_key.name }}
+</div>
+{% endblock %}
+
+{% block content %}
+<p>Copy this key now. It is not stored, and this page is the only time it is shown.</p>
+<p><code style="font-size: 1.1em; user-select: all;">{{ raw_key }}</code></p>
+<p>
+  It signs in as <strong>{{ api_key.user.get_username }}</strong>, for reading only.
+  Revoke it from the list when it is no longer needed.
+</p>
+<p><a href="{% url 'admin:accounts_apikey_changelist' %}">Back to API keys</a></p>
+{% endblock %}

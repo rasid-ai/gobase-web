@@ -1,0 +1,901 @@
+/** What the Assets page promises: specs/assets.md. */
+
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { fakeTab, forgetTab, mockFetch, renderApp, resetSession } from '@/test/harness'
+
+const FIRST_PAGE = 'GET /api/catalog/assets?sort=-ingested_at&limit=12&offset=0'
+const DATASETS = 'GET /api/catalog/datasets'
+
+function dataset(overrides: Record<string, unknown> = {}) {
+  return {
+    dataset: 'boundaries',
+    label: 'Boundaries',
+    count: 9,
+    data_type_counts: [
+      { data_type: 'unparsed', count: 4 },
+      { data_type: 'vector', count: 5 },
+    ],
+    ...overrides,
+  }
+}
+
+function session() {
+  return {
+    'POST /api/auth/refresh': { status: 200, body: { access: 'access-token' } },
+    'GET /api/auth/me': { status: 200, body: { username: 'viewer1', role: 'viewer' } },
+    // The page opens on the datasets, so every visit asks for them first.
+    [DATASETS]: { status: 200, body: { results: [dataset()] } },
+  }
+}
+
+/** Open the page and switch to browsing every asset at once. */
+async function openAssets(path = '/assets') {
+  const user = userEvent.setup()
+  renderApp(path)
+  await user.click(await screen.findByRole('radio', { name: 'Assets' }))
+  return user
+}
+
+function item(overrides: Record<string, unknown> = {}) {
+  return {
+    asset_id: 'cd8173bb-65ef-4bab-8bec-2be34d7157b9',
+    name: 'gis_osm_boundaries_07_1',
+    data_type: 'vector',
+    format: 'geoparquet',
+    dataset: 'boundaries',
+    dataset_label: 'Boundaries',
+    topic_path: 'shapefiles_dresden',
+    bytes: 238368,
+    bbox: [13.5389, 50.9581, 14.0149, 51.198],
+    summary: null,
+    time_start: null,
+    time_end: null,
+    ingested_at: '2026-09-09T11:02:41Z',
+    document: null,
+    ...overrides,
+  }
+}
+
+function page(overrides: Record<string, unknown> = {}) {
+  return {
+    count: 1,
+    results: [item()],
+    data_type_counts: [{ data_type: 'vector', count: 22 }],
+    ...overrides,
+  }
+}
+
+const PAGE_SIZE = 12
+
+function items(count: number, from = 0) {
+  return Array.from({ length: count }, (_, index) =>
+    item({
+      asset_id: `00000000-0000-0000-0000-${String(from + index).padStart(12, '0')}`,
+      name: `asset_${from + index}`,
+    }),
+  )
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+  resetSession()
+})
+
+it('lists what the catalog holds', async () => {
+  mockFetch({ ...session(), [FIRST_PAGE]: { status: 200, body: page() } })
+  await openAssets()
+
+  expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+  expect(screen.getByText('shapefiles_dresden')).toBeInTheDocument()
+  expect(screen.getByText('233 KB')).toBeInTheDocument()
+  expect(screen.getByText('2026.09.09')).toBeInTheDocument()
+})
+
+it('offers the data types the catalog reported, and no others', async () => {
+  // The portal holds no list of data types — it shows back what the API sent
+  // (context/integrations/kb.md).
+  mockFetch({
+    ...session(),
+    [FIRST_PAGE]: {
+      status: 200,
+      body: page({
+        data_type_counts: [
+          { data_type: 'vector', count: 22 },
+          { data_type: 'something-new', count: 3 },
+        ],
+      }),
+    },
+  })
+  await openAssets()
+
+  const group = await screen.findByRole('group', { name: 'Filter by data type' })
+  const options = within(group).getAllByRole('checkbox')
+  expect(options.map((option) => option.textContent)).toEqual(['vector22', 'something-new3'])
+})
+
+it('asks the server again when a data type is chosen', async () => {
+  const filtered = 'GET /api/catalog/assets?data_type=vector&sort=-ingested_at&limit=12&offset=0'
+  const { calls } = mockFetch({
+    ...session(),
+    [FIRST_PAGE]: { status: 200, body: page() },
+    [filtered]: { status: 200, body: page({ count: 0, results: [] }) },
+  })
+  const user = await openAssets()
+
+  await user.click(await screen.findByRole('checkbox', { name: /vector/ }))
+
+  await waitFor(() => expect(calls).toContain(filtered))
+})
+
+it('says a filter matched nothing, rather than that there is nothing', async () => {
+  const filtered = 'GET /api/catalog/assets?q=zzz&sort=-ingested_at&limit=12&offset=0'
+  mockFetch({
+    ...session(),
+    [FIRST_PAGE]: { status: 200, body: page() },
+    [filtered]: { status: 200, body: page({ count: 0, results: [] }) },
+  })
+  const user = await openAssets()
+
+  await user.type(await screen.findByLabelText('Search assets'), 'zzz')
+
+  expect(await screen.findByText('No assets match these filters')).toBeInTheDocument()
+})
+
+it('says the catalog is empty when nothing is filtered', async () => {
+  mockFetch({
+    ...session(),
+    [FIRST_PAGE]: {
+      status: 200,
+      body: page({ count: 0, results: [], data_type_counts: [] }),
+    },
+  })
+  await openAssets()
+
+  expect(await screen.findByText('The catalog is empty')).toBeInTheDocument()
+})
+
+it('offers to try again when the catalog cannot be read', async () => {
+  mockFetch({ ...session(), [FIRST_PAGE]: { status: 500, body: {} } })
+  await openAssets()
+
+  expect(await screen.findByText('The catalog could not be loaded.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+})
+
+it('shows one page at a time and steps between them', async () => {
+  const second = 'GET /api/catalog/assets?sort=-ingested_at&limit=12&offset=12'
+  mockFetch({
+    ...session(),
+    [FIRST_PAGE]: { status: 200, body: page({ count: 20, results: items(PAGE_SIZE) }) },
+    [second]: { status: 200, body: page({ count: 20, results: items(8, PAGE_SIZE) }) },
+  })
+  const user = await openAssets()
+
+  expect(await screen.findByText('1–12 of 20 assets')).toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: 'Page 2' }))
+
+  // A page replaces the one before it, rather than being appended to it.
+  expect(await screen.findByText('asset_12')).toBeInTheDocument()
+  expect(screen.queryByText('asset_0')).not.toBeInTheDocument()
+  expect(screen.getByText('13–20 of 20 assets')).toBeInTheDocument()
+})
+
+it('offers no page control when everything fits on one page', async () => {
+  mockFetch({ ...session(), [FIRST_PAGE]: { status: 200, body: page() } })
+  await openAssets()
+
+  await screen.findByText('gis_osm_boundaries_07_1')
+  expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+})
+
+it('goes back to the first page when a filter changes', async () => {
+  // Page 2 of the old list has nothing to do with page 2 of the new one, so
+  // the next request has to start at offset 0.
+  const second = 'GET /api/catalog/assets?sort=-ingested_at&limit=12&offset=12'
+  const filtered = 'GET /api/catalog/assets?q=z&sort=-ingested_at&limit=12&offset=0'
+  const { calls } = mockFetch({
+    ...session(),
+    [FIRST_PAGE]: { status: 200, body: page({ count: 20, results: items(PAGE_SIZE) }) },
+    [second]: { status: 200, body: page({ count: 20, results: items(8, PAGE_SIZE) }) },
+    [filtered]: { status: 200, body: page({ count: 1 }) },
+  })
+  const user = await openAssets()
+
+  await user.click(await screen.findByRole('button', { name: 'Page 2' }))
+  await screen.findByText('asset_12')
+
+  await user.type(screen.getByLabelText('Search assets'), 'z')
+
+  await waitFor(() => expect(calls).toContain(filtered))
+  expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+})
+
+it('links an asset to its place on the map', async () => {
+  mockFetch({ ...session(), [FIRST_PAGE]: { status: 200, body: page() } })
+  await openAssets()
+
+  const link = await screen.findByRole('link', { name: 'Locate on map' })
+  expect(link).toHaveAttribute('href', '/map?asset=cd8173bb-65ef-4bab-8bec-2be34d7157b9')
+})
+
+it('offers no map link for an asset with no coverage', async () => {
+  // A document need not cover anywhere, and a link to nowhere is worse than
+  // no link.
+  mockFetch({
+    ...session(),
+    [FIRST_PAGE]: { status: 200, body: page({ results: [item({ bbox: null })] }) },
+  })
+  await openAssets()
+
+  await screen.findByText('gis_osm_boundaries_07_1')
+  expect(screen.queryByRole('link', { name: 'Locate on map' })).not.toBeInTheDocument()
+})
+
+describe('documents', () => {
+  const ID = 'b9bb3097-9feb-4805-b4b3-aed8d25fbada'
+  const PDF = `GET /api/catalog/assets/${ID}/pdf`
+
+  function document(overrides: Record<string, unknown> = {}) {
+    return item({
+      asset_id: ID,
+      name: 'Beirut airport - Case Study - TiSO.pdf',
+      data_type: 'document',
+      format: 'pdf',
+      dataset: 'airports',
+      dataset_label: 'Airports',
+      topic_path: 'airports',
+      bytes: 0,
+      bbox: null,
+      document: { title: 'TISO solutions for airport security', pages: 8, pdf: true },
+      ...overrides,
+    })
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    forgetTab()
+  })
+
+  it('shows a document as its PDF, with its title and its page count', async () => {
+    mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [document()] }) },
+    })
+    await openAssets()
+
+    expect(await screen.findByText('Beirut airport - Case Study - TiSO.pdf')).toBeInTheDocument()
+    expect(screen.getByText('TISO solutions for airport security')).toBeInTheDocument()
+    // The catalog holds no size for a document; the page count stands in.
+    expect(screen.getByText('8 pages')).toBeInTheDocument()
+    expect(screen.queryByText('0 B')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open PDF' })).toBeInTheDocument()
+  })
+
+  it('offers no PDF when the catalog records none', async () => {
+    const unrecorded = document({ document: { title: null, pages: 2, pdf: false } })
+    mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [unrecorded] }) },
+    })
+    await openAssets()
+
+    await screen.findByText('Beirut airport - Case Study - TiSO.pdf')
+    expect(screen.queryByRole('button', { name: 'Open PDF' })).not.toBeInTheDocument()
+  })
+
+  it('opens the PDF in a new tab, fetched with the session', async () => {
+    const tab = fakeTab()
+    const { fetchMock } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [document()] }) },
+      [PDF]: { status: 200, blob: new Blob(['%PDF-'], { type: 'application/pdf' }) },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('button', { name: 'Open PDF' }))
+
+    // Opened inside the click — before the fetch — which is what a popup
+    // blocker allows; then pointed at the bytes.
+    expect(window.open).toHaveBeenCalledWith('', '_blank')
+    await waitFor(() => expect(tab.location.href).toBe('blob:pdf'))
+    const request = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/pdf'))!
+    expect(new Headers((request[1] as RequestInit).headers).get('Authorization')).toBe(
+      'Bearer access-token',
+    )
+    expect(tab.close).not.toHaveBeenCalled()
+  })
+
+  it('closes the tab and says so when the PDF cannot be read', async () => {
+    const tab = fakeTab()
+    mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page({ results: [document()] }) },
+      [PDF]: { status: 502 },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('button', { name: 'Open PDF' }))
+
+    expect(await screen.findByText('Could not open the PDF')).toBeInTheDocument()
+    expect(tab.close).toHaveBeenCalledOnce()
+    expect(tab.location.href).toBe('')
+  })
+})
+
+const BEIRUT = {
+  name: 'Beirut, Lebanon',
+  lat: 33.8938,
+  lon: 35.5018,
+  bbox: [35.4, 33.8, 35.6, 34.1],
+}
+const LINK = '/assets?place=Beirut%2C+Lebanon&bbox=35.4,33.8,35.6,34.1'
+// The generated client builds the query with URLSearchParams, which escapes
+// the commas, and in the order the params object is written. The page always
+// compares a place with the datasets' coverage (docs/adr/019).
+const AREA = 'bbox=35.4%2C33.8%2C35.6%2C34.1&coverage=dataset'
+const DATASETS_IN_AREA = `GET /api/catalog/datasets?${AREA}`
+
+describe('filtering by area', () => {
+  it('filters to the area in the link, and names it', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+    })
+    renderApp(LINK)
+
+    expect(await screen.findByRole('button', { name: 'Open Boundaries' })).toBeInTheDocument()
+    expect(calls).toContain(DATASETS_IN_AREA)
+    expect(screen.getByText('Beirut, Lebanon')).toBeInTheDocument()
+  })
+
+  it('opens a dataset found in the area to all of its files', async () => {
+    // By the dataset's coverage, the files that cover nowhere — documents,
+    // unparsed files — come with the dataset rather than vanishing.
+    const inside = `GET /api/catalog/assets?dataset=boundaries&${AREA}&sort=-ingested_at&limit=12&offset=0`
+    const { calls } = mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+      [inside]: { status: 200, body: page({ results: [item({ bbox: null })] }) },
+    })
+    const user = userEvent.setup()
+    renderApp(LINK)
+
+    await user.click(await screen.findByRole('button', { name: 'Open Boundaries' }))
+
+    expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+    expect(calls).toContain(inside)
+  })
+
+  it('drops both parameters when the area is removed', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+    })
+    const user = userEvent.setup()
+    renderApp(LINK)
+
+    await user.click(await screen.findByRole('button', { name: 'Remove area Beirut, Lebanon' }))
+
+    await waitFor(() => expect(calls.at(-1)).toBe(DATASETS))
+    expect(screen.queryByText('Beirut, Lebanon')).toBeNull()
+  })
+
+  it('says so and shows everything when the area in the link cannot be read', async () => {
+    const { calls } = mockFetch({ ...session(), [FIRST_PAGE]: { status: 200, body: page() } })
+    await openAssets('/assets?bbox=nonsense')
+
+    expect(await screen.findByText(/area could not be read/)).toBeInTheDocument()
+    await waitFor(() => expect(calls).toContain(FIRST_PAGE))
+  })
+
+  it('counts the area as something to clear', async () => {
+    mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [] } },
+    })
+    renderApp(LINK)
+
+    // Not "the catalog is empty" — the catalog is fine, this corner of it is.
+    expect(await screen.findByText('No datasets match these filters')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeInTheDocument()
+  })
+})
+
+describe('the search box', () => {
+  /** Choose what the box searches. */
+  async function searchBy(user: ReturnType<typeof userEvent.setup>, kind: 'Metadata' | 'Places') {
+    const group = screen.getByRole('radiogroup', { name: 'Search by' })
+    await user.click(within(group).getByRole('radio', { name: kind }))
+  }
+
+  it('searches metadata without asking for places', async () => {
+    // A metadata search is never billed as a place search (docs/adr/011).
+    const named = 'GET /api/catalog/assets?q=shapeName&sort=-ingested_at&limit=12&offset=0'
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [named]: { status: 200, body: page() },
+    })
+    const user = await openAssets()
+
+    await user.type(await screen.findByLabelText('Search assets'), 'shapeName')
+
+    await waitFor(() => expect(calls).toContain(named))
+    // Past the geocoder's pause, which a place search waits for.
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(calls.some((call) => call.startsWith('GET /api/places'))).toBe(false)
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('finds places without filtering the catalog by their name', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      'GET /api/places/search?q=Beirut': { status: 200, body: { results: [BEIRUT] } },
+    })
+    const user = await openAssets()
+    await screen.findByText('gis_osm_boundaries_07_1')
+
+    await searchBy(user, 'Places')
+    // Choose, then type: the box for the new kind has the focus.
+    await waitFor(() => expect(screen.getByLabelText('Search places')).toHaveFocus())
+    await user.type(screen.getByLabelText('Search places'), 'Beirut')
+
+    expect(await screen.findByRole('option', { name: /Beirut, Lebanon/ })).toBeInTheDocument()
+    expect(calls.some((call) => call.includes('q=Beirut') && call.includes('/catalog/'))).toBe(
+      false,
+    )
+  })
+
+  it('combines a metadata search and a picked place, and names each by its kind', async () => {
+    const named = 'GET /api/catalog/assets?q=osm&sort=-ingested_at&limit=12&offset=0'
+    const both = `GET /api/catalog/assets?q=osm&${AREA}&sort=-ingested_at&limit=12&offset=0`
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [named]: { status: 200, body: page() },
+      'GET /api/places/search?q=Beirut': { status: 200, body: { results: [BEIRUT] } },
+      [both]: { status: 200, body: page() },
+    })
+    const user = await openAssets()
+
+    await user.type(await screen.findByLabelText('Search assets'), 'osm')
+    await searchBy(user, 'Places')
+    // The metadata search is still applied, and says what it is.
+    expect(screen.getByRole('button', { name: 'Remove metadata search osm' })).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Search places'), 'Beirut')
+    await user.click(await screen.findByRole('option', { name: /Beirut, Lebanon/ }))
+
+    await waitFor(() => expect(calls).toContain(both))
+    // The chip names the place now; the box is free for the next one.
+    expect(screen.getByLabelText('Search places')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Remove area Beirut, Lebanon' })).toBeInTheDocument()
+
+    await searchBy(user, 'Metadata')
+    expect(screen.getByLabelText('Search assets')).toHaveValue('osm')
+    expect(screen.queryByRole('button', { name: 'Remove metadata search osm' })).toBeNull()
+  })
+})
+
+describe('semantic search', () => {
+  const ID = 'b9bb3097-9feb-4805-b4b3-aed8d25fbada'
+  const ASKED = 'GET /api/catalog/passages?q=airport+security&limit=10&passages=3'
+  const PAGE = `GET /api/catalog/assets/${ID}/pages/3.png?chunk=0a1b`
+
+  function passage(overrides: Record<string, unknown> = {}) {
+    return {
+      chunk_id: '0a1b',
+      text: 'Screening at the checkpoint is carried out by trained staff.',
+      heading_path: ['3 Security', '3.2 Checkpoints'],
+      page_start: 3,
+      page_end: 3,
+      pages_with_boxes: [3],
+      chunk_type: 'text',
+      score: 0.71,
+      ...overrides,
+    }
+  }
+
+  function found(overrides: Record<string, unknown> = {}) {
+    return item({
+      asset_id: ID,
+      name: 'Beirut airport - Case Study - TiSO.pdf',
+      data_type: 'document',
+      format: 'pdf',
+      dataset: 'airports',
+      dataset_label: 'Airports',
+      topic_path: 'airports',
+      bytes: 0,
+      bbox: null,
+      document: { title: null, pages: 8, pdf: true },
+      score: 0.71,
+      passages: [passage()],
+      ...overrides,
+    })
+  }
+
+  const answer = (results: unknown[]) => ({
+    status: 200,
+    body: { embedder: 'BAAI/bge-small-en-v1.5', results },
+  })
+
+  async function askFor(user: ReturnType<typeof userEvent.setup>, question: string) {
+    await user.click(screen.getByRole('radio', { name: 'Semantic' }))
+    await user.type(screen.getByLabelText('Ask about documents'), question)
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+  }
+
+  it('asks once, on submit, and replaces the grid with the documents found', async () => {
+    const { calls } = mockFetch({ ...session(), [ASKED]: answer([found()]) })
+    const user = userEvent.setup()
+    renderApp('/assets')
+    await screen.findByRole('button', { name: 'Open Boundaries' })
+
+    await user.click(screen.getByRole('radio', { name: 'Semantic' }))
+    await user.type(screen.getByLabelText('Ask about documents'), 'airport security')
+    // Typing asks nothing: a question is an embedding round trip.
+    expect(calls.some((call) => call.includes('/passages'))).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByText('Beirut airport - Case Study - TiSO.pdf')).toBeInTheDocument()
+    expect(calls.filter((call) => call.includes('/passages'))).toEqual([ASKED])
+    // The dataset cards are gone while the question stands.
+    expect(screen.queryByRole('button', { name: 'Open Boundaries' })).toBeNull()
+    expect(screen.getByText('1 document')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove question' })).toBeInTheDocument()
+    // Nothing on screen is a score.
+    expect(screen.queryByText(/0\.71/)).toBeNull()
+    // The passage, collapsed: where it is and what it says.
+    expect(screen.getByText('3 Security › 3.2 Checkpoints')).toBeInTheDocument()
+    expect(screen.getByText('p. 3')).toBeInTheDocument()
+    expect(screen.getByText(/Screening at the checkpoint/)).toBeInTheDocument()
+  })
+
+  it('sends the question on Enter, and breaks a line on Shift+Enter', async () => {
+    const { calls } = mockFetch({ ...session(), [ASKED]: answer([found()]) })
+    const user = userEvent.setup()
+    renderApp('/assets')
+    await screen.findByRole('button', { name: 'Open Boundaries' })
+
+    await user.click(screen.getByRole('radio', { name: 'Semantic' }))
+    const box = screen.getByLabelText('Ask about documents')
+    await user.type(box, 'airport{Shift>}{Enter}{/Shift}security')
+    // A line break is part of the draft, not a submission.
+    expect(box).toHaveValue('airport\nsecurity')
+    expect(calls.some((call) => call.includes('/passages'))).toBe(false)
+
+    await user.clear(box)
+    await user.type(box, 'airport security{Enter}')
+    expect(await screen.findByText('Beirut airport - Case Study - TiSO.pdf')).toBeInTheDocument()
+    expect(calls.filter((call) => call.includes('/passages'))).toEqual([ASKED])
+  })
+
+  it('combines with a place and with an open dataset, never with a data type', async () => {
+    const inArea = `GET /api/catalog/passages?q=runways&limit=10&passages=3&${AREA}`
+    const inDataset = 'GET /api/catalog/passages?q=runways&limit=10&passages=3&dataset=boundaries'
+    const { calls } = mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+      [inArea]: answer([]),
+      [inDataset]: answer([]),
+      'GET /api/catalog/assets?dataset=boundaries&sort=-ingested_at&limit=12&offset=0': {
+        status: 200,
+        body: page(),
+      },
+    })
+    const user = userEvent.setup()
+    renderApp(LINK)
+    await screen.findByRole('button', { name: 'Open Boundaries' })
+
+    await askFor(user, 'runways')
+    await waitFor(() => expect(calls).toContain(inArea))
+    expect(await screen.findByText('No passages match that question')).toBeInTheDocument()
+
+    // Removing the question brings the datasets back, still in the area.
+    await user.click(screen.getByRole('button', { name: 'Remove question' }))
+    await screen.findByRole('button', { name: 'Open Boundaries' })
+    await user.click(screen.getByRole('button', { name: 'Remove area Beirut, Lebanon' }))
+    await user.click(await screen.findByRole('button', { name: 'Open Boundaries' }))
+    await screen.findByRole('heading', { name: 'Boundaries' })
+    // Inside, the data types are offered — until a question is asked.
+    expect(await screen.findByRole('group', { name: 'Filter by data type' })).toBeInTheDocument()
+
+    await askFor(user, 'runways')
+    await waitFor(() => expect(calls).toContain(inDataset))
+    expect(screen.queryByRole('group', { name: 'Filter by data type' })).toBeNull()
+  })
+
+  it('never stands beside a metadata search: choosing one clears the other', async () => {
+    const named = 'GET /api/catalog/assets?q=osm&sort=-ingested_at&limit=12&offset=0'
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [named]: { status: 200, body: page() },
+      [ASKED]: answer([found()]),
+    })
+    const user = await openAssets()
+
+    await user.type(await screen.findByLabelText('Search assets'), 'osm')
+    await waitFor(() => expect(calls).toContain(named))
+
+    await askFor(user, 'airport security')
+    await screen.findByText('Beirut airport - Case Study - TiSO.pdf')
+    expect(screen.queryByRole('button', { name: 'Remove metadata search osm' })).toBeNull()
+    expect(calls.at(-1)).toBe(ASKED)
+
+    await user.click(screen.getByRole('radio', { name: 'Metadata' }))
+    expect(await screen.findByLabelText('Search assets')).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'Remove question' })).toBeNull()
+    await waitFor(() => expect(calls.at(-1)).toBe(FIRST_PAGE))
+  })
+
+  it('says so when the service is not there, and when nothing matches', async () => {
+    mockFetch({ ...session(), [ASKED]: { status: 503, body: { detail: 'unavailable' } } })
+    const user = userEvent.setup()
+    renderApp('/assets')
+    await screen.findByRole('button', { name: 'Open Boundaries' })
+
+    await askFor(user, 'airport security')
+
+    expect(await screen.findByText('Semantic search is unavailable')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+  })
+
+  it('is cleared with everything else when the mode switches', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [ASKED]: answer([found()]),
+      [FIRST_PAGE]: { status: 200, body: page() },
+    })
+    const user = userEvent.setup()
+    renderApp('/assets')
+    await screen.findByRole('button', { name: 'Open Boundaries' })
+
+    await askFor(user, 'airport security')
+    await screen.findByText('Beirut airport - Case Study - TiSO.pdf')
+    await user.click(screen.getByRole('radio', { name: 'Assets' }))
+
+    await waitFor(() => expect(calls.at(-1)).toBe(FIRST_PAGE))
+    expect(screen.queryByRole('button', { name: 'Remove question' })).toBeNull()
+    expect(screen.getByLabelText('Ask about documents')).toHaveValue('')
+  })
+
+  it('renders the page with the passage marked only once it is opened, and opens the PDF there', async () => {
+    const tab = fakeTab()
+    const { calls } = mockFetch({
+      ...session(),
+      [ASKED]: answer([found()]),
+      [PAGE]: { status: 200, blob: new Blob(['png'], { type: 'image/png' }) },
+      [`GET /api/catalog/assets/${ID}/pdf`]: {
+        status: 200,
+        blob: new Blob(['%PDF-'], { type: 'application/pdf' }),
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/assets')
+    await screen.findByRole('button', { name: 'Open Boundaries' })
+
+    await askFor(user, 'airport security')
+    const row = await screen.findByRole('button', { expanded: false, name: /Screening at/ })
+    expect(calls).not.toContain(PAGE)
+
+    await user.click(row)
+
+    expect(
+      await screen.findByRole('img', {
+        name: 'Page 3 of Beirut airport - Case Study - TiSO.pdf, passage highlighted',
+      }),
+    ).toBeInTheDocument()
+    expect(calls).toContain(PAGE)
+
+    await user.click(screen.getByRole('button', { name: 'Open PDF at p. 3' }))
+    await waitFor(() => expect(tab.location.href).toBe('blob:pdf#page=3'))
+
+    vi.restoreAllMocks()
+    forgetTab()
+  })
+})
+
+describe('filtering by date', () => {
+  const NOW = new Date('2026-10-26T12:00:00Z')
+  const WEEK =
+    'GET /api/catalog/assets?ingested_after=2026-10-19T12%3A00%3A00.000Z&sort=-ingested_at&limit=12&offset=0'
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('asks once for the window, from the moment it was chosen', async () => {
+    // Only the clock is faked; timers stay real for the user events.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [WEEK]: { status: 200, body: page({ count: 0, results: [] }) },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('radio', { name: 'Last 7 days' }))
+    expect(await screen.findByText('No assets match these filters')).toBeInTheDocument()
+
+    // A later render, a minute on, asks nothing new. The window used to be
+    // worked out on every render, so every render — every answer included —
+    // asked again for a slightly different moment, without end.
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+    await user.click(screen.getByRole('radio', { name: 'Places' }))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    expect(calls.filter((call) => call.includes('ingested_after'))).toEqual([WEEK])
+  })
+})
+
+describe('switching between datasets and assets', () => {
+  it('clears every filter, so none stays applied out of sight', async () => {
+    const { calls } = mockFetch({
+      ...session(),
+      [DATASETS_IN_AREA]: { status: 200, body: { results: [dataset()] } },
+      [FIRST_PAGE]: { status: 200, body: page() },
+    })
+    const user = userEvent.setup()
+    renderApp(LINK)
+
+    await user.type(await screen.findByLabelText('Search datasets'), 'bound')
+    await user.click(screen.getByRole('radio', { name: 'Last 30 days' }))
+    await user.click(screen.getByRole('radio', { name: 'Assets' }))
+
+    await waitFor(() => expect(calls.at(-1)).toBe(FIRST_PAGE))
+    expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Search assets')).toHaveValue('')
+    expect(screen.queryByText('Beirut, Lebanon')).toBeNull()
+    expect(screen.getByRole('radio', { name: 'Any time' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('button', { name: 'Clear all filters' })).toBeNull()
+  })
+
+  it('clears a data type chosen among assets', async () => {
+    const typed = 'GET /api/catalog/assets?data_type=vector&sort=-ingested_at&limit=12&offset=0'
+    const { calls } = mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [typed]: { status: 200, body: page() },
+    })
+    const user = await openAssets()
+
+    await user.click(await screen.findByRole('checkbox', { name: /vector/ }))
+    await waitFor(() => expect(calls).toContain(typed))
+    await user.click(screen.getByRole('radio', { name: 'Datasets' }))
+    await user.click(screen.getByRole('radio', { name: 'Assets' }))
+
+    await waitFor(() => expect(calls.at(-1)).toBe(FIRST_PAGE))
+    expect(await screen.findByRole('checkbox', { name: /vector/ })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+  })
+})
+
+describe('browsing by dataset', () => {
+  const IN_BOUNDARIES =
+    'GET /api/catalog/assets?dataset=boundaries&sort=-ingested_at&limit=12&offset=0'
+
+  it('opens on the datasets, by their readable names', async () => {
+    mockFetch(session())
+    renderApp('/assets')
+
+    const card = await screen.findByRole('button', { name: 'Open Boundaries' })
+    expect(within(card).getByText('boundaries')).toBeInTheDocument()
+    expect(within(card).getByText('9 assets')).toBeInTheDocument()
+    expect(within(card).getByText('vector 5')).toBeInTheDocument()
+    expect(screen.getByText('1 dataset')).toBeInTheDocument()
+  })
+
+  it('searches dataset names, and offers no data type among datasets', async () => {
+    const named = 'GET /api/catalog/datasets?q=bound'
+    const { calls } = mockFetch({
+      ...session(),
+      [named]: { status: 200, body: { results: [dataset()] } },
+    })
+    const user = userEvent.setup()
+    renderApp('/assets')
+
+    await user.type(await screen.findByLabelText('Search datasets'), 'bound')
+
+    await waitFor(() => expect(calls).toContain(named))
+    // A dataset holds several types; choosing one means nothing until one is open.
+    expect(screen.queryByRole('group', { name: 'Filter by data type' })).toBeNull()
+    // Nothing about assets is asked for while the datasets are on screen.
+    expect(calls.some((call) => call.startsWith('GET /api/catalog/assets'))).toBe(false)
+  })
+
+  it('opens a dataset to its assets, with a search and data types of their own', async () => {
+    const searched =
+      'GET /api/catalog/assets?q=shape&dataset=boundaries&sort=-ingested_at&limit=12&offset=0'
+    const typed =
+      'GET /api/catalog/assets?data_type=vector&dataset=boundaries&sort=-ingested_at&limit=12&offset=0'
+    const { calls } = mockFetch({
+      ...session(),
+      [IN_BOUNDARIES]: { status: 200, body: page() },
+      [searched]: { status: 200, body: page() },
+      [typed]: { status: 200, body: page() },
+    })
+    const user = userEvent.setup()
+    renderApp('/assets')
+
+    await user.click(await screen.findByRole('button', { name: 'Open Boundaries' }))
+
+    expect(await screen.findByRole('heading', { name: 'Boundaries' })).toBeInTheDocument()
+    expect(await screen.findByText('gis_osm_boundaries_07_1')).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: /vector/ }))
+    await waitFor(() => expect(calls).toContain(typed))
+
+    await user.click(screen.getByRole('checkbox', { name: /vector/ }))
+    await user.type(screen.getByLabelText('Search Boundaries'), 'shape')
+    await waitFor(() => expect(calls).toContain(searched))
+  })
+
+  it('comes back out to the datasets as they were left', async () => {
+    mockFetch({
+      ...session(),
+      'GET /api/catalog/datasets?q=b': { status: 200, body: { results: [dataset()] } },
+      [IN_BOUNDARIES]: { status: 200, body: page() },
+    })
+    const user = userEvent.setup()
+    renderApp('/assets')
+
+    await user.type(await screen.findByLabelText('Search datasets'), 'b')
+    await user.click(await screen.findByRole('button', { name: 'Open Boundaries' }))
+    // Inside, a new search: what found the dataset is not what searches it.
+    expect(await screen.findByLabelText('Search Boundaries')).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: 'All datasets' }))
+
+    expect(await screen.findByLabelText('Search datasets')).toHaveValue('b')
+  })
+
+  it('names the dataset on each card, except inside one', async () => {
+    mockFetch({
+      ...session(),
+      [FIRST_PAGE]: { status: 200, body: page() },
+      [IN_BOUNDARIES]: { status: 200, body: page() },
+    })
+    const user = await openAssets()
+
+    const card = (await screen.findByText('gis_osm_boundaries_07_1')).closest('article')!
+    expect(within(card).getByText('Boundaries')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'Datasets' }))
+    await user.click(await screen.findByRole('button', { name: 'Open Boundaries' }))
+    const inside = (await screen.findByText('gis_osm_boundaries_07_1')).closest('article')!
+    expect(within(inside).queryByText('Boundaries')).toBeNull()
+  })
+
+  it('says no dataset matched, rather than that there are none', async () => {
+    mockFetch({
+      ...session(),
+      'GET /api/catalog/datasets?q=z': { status: 200, body: { results: [] } },
+    })
+    const user = userEvent.setup()
+    renderApp('/assets')
+
+    await user.type(await screen.findByLabelText('Search datasets'), 'z')
+
+    expect(await screen.findByText('No datasets match these filters')).toBeInTheDocument()
+  })
+
+  it('searches metadata in the flat list', async () => {
+    mockFetch({ ...session(), [FIRST_PAGE]: { status: 200, body: page() } })
+    await openAssets()
+
+    expect(screen.getByLabelText('Search assets')).toHaveAttribute(
+      'placeholder',
+      'Name or metadata…',
+    )
+  })
+})

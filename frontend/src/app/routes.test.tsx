@@ -23,7 +23,7 @@ afterEach(() => {
   resetSession()
 })
 
-describe('HLR-027 — the landing page is the unauthenticated root', () => {
+describe('the landing page is the unauthenticated root', () => {
   it('renders the tool description with sign-in as its only action', async () => {
     mockFetch(NO_SESSION)
     renderApp('/')
@@ -55,15 +55,47 @@ describe('HLR-027 — the landing page is the unauthenticated root', () => {
   })
 })
 
-describe('HLR-001 — authentication gates every route but landing and sign-in', () => {
-  it('redirects an unauthenticated deep link to the sign-in screen', async () => {
-    mockFetch(NO_SESSION)
-    renderApp('/runs')
+describe('one path, one page (docs/adr/009)', () => {
+  const CATALOG = 'GET /api/catalog/assets?sort=-ingested_at&limit=24&offset=0'
+  const EMPTY_CATALOG = { count: 0, results: [], data_type_counts: [] }
 
-    expect(
-      await screen.findByRole('heading', { name: /sign in to geo portal/i }),
-    ).toBeInTheDocument()
+  it('sends a signed-in visitor from the root to the map', async () => {
+    // The root is the landing page and has nothing to say to someone already
+    // signed in, so the map is home.
+    mockFetch(LIVE_SESSION)
+    renderApp('/')
+
+    expect(await screen.findByRole('navigation')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Atlas' })).toHaveAttribute('href', '/map')
   })
+
+  it('opens the assets page at its own path', async () => {
+    mockFetch({ ...LIVE_SESSION, [CATALOG]: { status: 200, body: EMPTY_CATALOG } })
+    renderApp('/assets')
+
+    expect(await screen.findByRole('heading', { name: 'Assets', level: 1 })).toBeInTheDocument()
+  })
+
+  it('sends an unknown path to the map rather than nowhere', async () => {
+    mockFetch(LIVE_SESSION)
+    renderApp('/nothing-here')
+
+    expect(await screen.findByRole('navigation')).toBeInTheDocument()
+  })
+})
+
+describe('authentication guards every route but landing and sign-in', () => {
+  it.each(['/runs', '/map', '/assets'])(
+    'redirects the unauthenticated deep link %s to the sign-in screen',
+    async (path) => {
+      mockFetch(NO_SESSION)
+      renderApp(path)
+
+      expect(
+        await screen.findByRole('heading', { name: /sign in to geo portal/i }),
+      ).toBeInTheDocument()
+    },
+  )
 
   it('leaves the sign-in screen reachable without a session', async () => {
     mockFetch(NO_SESSION)
@@ -75,7 +107,7 @@ describe('HLR-001 — authentication gates every route but landing and sign-in',
   })
 })
 
-describe('HLR-002 — the session survives a page refresh', () => {
+describe('the session survives a page refresh', () => {
   it('restores the session from the refresh cookie alone, with no credential prompt', async () => {
     // A reload: no access token in memory, only the httpOnly cookie the
     // fetch double stands in for.
@@ -99,7 +131,7 @@ describe('HLR-002 — the session survives a page refresh', () => {
   })
 })
 
-describe('HLR-004 — an unrenewable session returns the user to sign-in', () => {
+describe('an unrenewable session returns the user to sign-in', () => {
   it('signs out and renders no partial data when the session ends', async () => {
     mockFetch(LIVE_SESSION)
     renderApp('/')
@@ -115,7 +147,7 @@ describe('HLR-004 — an unrenewable session returns the user to sign-in', () =>
   })
 })
 
-describe('HLR-005 — the client gates from the role the API reports', () => {
+describe('the client gates navigation from the role the API reports', () => {
   it('shows the signed-in identity and role', async () => {
     mockFetch({
       ...LIVE_SESSION,

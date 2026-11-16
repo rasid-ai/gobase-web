@@ -13,7 +13,7 @@ export type AuthContextValue = {
   user: Me | null
   /**
    * True when the session ended on its own rather than by the user asking.
-   * HLR-004 requires that case to land on the login screen, which is a
+   * That case has to land on the login screen, which is a
    * different destination from a deliberate sign-out.
    */
   sessionExpired: boolean
@@ -62,11 +62,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => endSession(false), [endSession])
 
   // The session can end at any moment the refresh cookie stops working
-  // (HLR-004). The http client raises it; the tree hears about it here.
+  // The http client raises it; the tree hears about it here.
   useEffect(() => onSessionEnded(() => endSession(true)), [endSession])
 
   // On boot the in-memory access token is always empty — a reload is meant to
-  // lose it. The refresh cookie is what proves the session (HLR-002).
+  // lose it. The refresh cookie is what proves the session.
   useEffect(() => {
     let cancelled = false
     void (async () => {

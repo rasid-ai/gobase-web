@@ -1,8 +1,4 @@
-"""
-Done-criteria tests for the auth spec (specs/auth.md).
-
-Each test carries the HLR id it proves, so the traceability check can read it.
-"""
+"""Tests for the behaviour described in specs/auth.md."""
 
 from datetime import timedelta
 
@@ -31,10 +27,9 @@ def bearer(api, access):
     api.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
 
 
-# --- HLR-001: authentication required everywhere but login -------------------
+# --- Authentication required everywhere but login ----------------------------
 
 
-@pytest.mark.hlr("HLR-001")
 @pytest.mark.parametrize(
     "method,path",
     [("get", "/api/auth/me"), ("post", "/api/auth/change-password")],
@@ -47,27 +42,24 @@ def test_endpoints_require_authentication(api, method, path):
     assert "role" not in response.data
 
 
-@pytest.mark.hlr("HLR-001")
 def test_login_is_reachable_without_a_session(api, viewer):
     assert login(api, viewer).status_code == 200
 
 
-# --- HLR-002: the session survives a page refresh ----------------------------
+# --- The session survives a page refresh -------------------------------------
 
 
-@pytest.mark.hlr("HLR-002")
 def test_login_sets_httponly_refresh_cookie_and_returns_access(api, viewer):
     response = login(api, viewer)
     assert response.data["access"]
     # The refresh credential must never be readable by JavaScript and must
-    # never appear in a response body — HLR-002 rests on both facts.
+    # never appear in a response body — the session rests on both facts.
     assert "refresh" not in response.data
     cookie = response.cookies[COOKIE]
     assert cookie["httponly"] is True
     assert cookie["path"] == settings.REFRESH_COOKIE_PATH
 
 
-@pytest.mark.hlr("HLR-002")
 def test_session_survives_a_reload(api, viewer):
     """A reload loses the in-memory access token; the cookie alone restores it."""
     first = login(api, viewer)
@@ -81,7 +73,6 @@ def test_session_survives_a_reload(api, viewer):
     assert api.get("/api/auth/me").status_code == 200
 
 
-@pytest.mark.hlr("HLR-002")
 def test_bad_credentials_start_no_session(api, viewer):
     response = api.post(
         "/api/auth/login",
@@ -92,10 +83,9 @@ def test_bad_credentials_start_no_session(api, viewer):
     assert COOKIE not in response.cookies
 
 
-# --- HLR-003: transparent renewal --------------------------------------------
+# --- Transparent renewal -----------------------------------------------------
 
 
-@pytest.mark.hlr("HLR-003")
 def test_expired_access_token_is_rejected_then_renewed(api, viewer):
     """
     GIVEN an expired access token and a valid refresh credential
@@ -119,7 +109,6 @@ def test_expired_access_token_is_rejected_then_renewed(api, viewer):
     assert api.get("/api/auth/me").status_code == 200
 
 
-@pytest.mark.hlr("HLR-003")
 def test_refresh_rotates_the_cookie(api, viewer):
     """Rotation is what limits the blast radius of a stolen cookie."""
     original = login(api, viewer).cookies[COOKIE].value
@@ -128,10 +117,9 @@ def test_refresh_rotates_the_cookie(api, viewer):
     assert rotated != original
 
 
-# --- HLR-004: an unrenewable session ends ------------------------------------
+# --- An unrenewable session ends ---------------------------------------------
 
 
-@pytest.mark.hlr("HLR-004")
 def test_revoked_refresh_credential_ends_the_session(api, viewer):
     login(api, viewer)
     api.credentials()
@@ -147,14 +135,12 @@ def test_revoked_refresh_credential_ends_the_session(api, viewer):
     assert "access" not in response.data
 
 
-@pytest.mark.hlr("HLR-004")
 def test_refresh_without_a_cookie_is_unauthorised(api):
     response = api.post("/api/auth/refresh")
     assert response.status_code == 401
     assert "access" not in response.data
 
 
-@pytest.mark.hlr("HLR-004")
 def test_logout_revokes_the_session(api, viewer):
     login_response = login(api, viewer)
     bearer(api, login_response.data["access"])
@@ -164,10 +150,9 @@ def test_logout_revokes_the_session(api, viewer):
     assert api.post("/api/auth/refresh").status_code == 401
 
 
-# --- HLR-005: identity and role exposed to the client ------------------------
+# --- Identity and role exposed to the client ---------------------------------
 
 
-@pytest.mark.hlr("HLR-005")
 def test_me_returns_username_and_role_for_a_viewer(api, viewer):
     bearer(api, login(api, viewer).data["access"])
     response = api.get("/api/auth/me")
@@ -175,16 +160,14 @@ def test_me_returns_username_and_role_for_a_viewer(api, viewer):
     assert response.data == {"username": "viewer-user", "role": "viewer"}
 
 
-@pytest.mark.hlr("HLR-005")
 def test_me_returns_admin_role_for_an_admin(api, admin_user):
     bearer(api, login(api, admin_user).data["access"])
     assert api.get("/api/auth/me").data["role"] == "admin"
 
 
-# --- HLR-007: password change ------------------------------------------------
+# --- Password change ---------------------------------------------------------
 
 
-@pytest.mark.hlr("HLR-007")
 def test_wrong_current_password_is_rejected(api, viewer):
     bearer(api, login(api, viewer).data["access"])
     response = api.post(
@@ -197,7 +180,6 @@ def test_wrong_current_password_is_rejected(api, viewer):
     assert viewer.check_password(PASSWORD)  # unchanged
 
 
-@pytest.mark.hlr("HLR-007")
 def test_correct_current_password_changes_it(api, viewer):
     bearer(api, login(api, viewer).data["access"])
     new_password = "a-brand-new-secret-42"
@@ -229,10 +211,9 @@ def test_correct_current_password_changes_it(api, viewer):
     )
 
 
-# --- HLR-008: no profile means Viewer ----------------------------------------
+# --- No profile means Viewer -------------------------------------------------
 
 
-@pytest.mark.hlr("HLR-008")
 def test_user_without_a_profile_reads_as_viewer(api, profileless):
     bearer(api, login(api, profileless).data["access"])
     response = api.get("/api/auth/me")
@@ -240,7 +221,6 @@ def test_user_without_a_profile_reads_as_viewer(api, profileless):
     assert response.data["role"] == "viewer"
 
 
-@pytest.mark.hlr("HLR-008")
 def test_is_admin_is_false_without_a_profile(profileless):
     from apps.accounts.roles import is_admin
 

@@ -1,10 +1,10 @@
 /**
- * The 401 interceptor: the mechanism behind HLR-003 and HLR-004.
+ * The 401 interceptor: the mechanism behind session renewal and expiry.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { httpClient, refreshSession } from './http-client'
+import { fetchWithSession, httpClient, refreshSession } from './http-client'
 import { getAccessToken, onSessionEnded, setAccessToken } from './token-store'
 
 type Reply = { status: number; body?: unknown }
@@ -34,7 +34,7 @@ afterEach(() => {
   setAccessToken(null)
 })
 
-describe('HLR-003 — the session renews transparently', () => {
+describe('the session renews transparently', () => {
   it('renews on a 401 and retries the original request', async () => {
     setAccessToken('stale')
     const { calls } = stubFetch({
@@ -68,6 +68,24 @@ describe('HLR-003 — the session renews transparently', () => {
     expect(new Headers(retry.headers).get('Authorization')).toBe('Bearer fresh')
   })
 
+  it('renews for a caller that wants the raw response too', async () => {
+    // A PDF is not JSON; the session still has to be carried and renewed.
+    setAccessToken('stale')
+    const { calls } = stubFetch({
+      '/api/catalog/assets/1/pdf': [{ status: 401 }, { status: 200 }],
+      '/api/auth/refresh': [{ status: 200, body: { access: 'fresh' } }],
+    })
+
+    const response = await fetchWithSession('/api/catalog/assets/1/pdf', { method: 'GET' })
+
+    expect(response.status).toBe(200)
+    expect(calls).toEqual([
+      '/api/catalog/assets/1/pdf',
+      '/api/auth/refresh',
+      '/api/catalog/assets/1/pdf',
+    ])
+  })
+
   it('spends the one-use refresh cookie once for concurrent 401s', async () => {
     // Without single-flight, parallel queries would each rotate the cookie and
     // invalidate one another — the session would end mid-page.
@@ -87,7 +105,7 @@ describe('HLR-003 — the session renews transparently', () => {
   })
 })
 
-describe('HLR-004 — an unrenewable session ends', () => {
+describe('an unrenewable session ends', () => {
   it('signals session end when renewal fails, and does not retry', async () => {
     setAccessToken('stale')
     const ended = vi.fn()

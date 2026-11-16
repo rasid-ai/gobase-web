@@ -5,3 +5,32 @@ djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.30.0
 psycopg[binary]==3.3.5
 python-dotenv==1.2.3
+# Talks to Dagster's GraphQL API (docs/adr/004). Chosen over requests because
+# it takes a real timeout: a hung orchestrator must not hang a portal worker.
+httpx==0.28.1
+# Serves Django admin's static files from inside the container (docs/adr/007).
+whitenoise==6.12.0
+# ASGI serving: gunicorn supervises, uvicorn workers speak ASGI (SSE, later).
+gunicorn==23.0.0
+uvicorn[standard]==0.41.0
+# Asks the lake's STS for short-lived credentials that read one raster, for
+# desktop clients (docs/adr/022). The only module that imports it is
+# apps/map/sts.py. rasterio's own S3 session also loads it, for the lake's keys.
+boto3==1.43.114
+# Reads a raster's pixels over a place, for raster-stats and clip.tif
+# (docs/adr/029). The wheel bundles GDAL and PROJ, so the image needs no system
+# package. The only module that imports it is apps/map/raster.py, and it
+# imports it on first use: nothing at start-up needs it.
+rasterio==1.5.1
+# Reads GeoParquet from the lake over S3 (GP-4). The only module that imports
+# it is apps/map/lake.py; kb stays on Django's connection, never DuckDB.
+duckdb==1.5.5
+# Reads the data platform's chunk index, one LanceDB table per embedder on the
+# silver bucket (docs/adr/020). The only module that imports it is
+# apps/catalog/chunks.py, and it imports it on first use: the wheel is large
+# and nothing at start-up needs it.
+lancedb==0.40.0
+# Renders one page of a PDF with a passage's boxes drawn on it (docs/adr/020).
+# The only module that imports either is apps/catalog/pages.py.
+pypdfium2==5.10.1
+pillow==12.3.0

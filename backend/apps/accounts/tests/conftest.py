@@ -1,15 +1,11 @@
 import pytest
 from django.contrib.auth.models import User
-from rest_framework.test import APIClient
 
 from apps.accounts.models import Role, UserProfile
 
 PASSWORD = "correct-horse-battery-staple"
 
-
-@pytest.fixture
-def api() -> APIClient:
-    return APIClient()
+# The `api` fixture lives in backend/conftest.py — config/tests needs it too.
 
 
 def _make(username: str, role: str | None) -> User:
@@ -31,7 +27,7 @@ def admin_user(db) -> User:
 
 @pytest.fixture
 def profileless(db) -> User:
-    """A user with no profile row at all — the HLR-008 case."""
+    """A user with no profile row at all."""
     return _make("no-profile-user", None)
 
 

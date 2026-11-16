@@ -17,7 +17,7 @@ from .serializers import (
 
 
 class LoginView(APIView):
-    """Exchange credentials for a session (HLR-002)."""
+    """Exchange credentials for a session."""
 
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -41,7 +41,7 @@ class LoginView(APIView):
 
 class RefreshView(APIView):
     """
-    Renew the session from the refresh cookie (HLR-003).
+    Renew the session from the refresh cookie.
 
     The token comes from the cookie, never the request body — the SPA has no
     way to read it, which is the point.
@@ -73,7 +73,7 @@ class RefreshView(APIView):
             refresh.blacklist()
             new_refresh = RefreshToken.for_user(_user_from(refresh))
         except TokenError:
-            # HLR-004: unrenewable session ends and the cookie goes with it.
+            # An unrenewable session ends and the cookie goes with it.
             response = Response({"detail": "Session expired."}, status=status.HTTP_401_UNAUTHORIZED)
             return clear_refresh_cookie(response)
 
@@ -109,7 +109,7 @@ class LogoutView(APIView):
 
 
 class MeView(APIView):
-    """Identity and role for the signed-in user (HLR-005, HLR-008)."""
+    """Identity and role for the signed-in user."""
 
     @extend_schema(responses={200: MeSerializer}, summary="Current user")
     def get(self, request):
@@ -121,7 +121,7 @@ class MeView(APIView):
 
 
 class ChangePasswordView(APIView):
-    """Change the signed-in user's password (HLR-007)."""
+    """Change the signed-in user's password."""
 
     @extend_schema(
         request=ChangePasswordSerializer,

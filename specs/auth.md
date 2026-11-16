@@ -1,110 +1,38 @@
-# Spec: Authentication & Roles
+# Authentication & Roles
 
-Requirement IDs are global across all specs, never reused or renumbered.
-Roles: **Admin**, **Viewer**. Implementation mechanics: context/architecture.md.
+Two roles: **Admin** and **Viewer**. Implementation mechanics live in
+context/architecture.md; the route-tree decision is docs/adr/006.
 
----
+Built.
 
-**HLR-001** — The system SHALL require an authenticated user for every
-API endpoint except login, and for every page except the landing and
-sign-in pages.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN no valid session
-WHEN any `/api/` endpoint except `/api/auth/login` is called
-THEN the response is 401 and contains no data
-AND GIVEN an unauthenticated visit to any SPA route other than the
-landing page
-THEN the user is redirected to the sign-in screen
+## Access
 
----
+Every API endpoint except login requires an authenticated user, and every
+SPA page except the landing and sign-in pages does too. An unauthenticated
+call gets a 401 carrying no data; an unauthenticated visit to any other
+route redirects to sign-in.
 
-**HLR-002** — WHEN a user submits valid credentials, the system SHALL
-start a session that survives a page refresh without re-entering
-credentials.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a user logged in
-WHEN the browser page is reloaded
-THEN the user remains signed in and no credential prompt appears
+Unauthenticated visitors get a landing page at the root. It describes the
+tool, offers sign-in as its only action, and shows no knowledge-base data.
 
----
+## Sessions
 
-**HLR-003** — WHILE a session is active, the system SHALL renew it
-transparently; the user never sees an interruption while their refresh
-credential remains valid.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN an expired access token and a valid refresh credential
-WHEN the user performs any action
-THEN the action completes successfully with no visible error
+Valid credentials start a session that survives a page refresh without
+re-entering them. While the refresh credential holds, the session renews
+transparently — the user never sees the interruption. Once it can no
+longer be renewed the session ends and the user returns to sign-in,
+without partial data rendering on the way out.
 
----
+## Roles
 
-**HLR-004** — IF the session can no longer be renewed, THEN the system
-SHALL end it and return the user to the login screen.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN an expired or revoked refresh credential
-WHEN the user performs any action
-THEN they are returned to the login screen and no partial data renders
+`GET /api/auth/me` returns the signed-in user's username and role, and the
+client gates navigation from it. Admin-only actions are rejected
+server-side regardless of what the client chose to render, so calling one
+directly as a Viewer gets a 403. A user with no role assigned is treated
+as a Viewer.
 
----
+## Passwords
 
-**HLR-005** — The system SHALL expose the signed-in user's identity and
-role to the client, and the client SHALL gate navigation from it.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a signed-in Viewer
-WHEN the SPA loads
-THEN `GET /api/auth/me` returns `{username, role: "viewer"}`
-AND Admin-only controls are not rendered
-
----
-
-**HLR-006** — WHILE the caller's role is Viewer, the system SHALL reject
-Admin-only actions server-side, regardless of what the client renders.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a Viewer's valid session
-WHEN `POST /api/runs/trigger/` is called directly
-THEN the response is 403 and no pipeline run is launched
-
----
-
-**HLR-007** — WHEN a signed-in user submits their current password and a
-new password, the system SHALL change the password; IF the current
-password is wrong, THEN the system SHALL reject the change.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a signed-in user
-WHEN they submit a wrong current password
-THEN the response is an error and the password is unchanged
-AND WHEN they submit the correct current password
-THEN the next login succeeds only with the new password
-
----
-
-**HLR-008** — IF a signed-in user has no role assigned, THEN the system
-SHALL treat them as Viewer.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN a user with no profile row
-WHEN `GET /api/auth/me` is called
-THEN the role returned is "viewer"
-AND WHEN they call an Admin-only action
-THEN the response is 403
-
----
-
-**HLR-027** — The system SHALL show unauthenticated visitors a landing
-page at the root that describes the tool and offers sign-in as its only
-action; it SHALL expose no knowledge-base data.
-Priority: Must · Phase: MVP
-**Done means:**
-GIVEN an unauthenticated visitor
-WHEN they open the root URL
-THEN the landing page renders with a sign-in entry
-AND no data from the knowledge base appears anywhere on it
-AND WHEN they open any other route
-THEN they are redirected to the sign-in screen
+A signed-in user can change their password by submitting the current one
+alongside the new. A wrong current password is rejected and leaves the
+password unchanged.
