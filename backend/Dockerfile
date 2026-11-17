@@ -16,13 +16,18 @@ WORKDIR /app
 
 # curl is the container's own health probe; deploy.sh checks from the host,
 # but the compose healthcheck has to work from inside.
+# libexpat1: rasterio's wheel links it but does not bundle it, and the slim
+# image lacks it. Without it every raster-stats and clip.tif call is a 500.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y curl \
+    && apt-get install --no-install-recommends -y curl libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Requirements first: this layer is cached until a pin actually changes.
+# The import check fails the build if a shared library is missing, because
+# rasterio is imported on first use and the health check never touches it.
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && python -c "import rasterio"
 
 COPY . .
 
